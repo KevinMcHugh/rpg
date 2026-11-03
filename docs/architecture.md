@@ -4,15 +4,14 @@
 
 ```
                      ┌──────────── internal/web (chi router) ────────────┐
-browser  ──GET /…──────────▶ auth.Require  ─▶ page handler ─┐            │
-browser  ──POST …──────────▶ auth.Require  ─▶ page handler ─┤            │
-script   ──/api/…──────────▶ spec guard ──▶ strict server ─┼─▶ Endpoint ─┼─▶ Store ─▶ Postgres
+browser  ──GET /…──────────▶ auth.Require  ─▶ the React app (internal/ui)  │
+app/script──/api/…─────────▶ spec guard ──▶ strict server ─┬─▶ Endpoint ─┼─▶ Store ─▶ Postgres
 Claude   ──/mcp/rpc────────▶ auth.Require  ─▶ MCP tool ─────┘   (Interact│   (sqlc)
 claude.ai──/oauth/…, /.well-known/…  ─▶ internal/oauth             Build) │
                      └───────────────────────────────────────────────────┘
 ```
 
-Every surface ends in the same `Endpoint`. REST runs all three steps (`server.Run`). A page or an MCP tool runs `Interact` and `Build` (`server.BuildViewModel`), then renders the view model as HTML or returns it as structured tool output.
+Every surface ends in the same `Endpoint`. REST runs all three steps (`server.Run`); the authoring app is a REST client like any other. An MCP tool, or a server-rendered page such as the playtest, runs `Interact` and `Build` (`server.BuildViewModel`), then returns the view model as structured tool output or renders it.
 
 ## Packages
 
@@ -28,7 +27,9 @@ Every surface ends in the same `Endpoint`. REST runs all three steps (`server.Ru
 | `internal/server` | `Endpoint`, `Run`, `BuildViewModel`; `Server`, which implements the generated `StrictServerInterface`, maps errors to typed responses, and mounts the API with the spec-driven auth guard |
 | `internal/server/<resource>` | one `Endpoint` per operation, each with its own narrow `Store` interface, plus the resource's view model and its API conversion |
 | `internal/appmcp` | MCP tools and the server's `Instructions` |
-| `internal/web` | the router, page handlers and templates, and the end-to-end tests |
+| `ui/` | the authoring app: React, TypeScript, Vite. Its API types are generated from the spec (`ui/src/api/schema.ts`) |
+| `internal/ui` | embeds the app's build and serves it, with its CSP |
+| `internal/web` | the router, the sign-in page, the redirects notes link through, and the end-to-end tests |
 | `internal/auth` | key and token formats, hashing, `Require`/`Optional` middleware, and the caller (`KeyID`, `IsHuman`) on the context |
 | `internal/oauth` | the OAuth 2.1 authorization server (discovery, registration, authorize, token, refresh) |
 | `internal/api/gen`, `internal/db/gen` | generated; never edited |
@@ -43,10 +44,10 @@ type Endpoint[Req, M, VM, Res any] interface {
 }
 ```
 
-- `Req` is the generated `…RequestObject`, even when an MCP tool or a page is the caller. They fill one in themselves, so input validation lives in the endpoint and nowhere else.
+- `Req` is the generated `…RequestObject`, even when an MCP tool is the caller. They fill one in themselves, so input validation lives in the endpoint and nowhere else.
 - Each endpoint declares a `Store` interface with only the methods it calls (`notes.GetStore` is just `GetNote`). An endpoint that writes a text revision beside its row declares `InTx` and does its work on the transaction's queries. This keeps an endpoint's reach obvious and makes a fake easy to write. `*app.Store` satisfies every one, because it embeds `*dbgen.Queries` and sqlc generates every method.
 - View models carry JSON tags, because MCP tools return them as is.
-- Errors: wrap `app.ErrNotFound`, `app.ErrBadInput` or `app.ErrForbidden` with a message (`app.NotFound` converts pgx's no-rows). `server.go` turns them into the spec's 404, 422 and 403 bodies, the pages turn them into statuses or a redirect with `?err=`, and MCP returns them as tool errors.
+- Errors: wrap `app.ErrNotFound`, `app.ErrBadInput` or `app.ErrForbidden` with a message (`app.NotFound` converts pgx's no-rows). `server.go` turns them into the spec's 404, 422 and 403 bodies, the app shows their message, and MCP returns them as tool errors.
 
 ## Conventions
 
@@ -63,7 +64,7 @@ Most of these were learned the hard way in inventory or Creature Lab.
 
 - **The API is generated from OpenAPI.** Creature Lab first shipped with hand-written JSON routes on the theory that it was too small to need a generator. That left no contract: a client had to read the Go to learn a body's shape, and public versus private lived in router groups nobody could audit at a glance. With the spec, the strict server will only return responses the spec declares, and `var _ apigen.StrictServerInterface = (*Server)(nil)` fails the build until every operation is implemented.
 - **Auth is decided from the spec, not by oapi-codegen.** oapi-codegen v2.8's chi server does not put an operation's security requirements on the request context. Its strict middleware knows the operation, but it runs after the body is decoded, so an anonymous caller sending a bad body would get a 400 instead of a 401. So `Server.Mount` installs a chi middleware that looks up the matched route pattern in `PublicOperations()` (read from the embedded spec) and fails closed for anything not listed. The same middleware refuses an agent caller on anything in `HumanOnlyOperations()`: every write the spec does not mark `x-agent-writable`.
-- **Server-rendered pages, no React.** Inventory ships a Vite/React UI, which means an npm build on every deploy and a second toolchain to keep current. Creature Lab's html/template pages mean the binary is the whole deploy. They also allow a `default-src 'none'` CSP, which matters when the pages show notes a model wrote. If you need a rich client, add one, but consider whether forms that post and redirect will do first.
+- **The authoring tool is React; the game is not.** The template's no-script pages kept the deploy to one toolchain, but editing a branching conversation (inline edits, an outline, scripts and checks beside each line) wants a real client, so the authoring tool became a React app, as inventory's UI is. It stays one deploy: Vite builds it into `internal/ui/dist`, the binary embeds it, and the redeploy builds it on the sprite before the binary. It is a plain client of `/api`, so every rule stays in the endpoints, and its types come from the spec, so the contract stays single-source. Its CSP still forbids inline and third-party script, which matters because it shows notes a model wrote. The game and the playtest stay server-rendered with no script at all.
 - **Generators run through `go run …@version`.** sqlc, oapi-codegen and dbmate stay out of `go.mod`, so their large dependency trees do not land in the app's module graph, and the versions are pinned in one place (the Makefile).
 - **MCP is at `/mcp/rpc`, not `/mcp`.** The sprites.dev proxy intercepts the bare `/mcp` path, and POSTs hang before reaching the app.
 - **The server never calls a model.** The connected client (the person's own Claude) does the thinking, so usage costs whatever their plan costs. If you add server-side generation, put it behind its own key, a stored budget, and a cost recorded per call.

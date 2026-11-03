@@ -13,6 +13,8 @@ REPO_URL=https://github.com/you/myapp.git
 sprite create --skip-console $APP
 sprite use $APP
 sprite exec -- bash -lc 'sudo apt-get update -qq && sudo apt-get install -y -qq postgresql postgresql-contrib git'
+# The redeploy builds the authoring app with npm, so the sprite needs Node 22
+# (the sprite image has it; check with node --version).
 sprite exec -- bash -lc 'sudo curl -fsSL -o /usr/local/bin/dbmate \
   https://github.com/amacneil/dbmate/releases/latest/download/dbmate-linux-amd64 && sudo chmod +x /usr/local/bin/dbmate'
 sprite exec -- bash -lc "cd ~ && git clone $REPO_URL $APP"
@@ -28,7 +30,7 @@ sprite exec -- bash -lc "sudo -u postgres createuser -s sprite; sudo -u postgres
 # exports in ~/.profile. See docs/configuration.md. One-off commands get
 # DATABASE_URL inline.
 DSN="postgres:///$APP?host=/var/run/postgresql&sslmode=disable"
-sprite exec -- bash -lc "cd ~/$APP && DATABASE_URL='$DSN' dbmate --migrations-dir db/migrations --no-dump-schema up && go build -o bin/server ./cmd/server"
+sprite exec -- bash -lc "cd ~/$APP && DATABASE_URL='$DSN' dbmate --migrations-dir db/migrations --no-dump-schema up && (cd ui && npm ci && npm run build) && go build -o bin/server ./cmd/server"
 sprite exec -- bash -lc "DATABASE_URL='$DSN' ~/$APP/bin/server keys create --name you --human"   # SAVE THE KEY
 
 # PUBLIC_URL must be the https URL, because OAuth discovery advertises it.
@@ -70,7 +72,7 @@ Until `SPRITE_NAME` is set, the deploy job is skipped and only the tests run. To
 2. takes a sprite checkpoint named for the commit (`sprite-env checkpoints list`, then `sprite-env checkpoints restore <id>` to go back);
 3. reinstalls `run-postgres.sh` and restarts postgres, but only if that file changed;
 4. waits for postgres, then runs `dbmate up`;
-5. builds `bin/server.new`, swaps it in (keeping `.prev`), and restarts the service;
+5. builds the authoring app (`npm ci && npm run build` in `ui/`), then `bin/server.new` with the app embedded, swaps it in (keeping `.prev`), and restarts the service;
 6. polls `/health` for 30 s. If it never answers, it puts `.prev` back, restarts again, and fails the run.
 
 ## Why it is built this way

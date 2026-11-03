@@ -1,0 +1,138 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f6f5f2;
+  --panel: #ffffff;
+  --fg: #1b1a18;
+  --muted: #6b675f;
+  --line: #e2ded6;
+  --accent: #3156c9;
+  --accent-fg: #ffffff;
+  --ok: #2f7040;
+  --err: #b3261e;
+  --note: #fbf5e2;
+  --note-line: #e0cd8f;
+  --agent: #6b4fa8;
+  --focus: #fff3c4;
+  --serif: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121211;
+    --panel: #1b1b19;
+    --fg: #ebe8e1;
+    --muted: #9c978c;
+    --line: #2f2e2a;
+    --accent: #86a5ff;
+    --accent-fg: #10131c;
+    --ok: #8fd19e;
+    --err: #ff9b92;
+    --note: #23200f;
+    --note-line: #5c5126;
+    --agent: #baa5f0;
+    --focus: #2c2814;
+  }
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+a { color: var(--accent); }
+h1 { font-size: 1.7rem; margin: .2rem 0; letter-spacing: -.01em; }
+h2 { font-size: 1.1rem; margin: 2rem 0 .6rem; }
+h3 { font-size: 1rem; margin: 0; }
+fieldset { border: 0; margin: 0; padding: 0; min-width: 0; display: contents; }
+
+header.top { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 1.25rem; padding: .6rem 1rem; background: var(--bg); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+header.top .brand { font-weight: 800; letter-spacing: .12em; color: var(--fg); text-decoration: none; }
+header.top nav { display: flex; gap: 1rem; flex: 1; flex-wrap: wrap; }
+header.top nav a { color: var(--muted); text-decoration: none; }
+header.top nav a.active, header.top nav a:hover { color: var(--fg); }
+header.top .who { font-size: .85rem; }
+main { max-width: 74rem; margin: 0 auto; padding: 1.25rem 1rem 5rem; }
+
+.muted { color: var(--muted); }
+.small { font-size: .85rem; }
+.row { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
+.row.tight { gap: .4rem; }
+.row.spread { justify-content: space-between; }
+.spacer { flex: 1; }
+.grow { flex: 1; min-width: 10rem; }
+.stack { display: grid; gap: .6rem; }
+.list { display: grid; gap: .6rem; }
+.grid2 { display: grid; gap: 1.5rem; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); }
+
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; margin: 1rem 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: .85rem 1rem; display: grid; gap: .45rem; }
+.link-card { color: inherit; text-decoration: none; }
+.link-card:hover { border-color: var(--accent); }
+.card.focused, tr.focused, li.focused { background: var(--focus); }
+.excerpt { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.quote { font-family: var(--serif); }
+.prose { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.flash { padding: .6rem .8rem; border-radius: 8px; border: 1px solid var(--ok); color: var(--ok); background: var(--panel); }
+.flash.err { border-color: var(--err); color: var(--err); }
+
+button, .btn { font: inherit; padding: .42rem .9rem; border-radius: 7px; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-fg); cursor: pointer; text-decoration: none; display: inline-block; line-height: 1.3; }
+button.ghost, .btn.ghost { background: transparent; color: var(--accent); border-color: var(--line); }
+button.danger { background: transparent; color: var(--err); border-color: var(--err); }
+button.small, .btn.small { padding: .12rem .5rem; font-size: .8rem; }
+button.link { background: none; border: 0; padding: 0; color: var(--accent); font-size: .85rem; }
+button:disabled { opacity: .6; cursor: wait; }
+input, textarea, select { font: inherit; padding: .45rem .6rem; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--fg); width: 100%; }
+input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.row > input, .row > select { width: auto; }
+.row > input.grow { width: auto; }
+textarea { resize: vertical; }
+label.field { display: grid; gap: .25rem; font-size: .8rem; color: var(--muted); }
+label.check { display: inline-flex; gap: .4rem; align-items: center; }
+label.check input { width: auto; }
+details summary { cursor: pointer; color: var(--accent); font-size: .9rem; }
+details[open] > summary { margin-bottom: .6rem; }
+
+.badge { font-size: .74rem; padding: .05rem .5rem; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.badge.ok { border-color: var(--ok); color: var(--ok); }
+.badge.err { border-color: var(--err); color: var(--err); }
+.badge.agent { border-color: var(--agent); color: var(--agent); }
+code.id { font-family: var(--mono); font-size: .75rem; padding: .05rem .35rem; border: 1px dashed var(--line); border-radius: 4px; user-select: all; color: var(--muted); }
+code.key, .script, textarea.script, input.script { font-family: var(--mono); font-size: .85rem; }
+code.key { color: var(--muted); }
+.rule { font-family: var(--mono); font-size: .8rem; color: var(--muted); white-space: pre-wrap; }
+.rule b { font-family: system-ui, sans-serif; font-weight: 600; color: var(--fg); margin-right: .4rem; }
+
+table.plain { border-collapse: collapse; width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+table.plain th, table.plain td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.plain th { font-size: .78rem; color: var(--muted); font-weight: 600; }
+
+/* The conversation editor: lines on the left, the outline on the right. */
+.editor { display: grid; grid-template-columns: minmax(0, 1fr) 17rem; gap: 1.25rem; align-items: start; margin-top: 1rem; }
+@media (max-width: 900px) { .editor { grid-template-columns: 1fr; } .outline { display: none; } }
+.lines { display: grid; gap: .8rem; }
+.node { scroll-margin-top: 5rem; }
+.speaker { font-weight: 700; letter-spacing: .06em; text-transform: uppercase; font-size: .82rem; }
+.speaker.narrator { color: var(--muted); font-style: italic; text-transform: none; letter-spacing: 0; }
+.line, .line-input { font-family: var(--serif); font-size: 1.08rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+ol.choices { margin: 0; padding-left: 1.4rem; display: grid; gap: .5rem; }
+ol.choices li { padding: .1rem .3rem; border-radius: 6px; }
+ol.choices li.editing { list-style: none; }
+.choice-text { font-family: var(--serif); }
+.to { color: var(--muted); font-size: .85rem; }
+.subform { border-left: 3px solid var(--accent); padding-left: .8rem; }
+.outline { position: sticky; top: 4rem; max-height: calc(100vh - 5rem); overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: .8rem; font-size: .85rem; }
+.outline h3 { font-size: .75rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: .5rem; }
+.outline ol { list-style: none; margin: 0; padding: 0; display: grid; gap: .45rem; }
+.outline li a { color: var(--fg); text-decoration: none; }
+.outline li.on a, .outline li a:hover { color: var(--accent); }
+.outline .n { display: inline-block; min-width: 1.4rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.outline .arrows { padding-left: 1.4rem; color: var(--muted); font-family: var(--mono); font-size: .75rem; display: flex; gap: .6rem; flex-wrap: wrap; }
+.outline .arrows .cond { text-decoration: underline dotted; }
+
+/* Notes are feedback, never content, so they look nothing like it. */
+.notes { border-left: 3px solid var(--note-line); background: var(--note); border-radius: 0 8px 8px 0; padding: .55rem .8rem; display: grid; gap: .6rem; font-size: .9rem; }
+.notes-toggle { font-size: .85rem; }
+.note { display: grid; gap: .2rem; }
+.note.reply { margin-left: 1rem; padding-left: .6rem; border-left: 2px solid var(--note-line); }
+.note .meta { color: var(--muted); font-size: .78rem; display: flex; gap: .45rem; flex-wrap: wrap; align-items: center; }
+.note .text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.note.closed .text { color: var(--muted); }
+.notes textarea { font-size: .9rem; }

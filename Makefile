@@ -1,6 +1,6 @@
 # See README.md. Code generators and dbmate run with `go run …@version`, so
 # their dependency trees stay out of go.mod.
-.PHONY: dev generate migrate rollback new-migration key agent-key invite build bundle play test check help
+.PHONY: dev ui ui-dev generate migrate rollback new-migration key agent-key invite build bundle play test check help
 
 # Generators run on the toolchain go.mod names, never whichever one go run
 # picks: oapi-codegen embeds the spec gzipped, and gzip output differs
@@ -15,11 +15,18 @@ DBMATE = go run github.com/amacneil/dbmate/v2@v2.28.0 --migrations-dir db/migrat
 dev: migrate ## Migrate, then run the server on :8080 (needs DATABASE_URL)
 	go run ./cmd/server serve
 
-generate: ## Regenerate internal/db/gen (sqlc) and internal/api/gen (oapi-codegen) after any SQL, migration or spec change
+ui: ## Build the authoring app (ui/) into internal/ui/dist, which the server embeds
+	cd ui && npm ci --no-audit --no-fund && npm run build
+
+ui-dev: ## Serve the authoring app with live reload on :5173, against make dev on :8080
+	cd ui && npm run dev
+
+generate: ## Regenerate internal/db/gen (sqlc), internal/api/gen (oapi-codegen) and ui/src/api/schema.ts after any SQL, migration or spec change
 	# sqlc does not remove output for a deleted query file, so start clean.
 	rm -f internal/db/gen/*.go
 	$(SQLC) generate
 	$(OAPI) --config oapi-codegen.yaml api/openapi.yaml
+	cd ui && npx --no-install openapi-typescript ../api/openapi.yaml -o src/api/schema.ts
 
 migrate: ## Apply pending migrations (needs DATABASE_URL)
 	$(DBMATE) up
@@ -50,7 +57,7 @@ play: ## Play content.json in the game binary on :8090 (GAME_DATABASE_URL: its o
 	DATABASE_URL="$(GAME_DATABASE_URL)" $(DBMATE) up
 	DATABASE_URL="$(GAME_DATABASE_URL)" go run ./cmd/game serve
 
-build: ## Build the binaries to bin/
+build: ui ## Build the binaries to bin/, with the authoring app in the server
 	go build -o bin/server ./cmd/server
 	go build -o bin/game ./cmd/game
 
@@ -59,7 +66,7 @@ test: ## Run the tests; set TEST_DATABASE_URL to include the Postgres ones
 
 check: ## Fail if generated code is stale (what CI runs)
 	$(MAKE) generate
-	git diff --exit-code -- internal/db/gen internal/api/gen
+	git diff --exit-code -- internal/db/gen internal/api/gen ui/src/api/schema.ts
 
 .DEFAULT_GOAL := help
 help:

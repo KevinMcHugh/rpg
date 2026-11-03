@@ -64,6 +64,10 @@ pg_isready -h /var/run/postgresql
 
 dbmate --migrations-dir db/migrations --no-dump-schema up
 
+# The authoring app first: the server embeds its build. npm ci installs
+# exactly the lockfile's versions.
+(cd ui && npm ci --no-audit --no-fund && npm run build)
+
 # Build beside the live binary and swap it in, so a failed build leaves the
 # running server alone, and keep the old one to roll back to.
 BIN=bin/server

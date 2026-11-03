@@ -40,6 +40,17 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      # The UI first: make check regenerates its API types with the
+      # installed openapi-typescript, and the server embeds its build.
+      - name: Build the authoring app
+        run: make ui
+
       - name: Generated code is up to date
         run: make check
 

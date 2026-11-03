@@ -108,14 +108,9 @@ Check `req.Body == nil` in operations that take a body, and return the 400.
 
 If Claude should see it, add tools in `internal/appmcp/appmcp.go`: an input struct with `jsonschema` descriptions, an output struct wrapping the view model, and a handler that calls `server.BuildViewModel` with a request object it fills in. Keep tool descriptions specific about when to use the tool. Say "confirm with the user first" on anything destructive, and update `Instructions` if the typical session changes.
 
-## 8. Pages
+## 8. The authoring app
 
-If people should see it in the browser, add a template in `internal/web/templates/` and its name to `parsePages`, page handlers in `pages.go` that call `server.BuildViewModel`, and routes in `server.go`:
-
-- reads in the first `auth.Require` group, with editing forms wrapped in `{{if .Human}}`;
-- writes in the second `auth.Require` group, which also checks `sameOrigin`. Hiding a form is only for looks; this group stops an anonymous write, and the endpoint stops an agent's.
-
-Post, then redirect with `redirect(w, r, path, msg, isErr)`. The pages run no script.
+If people should see it in the browser, add a screen to the authoring app in `ui/`. `make generate` has already given it the new operations' types (`ui/src/api/schema.ts`); call them with `api.GET`/`api.POST` from `ui/src/api/client.ts`, and add the route to `ui/src/App.tsx` and to the list of app paths in `internal/web/server.go`. Hide editing controls when `useMe().human` is false; that is only for looks, and the endpoints are what refuse an agent. Run `cd ui && npm run typecheck`.
 
 ## 9. Tests
 
@@ -130,5 +125,5 @@ If the resource has rules a newcomer would otherwise have to reverse-engineer, w
 
 - Forgetting `make generate` after editing the spec or SQL. The compiler will not find the new types, and CI's `make check` fails.
 - A query that scans deleted rows (a missing `AND deleted_at IS NULL`).
-- Putting a rule in an MCP tool or a page handler instead of the endpoint, so the other surfaces skip it.
+- Putting a rule in an MCP tool or in the app instead of the endpoint, so the other surfaces skip it.
 - Making a route public in the router instead of with `security: []` in the spec.

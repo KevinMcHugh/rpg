@@ -463,129 +463,84 @@ func TestInviteFlow(t *testing.T) {
 	e.do("GET", "/api/me", tok.AccessToken, nil, http.StatusUnauthorized, nil)
 }
 
-func TestWebPages(t *testing.T) {
+// TestAuthoringApp covers what the server does for the React app: the
+// page behind a session, its CSP, the API called with the session cookie
+// (and only from this site), and the redirects that notes link through.
+func TestAuthoringApp(t *testing.T) {
 	e := newEnv(t)
 	jar, _ := cookiejar.New(nil)
 	browser := &http.Client{Jar: jar, CheckRedirect: e.client.CheckRedirect}
-
-	page := func(path string) string {
+	login := func(key string) {
 		t.Helper()
-		resp, err := browser.Get(e.url + path)
-		if err != nil || resp.StatusCode != http.StatusOK {
-			t.Fatalf("GET %s: %v %v", path, resp.StatusCode, err)
+		resp, err := browser.PostForm(e.url+"/login", url.Values{"api_key": {key}, "next": {"//evil.example"}})
+		if err != nil || resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/" {
+			t.Fatalf("login: %v %v (next must stay on this site)", resp.StatusCode, err)
 		}
-		if !strings.Contains(resp.Header.Get("Content-Security-Policy"), "default-src 'none'") {
-			t.Fatalf("GET %s: no CSP", path)
-		}
-		b, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		return string(b)
 	}
-	post := func(path string, form url.Values) (int, string) {
+	// call sends a JSON request with the session cookie, from origin.
+	call := func(method, path, origin string, body any, want int) {
 		t.Helper()
-		resp, err := browser.PostForm(e.url+path, form)
+		b, _ := json.Marshal(body)
+		req, _ := http.NewRequest(method, e.url+path, bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		if origin != "" {
+			req.Header.Set("Origin", origin)
+		}
+		resp, err := browser.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
 		resp.Body.Close()
-		return resp.StatusCode, resp.Header.Get("Location")
-	}
-	login := func(key string) {
-		t.Helper()
-		if status, loc := post("/login", url.Values{"api_key": {key}, "next": {"//evil.example"}}); status != http.StatusSeeOther || loc != "/" {
-			t.Fatalf("login: %d %s (next must stay on this site)", status, loc)
+		if resp.StatusCode != want {
+			t.Fatalf("%s %s from %q: %d, want %d", method, path, origin, resp.StatusCode, want)
 		}
 	}
 
-	// Signed out, even reading sends you to sign in: the content is unreleased.
-	resp, _ := browser.Get(e.url + "/")
-	if resp.StatusCode != http.StatusSeeOther || !strings.HasPrefix(resp.Header.Get("Location"), "/login") {
-		t.Fatalf("signed-out index: %d", resp.StatusCode)
+	// Signed out, the app sends you to sign in, and remembers where.
+	resp, _ := browser.Get(e.url + "/conversations/abc")
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/login?next=%2Fconversations%2Fabc" {
+		t.Fatalf("signed-out app: %d %s", resp.StatusCode, resp.Header.Get("Location"))
 	}
-	if status, _ := post("/characters", url.Values{"name": {"x"}}); status != http.StatusUnauthorized {
-		t.Fatalf("signed-out create: %d", status)
-	}
-	if status, _ := post("/login", url.Values{"api_key": {"wrong"}, "next": {"/"}}); status != http.StatusUnauthorized {
-		t.Fatalf("bad login: %d", status)
+	call("POST", "/api/characters", "", map[string]any{"name": "x"}, http.StatusUnauthorized)
+	resp, _ = browser.PostForm(e.url+"/login", url.Values{"api_key": {"wrong"}, "next": {"/"}})
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("bad login: %d", resp.StatusCode)
 	}
 
 	login(e.key)
-	status, loc := post("/characters", url.Values{"name": {"Aria"}, "bible": {"Wants her brother back."}})
-	if status != http.StatusSeeOther || !strings.HasPrefix(loc, "/characters/") {
-		t.Fatalf("create character: %d %s", status, loc)
-	}
-	ariaID := strings.TrimPrefix(strings.Split(loc, "?")[0], "/characters/")
-	status, loc = post("/conversations", url.Values{"title": {"Homecoming"}})
-	if status != http.StatusSeeOther {
-		t.Fatalf("create conversation: %d", status)
-	}
-	convPath, _, _ := strings.Cut(loc, "?")
-	if _, loc = post(convPath+"/nodes", url.Values{"speaker_id": {ariaID}, "text": {"You came back."}}); !strings.Contains(loc, "#node-") {
-		t.Fatalf("create node: %s", loc)
-	}
-	nodeID := loc[strings.Index(loc, "#node-")+len("#node-"):]
-	if _, loc = post("/nodes/"+nodeID+"/choices", url.Values{"text": {"Leave."}, "to_node_id": {""}, "sort_order": {"0"}}); strings.Contains(loc, "err=") {
-		t.Fatalf("create choice: %s", loc)
-	}
-	if _, loc = post(convPath+"/nodes", url.Values{"text": {"  "}}); !strings.Contains(loc, "err=") {
-		t.Fatalf("an empty line should come back as a message: %s", loc)
-	}
-	if _, loc = post("/notes", url.Values{"target_kind": {"node"}, "target_id": {nodeID}, "kind": {"question"}, "body": {"Is she angry or relieved?"}, "back": {convPath}}); strings.Contains(loc, "err=") {
-		t.Fatalf("create note: %s", loc)
-	}
-
-	body := page(convPath)
-	for _, want := range []string{"Homecoming", "Aria", "You came back.", "Leave.", "ends the conversation", "Is she angry or relieved?", "Add a line", "Sign out"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("conversation page lacks %q", want)
+	for _, path := range []string{"/", "/conversations/abc", "/world", "/quests/q", "/notes", "/build", "/characters/c"} {
+		resp, err := browser.Get(e.url + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		// 503 when this checkout has not built the UI; the page says so.
+		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusServiceUnavailable {
+			t.Fatalf("GET %s: %d", path, resp.StatusCode)
+		}
+		if csp := resp.Header.Get("Content-Security-Policy"); !strings.Contains(csp, "script-src 'self'") || strings.Contains(csp, "unsafe") {
+			t.Fatalf("GET %s: CSP %q", path, csp)
 		}
 	}
-	if index := page("/"); !strings.Contains(index, "Homecoming") || !strings.Contains(index, "builds") {
-		t.Error("index lacks the conversation or the build status")
-	}
-	if b := page("/build"); !strings.Contains(b, "The content builds") {
-		t.Error("build page does not say it builds")
-	}
-	if n := page("/notes"); !strings.Contains(n, "Is she angry or relieved?") {
-		t.Error("notes page lacks the note")
-	}
-	resp, _ = browser.Get(e.url + "/nodes/" + nodeID)
-	if resp.StatusCode != http.StatusSeeOther || !strings.HasSuffix(resp.Header.Get("Location"), convPath+"#node-"+nodeID) {
+
+	// The app writes through the API with the cookie, from this site only.
+	call("POST", "/api/characters", e.url, map[string]any{"name": "Aria"}, http.StatusCreated)
+	call("POST", "/api/characters", "https://evil.example", map[string]any{"name": "Mallory"}, http.StatusForbidden)
+	var g conversations.Graph
+	e.do("POST", "/api/conversations", e.key, map[string]any{"title": "Docks"}, http.StatusCreated, &g)
+	var n conversations.Node
+	e.do("POST", "/api/conversations/"+g.Conversation.ID+"/nodes", e.key, map[string]any{"text": "You came back."}, http.StatusCreated, &n)
+	resp, _ = browser.Get(e.url + "/nodes/" + n.ID)
+	if resp.StatusCode != http.StatusSeeOther || !strings.HasSuffix(resp.Header.Get("Location"), "/conversations/"+g.Conversation.ID+"#node-"+n.ID) {
 		t.Fatalf("node redirect: %d %s", resp.StatusCode, resp.Header.Get("Location"))
 	}
+	browser.PostForm(e.url+"/logout", nil) //nolint:errcheck
 
-	// A cross-site form post is refused even with the cookie.
-	req, _ := http.NewRequest("POST", e.url+"/nodes/"+nodeID+"/delete", nil)
-	req.Header.Set("Origin", "https://evil.example")
-	if resp, _ = browser.Do(req); resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("cross-origin delete: %d", resp.StatusCode)
-	}
-
-	post("/logout", nil)
-
-	// Signed in with an agent key, the pages read the same but offer no
-	// editing, and an edit posted anyway is refused.
+	// Signed in with an agent key, the app reads everything and the API
+	// refuses its edits.
 	login(e.agent)
-	body = page(convPath)
-	if !strings.Contains(body, "agent key") || !strings.Contains(body, "You came back.") {
-		t.Error("agent's conversation page lacks the banner or the content")
-	}
-	for _, hidden := range []string{"Add a line", "Edit line", "Delete"} {
-		if strings.Contains(body, hidden) {
-			t.Errorf("agent's conversation page shows %q", hidden)
-		}
-	}
-	if _, loc = post("/nodes/"+nodeID, url.Values{"text": {"A line Claude wrote."}}); !strings.Contains(loc, "err=") {
-		t.Fatalf("agent edit: %s", loc)
-	}
-	if _, loc = post("/notes", url.Values{"target_kind": {"node"}, "target_id": {nodeID}, "kind": {"gap"}, "body": {"No mention of the letter."}, "back": {convPath}}); strings.Contains(loc, "err=") {
-		t.Fatalf("agent note: %s", loc)
-	}
-	var g conversations.Graph
-	e.do("GET", strings.Replace(convPath, "/conversations/", "/api/conversations/", 1), e.key, nil, http.StatusOK, &g)
-	if g.Nodes[0].Text != "You came back." {
-		t.Fatalf("an agent's page edit got through: %q", g.Nodes[0].Text)
-	}
+	call("POST", "/api/characters", e.url, map[string]any{"name": "Mallory"}, http.StatusForbidden)
+	call("POST", "/api/notes", e.url, map[string]any{"body": "Act one drags."}, http.StatusCreated)
 }
 
 // TestMechanics builds a small game over the API (a flag, a skill, a quest,

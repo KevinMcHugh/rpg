@@ -66,7 +66,7 @@ On top of provenance (see [authorship.md](authorship.md)), the build checks:
 
 ## Playing
 
-- **Playtest** (`/play` in the authoring tool) plays the content as it stands, rebuilt on every click, with saves per api key. It can start at any line ("Playtest from here" on a conversation page) and run setup effects first (`knows_mayor; skill persuasion = 5`). Build errors show above the game rather than stopping it.
+- **Playtest** (`/play` in the authoring tool) plays the content as it stands, rebuilt on every click, with saves per api key. It can start at any line ("Playtest from here" on a line in the conversation editor) and run setup effects first (`knows_mayor; skill persuasion = 5`). Build errors show above the game rather than stopping it.
 - **The game** (`cmd/game`) plays `content.json` from `make bundle`, with saves in a Postgres database of its own (migrated with the same migrations; it only uses `saves`). `make play GAME_DATABASE_URL=…` runs it on :8090. It has no accounts, so run it locally or behind something that authenticates.
 
 Both use the same engine (`internal/game`), which is pure: a state and a choice in, a state out.

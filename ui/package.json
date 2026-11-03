@@ -1,0 +1,26 @@
+{
+  "name": "rpg-ui",
+  "private": true,
+  "type": "module",
+  "description": "The authoring tool's React app. make ui builds it into internal/ui/dist, which the Go binary embeds.",
+  "scripts": {
+    "dev": "vite",
+    "gen": "openapi-typescript ../api/openapi.yaml -o src/api/schema.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && rm -rf ../internal/ui/dist/assets ../internal/ui/dist/index.html && vite build"
+  },
+  "dependencies": {
+    "openapi-fetch": "0.17.0",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "react-router-dom": "7.9.4"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "@vitejs/plugin-react": "5.0.4",
+    "openapi-typescript": "7.10.1",
+    "typescript": "5.9.3",
+    "vite": "7.1.12"
+  }
+}

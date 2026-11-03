@@ -1,7 +1,8 @@
 // Package web is the app's HTTP surface: it mounts the JSON API (package
-// server, generated from the OpenAPI spec), the MCP endpoint and OAuth, and
-// serves server-rendered pages. The pages are plain html/template with no
-// script, so there is no frontend build: the binary is the whole deploy.
+// server, generated from the OpenAPI spec), the MCP endpoint and OAuth,
+// serves the authoring tool (a React app, package ui, embedded in the
+// binary), and the server-rendered pages that need no app: sign-in and the
+// playtest.
 package web
 
 import (
@@ -23,6 +24,7 @@ import (
 	"github.com/KevinMcHugh/rpg/internal/auth"
 	"github.com/KevinMcHugh/rpg/internal/oauth"
 	"github.com/KevinMcHugh/rpg/internal/server"
+	"github.com/KevinMcHugh/rpg/internal/ui"
 )
 
 //go:embed templates/*.html
@@ -73,8 +75,13 @@ func (s *Server) Handler() http.Handler {
 	r.With(s.sameOrigin).Post("/logout", s.logout)
 
 	// The JSON API decides per operation: the spec marks some operations
-	// public, and everything else needs a credential.
-	s.API.Mount(r, auth.Require(q, denyAPI))
+	// public, and everything else needs a credential. The authoring app
+	// calls it with the session cookie, so writes must come from this
+	// site too (a bearer-token client sends no Origin and passes).
+	r.Group(func(r chi.Router) {
+		r.Use(s.sameOrigin)
+		s.API.Mount(r, auth.Require(q, denyAPI))
+	})
 
 	// The bare /mcp path is intercepted by the sprites.dev proxy (a POST
 	// hangs before reaching the app), so MCP lives at /mcp/rpc.
@@ -84,56 +91,21 @@ func (s *Server) Handler() http.Handler {
 		r.Handle("/mcp/rpc/*", s.MCP)
 	})
 
-	// The content is unreleased, so even reading it needs a session.
+	// The authoring tool: a React app (internal/ui) that does everything
+	// through /api. Its routes all serve the same page, behind a session,
+	// since the content is unreleased. Its built files are public; they
+	// hold no content.
+	r.Handle("/assets/*", ui.Assets())
 	r.Group(func(r chi.Router) {
 		r.Use(auth.Require(q, s.toLogin))
-		r.Use(pageHeaders)
-		r.Get("/", s.indexPage)
-		r.Get("/characters/{id}", s.characterPage)
-		r.Get("/conversations/{id}", s.conversationPage)
+		for _, path := range []string{"/", "/characters/{id}", "/conversations/{id}", "/world", "/quests/{id}", "/notes", "/build"} {
+			r.Get(path, ui.Index)
+		}
+		// Notes and build issues link to a node, choice or stage by id
+		// alone; these find the page that holds it.
 		r.Get("/nodes/{id}", s.nodeRedirect)
 		r.Get("/choices/{id}", s.choiceRedirect)
-		r.Get("/notes", s.notesPage)
-		r.Get("/build", s.buildPage)
-		r.Get("/world", s.worldPage)
-		r.Get("/quests/{id}", s.questPage)
 		r.Get("/stages/{id}", s.stageRedirect)
-	})
-
-	// Everything that changes something needs a session too, and a
-	// same-origin request. Whether the session may change content (is it a
-	// person's?) is the endpoints' call, as it is for the API and MCP.
-	r.Group(func(r chi.Router) {
-		r.Use(auth.Require(q, s.toLogin))
-		r.Use(s.sameOrigin)
-		r.Use(pageHeaders)
-		r.Post("/characters", s.createCharacter)
-		r.Post("/characters/{id}", s.updateCharacter)
-		r.Post("/characters/{id}/delete", s.deleteCharacter)
-		r.Post("/conversations", s.createConversation)
-		r.Post("/conversations/{id}", s.updateConversation)
-		r.Post("/conversations/{id}/delete", s.deleteConversation)
-		r.Post("/conversations/{id}/nodes", s.createNode)
-		r.Post("/nodes/{id}", s.updateNode)
-		r.Post("/nodes/{id}/delete", s.deleteNode)
-		r.Post("/nodes/{id}/choices", s.createChoice)
-		r.Post("/choices/{id}", s.updateChoice)
-		r.Post("/choices/{id}/delete", s.deleteChoice)
-		r.Post("/notes", s.createNote)
-		r.Post("/notes/{id}/status", s.setNoteStatus)
-		r.Post("/notes/{id}/delete", s.deleteNote)
-		r.Post("/flags", s.createFlag)
-		r.Post("/flags/{id}", s.updateFlag)
-		r.Post("/flags/{id}/delete", s.deleteFlag)
-		r.Post("/skills", s.createSkill)
-		r.Post("/skills/{id}", s.updateSkill)
-		r.Post("/skills/{id}/delete", s.deleteSkill)
-		r.Post("/quests", s.createQuest)
-		r.Post("/quests/{id}", s.updateQuest)
-		r.Post("/quests/{id}/delete", s.deleteQuest)
-		r.Post("/quests/{id}/stages", s.createStage)
-		r.Post("/stages/{id}", s.updateStage)
-		r.Post("/stages/{id}/delete", s.deleteStage)
 	})
 
 	// Playtests: the game itself, playing the content as it stands, with
@@ -184,8 +156,8 @@ func requestOrigin(r *http.Request) string {
 	return scheme + "://" + r.Host
 }
 
-// pageHeaders forbids every script on the pages. Nothing on them needs one,
-// and the notes they show are text a model wrote.
+// pageHeaders forbids every script on the server-rendered pages (sign-in
+// and the playtest). Nothing on them needs one.
 func pageHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
