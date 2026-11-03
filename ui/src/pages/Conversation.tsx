@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, must, type Character, type Choice, type Graph, type Node, type Note, type Skill } from "../api/client";
 import { useAct, useLoad, useMe } from "../hooks";
 import { Badge, Form, Id, Key, Loading, Notes, Rule, Script, notesFor, num, str } from "../components/ui";
+import GraphView from "../graph/Graph";
 
 // Everything a line or choice editor needs to know about the conversation.
 type Ctx = {
@@ -22,6 +23,9 @@ const excerpt = (s: string, n: number) => {
 export default function ConversationPage() {
   const { id = "" } = useParams();
   const loc = useLocation();
+  const nav = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const graph = params.get("view") === "graph";
   const { data, error, reload } = useLoad(async () => {
     const [g, chars, skills, notes] = await Promise.all([
       api.GET("/conversations/{conversationId}", { params: { path: { conversationId: id } } }).then(must),
@@ -42,12 +46,20 @@ export default function ConversationPage() {
   // it is drawn, and mark it.
   const focus = loc.hash.slice(1);
   useEffect(() => {
-    if (focus && data) document.getElementById(focus)?.scrollIntoView({ block: "center" });
-  }, [focus, data]);
+    if (focus && data && !graph) document.getElementById(focus)?.scrollIntoView({ block: "center" });
+  }, [focus, data, graph]);
 
   if (!data) return <Loading error={error} />;
   const ctx: Ctx = { ...data, labels, reload };
   const c = data.g.conversation;
+  const openNotes = new Map<string, number>();
+  for (const n of data.notes) {
+    if (n.targetKind === "node" && n.status === "open" && !n.parentId) openNotes.set(n.targetId, (openNotes.get(n.targetId) ?? 0) + 1);
+  }
+  // In the graph, the selected line is the one the URL points at, or the start.
+  const selectedId = focus.startsWith("node-") ? focus.slice(5) : c.startNodeId;
+  const selected = data.g.nodes.find((n) => n.id === selectedId);
+  const setView = (v: "list" | "graph") => setParams(v === "graph" ? { view: "graph" } : {});
 
   return (
     <>
@@ -55,6 +67,27 @@ export default function ConversationPage() {
         <Link to="/">← Content</Link>
       </p>
       <Header ctx={ctx} />
+      <div className="tabs" role="tablist">
+        <button role="tab" aria-selected={!graph} className={graph ? "" : "on"} onClick={() => setView("list")}>
+          Lines
+        </button>
+        <button role="tab" aria-selected={graph} className={graph ? "on" : ""} onClick={() => setView("graph")}>
+          Graph
+        </button>
+      </div>
+      {graph ? (
+        <div className="graph-editor">
+          <GraphView g={data.g} selected={selectedId} onSelect={(n) => nav({ search: "?view=graph", hash: "node-" + n }, { replace: true })} openNotes={openNotes} />
+          <div className="graph-side">
+            {selected ? (
+              <NodeCard key={selected.id} n={selected} index={data.g.nodes.indexOf(selected)} ctx={ctx} focused={false} focus={focus} />
+            ) : (
+              <p className="muted">{data.g.nodes.length ? "Click a line to edit it here." : "No lines yet."}</p>
+            )}
+            <AddNode ctx={ctx} />
+          </div>
+        </div>
+      ) : (
       <div className="editor">
         <div className="lines">
           {data.g.nodes.map((n, i) => (
@@ -65,6 +98,7 @@ export default function ConversationPage() {
         </div>
         <Outline g={data.g} focus={focus} />
       </div>
+      )}
       <h2>Notes on this conversation</h2>
       <Notes kind="conversation" id={c.id} notes={notesFor(data.notes, "conversation", c.id)} onChange={reload} />
     </>
@@ -444,6 +478,7 @@ function AddNode({ ctx }: { ctx: Ctx }) {
   const me = useMe();
   const act = useAct();
   const nav = useNavigate();
+  const loc = useLocation();
   if (!me.human) return null;
   const add = (f: FormData) =>
     act(async () => {
@@ -454,7 +489,8 @@ function AddNode({ ctx }: { ctx: Ctx }) {
         }),
       );
       ctx.reload();
-      nav("#node-" + n.id, { replace: true });
+      // Keep the view (list or graph) and select the new line.
+      nav({ search: loc.search, hash: "node-" + n.id }, { replace: true });
     });
   return (
     <section className="panel" id="new-line">

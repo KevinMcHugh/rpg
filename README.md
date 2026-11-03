@@ -11,7 +11,7 @@ It is built on [app-template](https://github.com/KevinMcHugh/app-template): one 
 ## What is here
 
 - **Characters**: a player-facing name, and a bible (voice, wants, secrets) that never ships but that Claude reads before commenting on anything they say.
-- **Conversations**: a graph of nodes (a line, spoken by a character or the narrator) joined by choices (what the player says, leading to another node or ending the conversation). Titles and summaries are authoring labels.
+- **Conversations**: a graph of nodes (a line, spoken by a character or the narrator) joined by choices (what the player says, leading to another node or ending the conversation). Titles and summaries are authoring labels. Edit them as a list of lines, or as a graph you can pan and zoom, with the selected line's editor beside it.
 - **Notes**: feedback on the game, a character, a conversation, a node or a choice, from you or from Claude, with threads and open/resolved/dismissed.
 - **Provenance**: every player-facing string is stored with a revision recording which key wrote it, and only a human key may write one.
 - **The world**: flags, skills, and quests with numbered stages and journal entries; companions with approval.
