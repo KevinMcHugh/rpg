@@ -11,12 +11,13 @@ To change something in a generated file, edit its source (the spec, a query or a
 
 ## Core invariants
 
+- **People write the game; you do not.** Every word a player sees (a character's name, a line, a choice) is written by a person. Never write, draft or suggest that text, in code, a note, a test fixture that ships, or chat. Leave notes about intent instead. In code: a write is human-only unless the spec says `x-agent-writable: true` (only `POST /notes` does); every content endpoint calls `app.RequireHuman` first; every player-facing string goes through `app.Revise`. See @docs/authorship.md.
 - **IDs are xids.** Stored as `CHAR(20)`, created with `xid.New().String()`.
 - **Soft delete.** Every live table has `created_at`, `updated_at`, `deleted_at`. Every query filters `deleted_at IS NULL`. Deletes set `deleted_at = NOW()`.
 - **The spec decides who may call what.** An operation is private unless its spec entry says `security: []`. Never make a route public in the router. `TestPublicOperations` pins the public set, so update it when you deliberately change the set.
 - **One endpoint per operation, shared by every surface.** REST runs it with `server.Run`. MCP tools and pages run it with `server.BuildViewModel`, then present the view model their own way. Put a rule in the endpoint, never in a tool or a page handler.
 - **Who is calling comes from the context.** `auth.KeyID(ctx)` (or `auth.KeyIDPtr` for a nullable `created_by`). Never take it as a tool argument or a request field.
-- **Credentials are minted by the CLI only** (`server keys …`, `server invites …`). Do not add API or MCP operations that create keys or invites.
+- **Credentials are minted by the CLI only** (`server keys …`, `server invites …`). Do not add API or MCP operations that create keys or invites, or that change a key's kind.
 - **Config and secrets are environment variables on the sprite service, never files.** Set them with `sprite-env services create … --env` (through the Fly.io connector's `exec` if that is how you reach the sprite), read them once in `cmd/server/main.go`, and pass them down. No `.env` files, no dotenv loading, no exports in `~/.profile`, no launcher script that sources config. See @docs/configuration.md.
 - **Pages run no script.** The CSP is `default-src 'none'`. Use forms that post and redirect, not JavaScript.
 
@@ -28,7 +29,7 @@ To change something in a generated file, edit its source (the spec, a query or a
 - `Build(M) VM` is a pure transformation to the view model, which carries JSON tags because MCP returns it as is.
 - `Render(VM) Res` wraps the view model in the generated response type.
 
-Endpoints return `app.ErrNotFound` or `app.ErrBadInput` (wrapped with `%w` and a message). `internal/server/server.go` maps them to the spec's 404 and 422, the pages map them to the same statuses, and MCP returns them as tool errors.
+Endpoints return `app.ErrNotFound`, `app.ErrBadInput` or `app.ErrForbidden` (wrapped with `%w` and a message). `internal/server/server.go` maps them to the spec's 404, 422 and 403, the pages map them to the same statuses, and MCP returns them as tool errors.
 
 ## Adding a resource
 

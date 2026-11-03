@@ -10,24 +10,31 @@ import (
 )
 
 const createAPIKey = `-- name: CreateAPIKey :one
-INSERT INTO api_keys (id, name, key_hash)
-VALUES ($1, $2, $3)
-RETURNING id, name, key_hash, last_used_at, created_at, updated_at, deleted_at
+INSERT INTO api_keys (id, name, key_hash, kind)
+VALUES ($1, $2, $3, $4)
+RETURNING id, name, key_hash, kind, last_used_at, created_at, updated_at, deleted_at
 `
 
 type CreateAPIKeyParams struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
 	KeyHash string `json:"key_hash"`
+	Kind    string `json:"kind"`
 }
 
 func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (ApiKey, error) {
-	row := q.db.QueryRow(ctx, createAPIKey, arg.ID, arg.Name, arg.KeyHash)
+	row := q.db.QueryRow(ctx, createAPIKey,
+		arg.ID,
+		arg.Name,
+		arg.KeyHash,
+		arg.Kind,
+	)
 	var i ApiKey
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
 		&i.KeyHash,
+		&i.Kind,
 		&i.LastUsedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -47,7 +54,7 @@ func (q *Queries) DeleteAPIKey(ctx context.Context, id string) error {
 }
 
 const getAPIKey = `-- name: GetAPIKey :one
-SELECT id, name, key_hash, last_used_at, created_at, updated_at, deleted_at FROM api_keys
+SELECT id, name, key_hash, kind, last_used_at, created_at, updated_at, deleted_at FROM api_keys
 WHERE id = $1 AND deleted_at IS NULL
 `
 
@@ -58,6 +65,7 @@ func (q *Queries) GetAPIKey(ctx context.Context, id string) (ApiKey, error) {
 		&i.ID,
 		&i.Name,
 		&i.KeyHash,
+		&i.Kind,
 		&i.LastUsedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -67,7 +75,7 @@ func (q *Queries) GetAPIKey(ctx context.Context, id string) (ApiKey, error) {
 }
 
 const getAPIKeyByHash = `-- name: GetAPIKeyByHash :one
-SELECT id, name, key_hash, last_used_at, created_at, updated_at, deleted_at FROM api_keys
+SELECT id, name, key_hash, kind, last_used_at, created_at, updated_at, deleted_at FROM api_keys
 WHERE key_hash = $1 AND deleted_at IS NULL
 `
 
@@ -78,6 +86,7 @@ func (q *Queries) GetAPIKeyByHash(ctx context.Context, keyHash string) (ApiKey, 
 		&i.ID,
 		&i.Name,
 		&i.KeyHash,
+		&i.Kind,
 		&i.LastUsedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -87,7 +96,7 @@ func (q *Queries) GetAPIKeyByHash(ctx context.Context, keyHash string) (ApiKey, 
 }
 
 const listAPIKeys = `-- name: ListAPIKeys :many
-SELECT id, name, key_hash, last_used_at, created_at, updated_at, deleted_at FROM api_keys
+SELECT id, name, key_hash, kind, last_used_at, created_at, updated_at, deleted_at FROM api_keys
 WHERE deleted_at IS NULL
 ORDER BY created_at DESC
 `
@@ -105,6 +114,7 @@ func (q *Queries) ListAPIKeys(ctx context.Context) ([]ApiKey, error) {
 			&i.ID,
 			&i.Name,
 			&i.KeyHash,
+			&i.Kind,
 			&i.LastUsedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,

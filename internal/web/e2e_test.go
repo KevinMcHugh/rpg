@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -24,8 +25,12 @@ import (
 	"github.com/rs/xid"
 
 	"github.com/KevinMcHugh/rpg/internal/app"
+	"github.com/KevinMcHugh/rpg/internal/appmcp"
 	"github.com/KevinMcHugh/rpg/internal/auth"
 	dbgen "github.com/KevinMcHugh/rpg/internal/db/gen"
+	"github.com/KevinMcHugh/rpg/internal/server/build"
+	"github.com/KevinMcHugh/rpg/internal/server/characters"
+	"github.com/KevinMcHugh/rpg/internal/server/conversations"
 	"github.com/KevinMcHugh/rpg/internal/server/notes"
 	"github.com/KevinMcHugh/rpg/internal/web"
 )
@@ -36,12 +41,15 @@ import (
 const dbEnv = "TEST_DATABASE_URL"
 
 type env struct {
-	t      *testing.T
-	url    string
-	key    string
-	keyID  string
-	q      *dbgen.Queries
-	client *http.Client // never follows redirects
+	t       *testing.T
+	url     string
+	key     string // a person's key
+	keyID   string
+	agent   string // an agent's key
+	agentID string
+	q       *dbgen.Queries
+	pool    *pgxpool.Pool
+	client  *http.Client // never follows redirects
 }
 
 func newEnv(t *testing.T) *env {
@@ -62,17 +70,23 @@ func newEnv(t *testing.T) *env {
 	store := app.NewStore(pool)
 	ts.Config.Handler = web.New(store, ts.URL).Handler()
 
-	raw, err := auth.GenerateKey()
-	if err != nil {
-		t.Fatal(err)
+	mint := func(name, kind string) (raw, id string) {
+		raw, err := auth.GenerateKey()
+		if err != nil {
+			t.Fatal(err)
+		}
+		key, err := store.CreateAPIKey(ctx, dbgen.CreateAPIKeyParams{ID: xid.New().String(), Name: name, KeyHash: auth.Hash(raw), Kind: kind})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return raw, key.ID
 	}
-	key, err := store.CreateAPIKey(ctx, dbgen.CreateAPIKeyParams{ID: xid.New().String(), Name: "test", KeyHash: auth.Hash(raw)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return &env{t: t, url: ts.URL, key: raw, keyID: key.ID, q: store.Queries, client: &http.Client{
+	e := &env{t: t, url: ts.URL, q: store.Queries, pool: pool, client: &http.Client{
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}}
+	e.key, e.keyID = mint("test", auth.KindHuman)
+	e.agent, e.agentID = mint("claude", auth.KindAgent)
+	return e
 }
 
 // migrate rebuilds the schema from the dbmate files' up sections.
@@ -139,45 +153,146 @@ func TestAPIFlow(t *testing.T) {
 		t.Fatalf("401 does not point at OAuth discovery: %q", resp.Header.Get("WWW-Authenticate"))
 	}
 	e.do("GET", "/api/me", auth.KeyPrefix+"not-a-key", nil, http.StatusUnauthorized, nil)
-	e.do("POST", "/api/notes", "", map[string]any{"title": "x"}, http.StatusUnauthorized, nil)
+	e.do("GET", "/api/characters", "", nil, http.StatusUnauthorized, nil)
 
-	var me struct{ KeyID, Name string }
+	var me struct {
+		KeyID, Name string
+		Human       bool
+	}
 	e.do("GET", "/api/me", e.key, nil, http.StatusOK, &me)
-	if me.KeyID != e.keyID || me.Name != "test" {
+	if me.KeyID != e.keyID || me.Name != "test" || !me.Human {
 		t.Fatalf("me %+v", me)
 	}
-
-	var n notes.Note
-	e.do("POST", "/api/notes", e.key, map[string]any{"title": "  first  ", "body": "hello"}, http.StatusCreated, &n)
-	if n.Title != "first" || n.Body != "hello" || n.URL != e.url+"/notes/"+n.ID {
-		t.Fatalf("created %+v", n)
+	e.do("GET", "/api/me", e.agent, nil, http.StatusOK, &me)
+	if me.Human {
+		t.Fatalf("agent me %+v", me)
 	}
-	e.do("POST", "/api/notes", e.key, map[string]any{"title": "  "}, http.StatusUnprocessableEntity, nil)
-	e.do("POST", "/api/notes", e.key, map[string]any{"title": strings.Repeat("x", notes.MaxTitle+1)}, http.StatusUnprocessableEntity, nil)
 
-	// A PATCH changes only what it sends.
-	var upd notes.Note
-	e.do("PATCH", "/api/notes/"+n.ID, e.key, map[string]any{"body": "changed"}, http.StatusOK, &upd)
-	if upd.Title != "first" || upd.Body != "changed" {
-		t.Fatalf("updated %+v", upd)
+	// A person writes a character and a small conversation.
+	var aria characters.Character
+	e.do("POST", "/api/characters", e.key, map[string]any{"name": "  Aria ", "bible": "Wants her brother back."}, http.StatusCreated, &aria)
+	if aria.Name != "Aria" || aria.URL != e.url+"/characters/"+aria.ID {
+		t.Fatalf("character %+v", aria)
 	}
-	e.do("PATCH", "/api/notes/nope", e.key, map[string]any{"body": "x"}, http.StatusNotFound, nil)
+	e.do("POST", "/api/characters", e.key, map[string]any{"name": " "}, http.StatusUnprocessableEntity, nil)
 
-	// Reads are public.
+	var g conversations.Graph
+	e.do("POST", "/api/conversations", e.key, map[string]any{"title": "Homecoming"}, http.StatusCreated, &g)
+	conv := g.Conversation.ID
+	var n1, n2 conversations.Node
+	e.do("POST", "/api/conversations/"+conv+"/nodes", e.key, map[string]any{"speakerId": aria.ID, "text": "You came back."}, http.StatusCreated, &n1)
+	e.do("POST", "/api/conversations/"+conv+"/nodes", e.key, map[string]any{"text": "She looks away."}, http.StatusCreated, &n2)
+	if n1.SpeakerName != "Aria" || n2.SpeakerName != "" {
+		t.Fatalf("speakers %q %q", n1.SpeakerName, n2.SpeakerName)
+	}
+	e.do("POST", "/api/conversations/"+conv+"/nodes", e.key, map[string]any{"speakerId": "nobody", "text": "x"}, http.StatusUnprocessableEntity, nil)
+	var c1 conversations.Choice
+	e.do("POST", "/api/nodes/"+n1.ID+"/choices", e.key, map[string]any{"text": "Ask about her brother.", "toNodeId": n2.ID}, http.StatusCreated, &c1)
+	e.do("POST", "/api/nodes/"+n1.ID+"/choices", e.key, map[string]any{"text": "Leave.", "sortOrder": 1}, http.StatusCreated, nil)
+
+	// The first line became the start, and the graph reads back whole.
+	e.do("GET", "/api/conversations/"+conv, e.key, nil, http.StatusOK, &g)
+	if g.Conversation.StartNodeID != n1.ID || len(g.Nodes) != 2 || len(g.Nodes[0].Choices) != 2 || g.Nodes[0].Choices[0].ToNodeID != n2.ID {
+		t.Fatalf("graph %+v", g)
+	}
+	var path conversations.Path
+	e.do("GET", "/api/nodes/"+n2.ID+"/path", e.agent, nil, http.StatusOK, &path)
+	if !path.Reachable || len(path.Steps) != 2 || path.Steps[0].ChoiceText != "Ask about her brother." || path.Steps[1].ChoiceID != "" {
+		t.Fatalf("path %+v", path)
+	}
+
+	// A PATCH changes only what it sends; an empty speaker is the narrator.
+	var upd conversations.Node
+	e.do("PATCH", "/api/nodes/"+n1.ID, e.key, map[string]any{"text": "So. You came back."}, http.StatusOK, &upd)
+	if upd.Text != "So. You came back." || upd.SpeakerName != "Aria" || len(upd.Choices) != 2 {
+		t.Fatalf("updated node %+v", upd)
+	}
+	e.do("PATCH", "/api/nodes/"+n1.ID, e.key, map[string]any{"speakerId": ""}, http.StatusOK, &upd)
+	if upd.SpeakerID != "" || upd.Text != "So. You came back." {
+		t.Fatalf("narrated node %+v", upd)
+	}
+
+	// An agent reads everything, writes none of it, and leaves notes.
+	for _, w := range []struct {
+		method, path string
+		body         map[string]any
+	}{
+		{"POST", "/api/characters", map[string]any{"name": "Mallory"}},
+		{"PATCH", "/api/characters/" + aria.ID, map[string]any{"bible": "x"}},
+		{"POST", "/api/conversations", map[string]any{"title": "x"}},
+		{"POST", "/api/conversations/" + conv + "/nodes", map[string]any{"text": "A line Claude wrote."}},
+		{"PATCH", "/api/nodes/" + n1.ID, map[string]any{"text": "A line Claude wrote."}},
+		{"POST", "/api/nodes/" + n1.ID + "/choices", map[string]any{"text": "A choice Claude wrote."}},
+		{"PATCH", "/api/choices/" + c1.ID, map[string]any{"text": "A choice Claude wrote."}},
+		{"DELETE", "/api/nodes/" + n2.ID, nil},
+	} {
+		e.do(w.method, w.path, e.agent, w.body, http.StatusForbidden, nil)
+	}
+	var note notes.Note
+	e.do("POST", "/api/notes", e.agent, map[string]any{"targetKind": "node", "targetId": n2.ID, "kind": "gap", "body": "Nothing here acknowledges the letter from act one."}, http.StatusCreated, &note)
+	if note.ByHuman || note.AuthorName != "claude" || note.Status != "open" || note.URL != e.url+"/nodes/"+n2.ID {
+		t.Fatalf("note %+v", note)
+	}
+	var reply notes.Note
+	e.do("POST", "/api/notes", e.key, map[string]any{"parentId": note.ID, "body": "Good catch."}, http.StatusCreated, &reply)
+	if reply.TargetID != n2.ID || reply.Kind != "gap" || !reply.ByHuman {
+		t.Fatalf("reply %+v", reply)
+	}
+	e.do("POST", "/api/notes", e.agent, map[string]any{"targetKind": "node", "targetId": "nope", "body": "x"}, http.StatusNotFound, nil)
+	e.do("POST", "/api/notes", e.agent, map[string]any{"kind": "rant", "body": "x"}, http.StatusUnprocessableEntity, nil)
+	e.do("PATCH", "/api/notes/"+note.ID, e.agent, map[string]any{"status": "resolved"}, http.StatusForbidden, nil)
+	e.do("PATCH", "/api/notes/"+note.ID, e.key, map[string]any{"status": "resolved"}, http.StatusOK, &note)
 	var list struct{ Notes []notes.Note }
-	resp = e.do("GET", "/api/notes", "", nil, http.StatusOK, &list)
-	if len(list.Notes) != 1 || list.Notes[0].ID != n.ID {
-		t.Fatalf("list %+v", list)
+	e.do("GET", "/api/notes?status=open", e.agent, nil, http.StatusOK, &list)
+	if len(list.Notes) != 1 || list.Notes[0].ID != reply.ID {
+		t.Fatalf("open notes %+v", list.Notes)
 	}
-	if resp.Header.Get("Access-Control-Allow-Origin") != "*" {
-		t.Fatal("public read has no CORS header")
-	}
-	e.do("GET", "/api/notes/"+n.ID, "", nil, http.StatusOK, nil)
 
-	// Delete is soft, and a second one is a 404.
-	e.do("DELETE", "/api/notes/"+n.ID, e.key, nil, http.StatusNoContent, nil)
-	e.do("DELETE", "/api/notes/"+n.ID, e.key, nil, http.StatusNotFound, nil)
-	e.do("GET", "/api/notes/"+n.ID, "", nil, http.StatusNotFound, nil)
+	// The content builds.
+	var report build.Report
+	e.do("GET", "/api/build", e.agent, nil, http.StatusOK, &report)
+	if !report.OK || report.Stats.Nodes != 2 || report.Stats.Choices != 2 {
+		t.Fatalf("report %+v", report)
+	}
+
+	// Deleting a node leaves the choice into it dangling, and the build says so.
+	e.do("DELETE", "/api/nodes/"+n2.ID, e.key, nil, http.StatusNoContent, nil)
+	e.do("DELETE", "/api/nodes/"+n2.ID, e.key, nil, http.StatusNotFound, nil)
+	e.do("GET", "/api/build", e.key, nil, http.StatusOK, &report)
+	if report.OK || len(report.Errors) != 1 || report.Errors[0].Code != "dangling_choice" || report.Errors[0].URL != e.url+"/choices/"+c1.ID {
+		t.Fatalf("report after delete %+v", report)
+	}
+	e.do("PATCH", "/api/choices/"+c1.ID, e.key, map[string]any{"toNodeId": ""}, http.StatusOK, nil)
+	e.do("GET", "/api/build", e.key, nil, http.StatusOK, &report)
+	if !report.OK {
+		t.Fatalf("report after repointing %+v", report)
+	}
+}
+
+// The database itself refuses text written by an agent key, and the build
+// catches text changed behind the revisions' back.
+func TestProvenanceBackstops(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	_, err := e.q.CreateTextRevision(ctx, dbgen.CreateTextRevisionParams{
+		ID: xid.New().String(), TargetKind: "node", TargetID: xid.New().String(), Field: "text", Body: "A line Claude wrote.", AuthorKey: e.agentID,
+	})
+	if err == nil || !strings.Contains(err.Error(), "only a human key") {
+		t.Fatalf("an agent's revision was stored: %v", err)
+	}
+
+	var g conversations.Graph
+	e.do("POST", "/api/conversations", e.key, map[string]any{"title": "Homecoming"}, http.StatusCreated, &g)
+	var n conversations.Node
+	e.do("POST", "/api/conversations/"+g.Conversation.ID+"/nodes", e.key, map[string]any{"text": "You came back."}, http.StatusCreated, &n)
+	if _, err := e.pool.Exec(ctx, `UPDATE nodes SET text = 'Edited in psql.' WHERE id = $1`, n.ID); err != nil {
+		t.Fatal(err)
+	}
+	var report build.Report
+	e.do("GET", "/api/build", e.key, nil, http.StatusOK, &report)
+	if report.OK || report.Errors[0].Code != "provenance" || report.Errors[0].TargetID != n.ID {
+		t.Fatalf("report %+v", report)
+	}
 }
 
 // pkce is a verifier and its S256 challenge.
@@ -239,7 +354,20 @@ func TestOAuthFlow(t *testing.T) {
 	token(codeGrant, http.StatusBadRequest) // a code works once
 
 	access, refresh := tok["access_token"].(string), tok["refresh_token"].(string)
-	e.do("GET", "/api/me", access, nil, http.StatusOK, nil)
+
+	// The connector acts as the person's key but is not the person: it may
+	// read and leave notes, and may not write the game's text.
+	var me struct{ Human bool }
+	e.do("GET", "/api/me", access, nil, http.StatusOK, &me)
+	if me.Human {
+		t.Fatal("a connector token reads as human")
+	}
+	e.do("POST", "/api/characters", access, map[string]any{"name": "Mallory"}, http.StatusForbidden, nil)
+	var note notes.Note
+	e.do("POST", "/api/notes", access, map[string]any{"body": "Act two drags."}, http.StatusCreated, &note)
+	if note.ByHuman || note.AuthorName != "test" {
+		t.Fatalf("a connector's note %+v", note)
+	}
 
 	refreshGrant := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {refresh}}
 	next := token(refreshGrant, http.StatusOK)
@@ -351,70 +479,110 @@ func TestWebPages(t *testing.T) {
 		resp.Body.Close()
 		return string(b)
 	}
-
-	// Signed out, writes bounce.
-	resp, _ := browser.PostForm(e.url+"/notes", url.Values{"title": {"x"}})
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("signed-out create: %d", resp.StatusCode)
+	post := func(path string, form url.Values) (int, string) {
+		t.Helper()
+		resp, err := browser.PostForm(e.url+path, form)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode, resp.Header.Get("Location")
 	}
-	resp, _ = browser.PostForm(e.url+"/login", url.Values{"api_key": {"wrong"}, "next": {"/"}})
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("bad login: %d", resp.StatusCode)
-	}
-	resp, _ = browser.PostForm(e.url+"/login", url.Values{"api_key": {e.key}, "next": {"//evil.example"}})
-	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/" {
-		t.Fatalf("login: %d %s (next must stay on this site)", resp.StatusCode, resp.Header.Get("Location"))
-	}
-
-	resp, _ = browser.PostForm(e.url+"/notes", url.Values{"title": {"Groceries"}, "body": {"eggs\nmilk"}})
-	if resp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("create: %d", resp.StatusCode)
-	}
-	notePath, _, _ := strings.Cut(resp.Header.Get("Location"), "?")
-	noteID := strings.TrimPrefix(notePath, "/notes/")
-	if body := page("/"); !strings.Contains(body, "Groceries") || !strings.Contains(body, ">"+noteID+"</code>") {
-		t.Fatal("index does not list the note with its id")
-	}
-	resp, _ = browser.PostForm(e.url+"/notes", url.Values{"title": {""}})
-	if loc := resp.Header.Get("Location"); resp.StatusCode != http.StatusSeeOther || !strings.Contains(loc, "err=") {
-		t.Fatalf("an empty title should come back as a message: %d %s", resp.StatusCode, loc)
-	}
-
-	resp, _ = browser.PostForm(e.url+notePath, url.Values{"title": {"Groceries"}, "body": {"eggs"}})
-	if resp.StatusCode != http.StatusSeeOther || strings.Contains(resp.Header.Get("Location"), "err=") {
-		t.Fatalf("update: %d %s", resp.StatusCode, resp.Header.Get("Location"))
-	}
-	signedIn := page(notePath + "?msg=Saved.")
-	for _, want := range []string{"eggs", "Saved.", "Edit", "Delete", "Sign out"} {
-		if !strings.Contains(signedIn, want) {
-			t.Errorf("signed-in note page lacks %q", want)
+	login := func(key string) {
+		t.Helper()
+		if status, loc := post("/login", url.Values{"api_key": {key}, "next": {"//evil.example"}}); status != http.StatusSeeOther || loc != "/" {
+			t.Fatalf("login: %d %s (next must stay on this site)", status, loc)
 		}
 	}
 
+	// Signed out, even reading sends you to sign in: the content is unreleased.
+	resp, _ := browser.Get(e.url + "/")
+	if resp.StatusCode != http.StatusSeeOther || !strings.HasPrefix(resp.Header.Get("Location"), "/login") {
+		t.Fatalf("signed-out index: %d", resp.StatusCode)
+	}
+	if status, _ := post("/characters", url.Values{"name": {"x"}}); status != http.StatusUnauthorized {
+		t.Fatalf("signed-out create: %d", status)
+	}
+	if status, _ := post("/login", url.Values{"api_key": {"wrong"}, "next": {"/"}}); status != http.StatusUnauthorized {
+		t.Fatalf("bad login: %d", status)
+	}
+
+	login(e.key)
+	status, loc := post("/characters", url.Values{"name": {"Aria"}, "bible": {"Wants her brother back."}})
+	if status != http.StatusSeeOther || !strings.HasPrefix(loc, "/characters/") {
+		t.Fatalf("create character: %d %s", status, loc)
+	}
+	ariaID := strings.TrimPrefix(strings.Split(loc, "?")[0], "/characters/")
+	status, loc = post("/conversations", url.Values{"title": {"Homecoming"}})
+	if status != http.StatusSeeOther {
+		t.Fatalf("create conversation: %d", status)
+	}
+	convPath, _, _ := strings.Cut(loc, "?")
+	if _, loc = post(convPath+"/nodes", url.Values{"speaker_id": {ariaID}, "text": {"You came back."}}); !strings.Contains(loc, "#node-") {
+		t.Fatalf("create node: %s", loc)
+	}
+	nodeID := loc[strings.Index(loc, "#node-")+len("#node-"):]
+	if _, loc = post("/nodes/"+nodeID+"/choices", url.Values{"text": {"Leave."}, "to_node_id": {""}, "sort_order": {"0"}}); strings.Contains(loc, "err=") {
+		t.Fatalf("create choice: %s", loc)
+	}
+	if _, loc = post(convPath+"/nodes", url.Values{"text": {"  "}}); !strings.Contains(loc, "err=") {
+		t.Fatalf("an empty line should come back as a message: %s", loc)
+	}
+	if _, loc = post("/notes", url.Values{"target_kind": {"node"}, "target_id": {nodeID}, "kind": {"question"}, "body": {"Is she angry or relieved?"}, "back": {convPath}}); strings.Contains(loc, "err=") {
+		t.Fatalf("create note: %s", loc)
+	}
+
+	body := page(convPath)
+	for _, want := range []string{"Homecoming", "Aria", "You came back.", "Leave.", "ends the conversation", "Is she angry or relieved?", "Add a line", "Sign out"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("conversation page lacks %q", want)
+		}
+	}
+	if index := page("/"); !strings.Contains(index, "Homecoming") || !strings.Contains(index, "builds") {
+		t.Error("index lacks the conversation or the build status")
+	}
+	if b := page("/build"); !strings.Contains(b, "The content builds") {
+		t.Error("build page does not say it builds")
+	}
+	if n := page("/notes"); !strings.Contains(n, "Is she angry or relieved?") {
+		t.Error("notes page lacks the note")
+	}
+	resp, _ = browser.Get(e.url + "/nodes/" + nodeID)
+	if resp.StatusCode != http.StatusSeeOther || !strings.HasSuffix(resp.Header.Get("Location"), convPath+"#node-"+nodeID) {
+		t.Fatalf("node redirect: %d %s", resp.StatusCode, resp.Header.Get("Location"))
+	}
+
 	// A cross-site form post is refused even with the cookie.
-	req, _ := http.NewRequest("POST", e.url+notePath+"/delete", nil)
+	req, _ := http.NewRequest("POST", e.url+"/nodes/"+nodeID+"/delete", nil)
 	req.Header.Set("Origin", "https://evil.example")
 	if resp, _ = browser.Do(req); resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("cross-origin delete: %d", resp.StatusCode)
 	}
 
-	browser.PostForm(e.url+"/logout", nil) //nolint:errcheck
+	post("/logout", nil)
 
-	// Signed out, the pages are public and read-only. A stale cookie reads as
-	// signed out rather than locking them.
-	jar.SetCookies(mustURL(e.url), []*http.Cookie{{Name: auth.SessionCookie, Value: auth.AccessTokenPrefix + "stale"}})
-	anon := page(notePath)
-	if !strings.Contains(anon, "eggs") || !strings.Contains(anon, "Sign in") {
-		t.Fatal("signed-out note page should show the note")
+	// Signed in with an agent key, the pages read the same but offer no
+	// editing, and an edit posted anyway is refused.
+	login(e.agent)
+	body = page(convPath)
+	if !strings.Contains(body, "agent key") || !strings.Contains(body, "You came back.") {
+		t.Error("agent's conversation page lacks the banner or the content")
 	}
-	for _, hidden := range []string{"<form", "Delete", "Sign out"} {
-		if strings.Contains(anon, hidden) {
-			t.Errorf("signed-out note page shows %q", hidden)
+	for _, hidden := range []string{"Add a line", "Edit line", "Delete"} {
+		if strings.Contains(body, hidden) {
+			t.Errorf("agent's conversation page shows %q", hidden)
 		}
 	}
-	resp, _ = browser.PostForm(e.url+notePath+"/delete", nil)
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("signed-out delete: %d", resp.StatusCode)
+	if _, loc = post("/nodes/"+nodeID, url.Values{"text": {"A line Claude wrote."}}); !strings.Contains(loc, "err=") {
+		t.Fatalf("agent edit: %s", loc)
+	}
+	if _, loc = post("/notes", url.Values{"target_kind": {"node"}, "target_id": {nodeID}, "kind": {"gap"}, "body": {"No mention of the letter."}, "back": {convPath}}); strings.Contains(loc, "err=") {
+		t.Fatalf("agent note: %s", loc)
+	}
+	var g conversations.Graph
+	e.do("GET", strings.Replace(convPath, "/conversations/", "/api/conversations/", 1), e.key, nil, http.StatusOK, &g)
+	if g.Nodes[0].Text != "You came back." {
+		t.Fatalf("an agent's page edit got through: %q", g.Nodes[0].Text)
 	}
 }
 
@@ -441,15 +609,43 @@ func (b bearer) RoundTrip(r *http.Request) (*http.Response, error) {
 func TestMCPTools(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
+
+	// Content for Claude to read, written by a person over the API.
+	var aria characters.Character
+	e.do("POST", "/api/characters", e.key, map[string]any{"name": "Aria", "bible": "Wants her brother back."}, http.StatusCreated, &aria)
+	var g conversations.Graph
+	e.do("POST", "/api/conversations", e.key, map[string]any{"title": "Homecoming"}, http.StatusCreated, &g)
+	var n1, n2 conversations.Node
+	e.do("POST", "/api/conversations/"+g.Conversation.ID+"/nodes", e.key, map[string]any{"speakerId": aria.ID, "text": "You came back."}, http.StatusCreated, &n1)
+	e.do("POST", "/api/conversations/"+g.Conversation.ID+"/nodes", e.key, map[string]any{"text": "She looks away."}, http.StatusCreated, &n2)
+	e.do("POST", "/api/nodes/"+n1.ID+"/choices", e.key, map[string]any{"text": "Ask about her brother.", "toNodeId": n2.ID}, http.StatusCreated, nil)
+
+	// Claude connects with an agent key, as Claude Code would.
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "0"}, nil)
 	session, err := client.Connect(ctx, &mcpsdk.StreamableClientTransport{
 		Endpoint:   e.url + "/mcp/rpc",
-		HTTPClient: &http.Client{Transport: bearer{e.key, http.DefaultTransport}},
+		HTTPClient: &http.Client{Transport: bearer{e.agent, http.DefaultTransport}},
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer session.Close()
+
+	// The tool list is exactly appmcp.Tools: nothing that writes content.
+	tools, err := session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, tool := range tools.Tools {
+		names = append(names, tool.Name)
+	}
+	sort.Strings(names)
+	want := slices.Clone(appmcp.Tools)
+	sort.Strings(want)
+	if !slices.Equal(names, want) {
+		t.Fatalf("tools %v, want %v", names, want)
+	}
 
 	call := func(name string, args map[string]any, out any) {
 		t.Helper()
@@ -466,30 +662,56 @@ func TestMCPTools(t *testing.T) {
 		}
 	}
 
-	var who struct{ Me struct{ KeyID, Name string } }
+	var who struct {
+		Me struct {
+			KeyID string
+			Human bool
+		}
+	}
 	call("whoami", nil, &who)
-	if who.Me.KeyID != e.keyID {
+	if who.Me.KeyID != e.agentID || who.Me.Human {
 		t.Fatalf("whoami %+v", who)
 	}
+	var conv struct{ Conversation conversations.Graph }
+	call("get_conversation", map[string]any{"id": g.Conversation.ID}, &conv)
+	if len(conv.Conversation.Nodes) != 2 || conv.Conversation.Nodes[0].SpeakerName != "Aria" {
+		t.Fatalf("get_conversation %+v", conv)
+	}
+	var char struct{ Character characters.Character }
+	call("get_character", map[string]any{"id": aria.ID}, &char)
+	if char.Character.Bible != "Wants her brother back." {
+		t.Fatalf("get_character %+v", char)
+	}
+	var path struct{ Path conversations.Path }
+	call("get_path_to", map[string]any{"id": n2.ID}, &path)
+	if !path.Path.Reachable || len(path.Path.Steps) != 2 {
+		t.Fatalf("get_path_to %+v", path)
+	}
+	var report struct{ Report build.Report }
+	call("check_build", nil, &report)
+	if !report.Report.OK {
+		t.Fatalf("check_build %+v", report)
+	}
 
-	var created struct{ Note notes.Note }
-	call("create_note", map[string]any{"title": "From Claude", "body": "hi"}, &created)
-	var updated struct{ Note notes.Note }
-	call("update_note", map[string]any{"id": created.Note.ID, "title": "Renamed"}, &updated)
-	if updated.Note.Title != "Renamed" || updated.Note.Body != "hi" {
-		t.Fatalf("update_note: %+v", updated.Note)
+	var added struct{ Note notes.Note }
+	call("add_note", map[string]any{"target_kind": "node", "target_id": n2.ID, "kind": "continuity", "body": "In node X she said she never had a brother."}, &added)
+	if added.Note.ByHuman || added.Note.Kind != "continuity" {
+		t.Fatalf("add_note %+v", added)
+	}
+	var reply struct{ Note notes.Note }
+	call("reply_to_note", map[string]any{"note_id": added.Note.ID, "body": "Checked again: node X is in a cut conversation."}, &reply)
+	if reply.Note.ParentID != added.Note.ID || reply.Note.TargetID != n2.ID {
+		t.Fatalf("reply_to_note %+v", reply)
 	}
 	var list struct{ Notes []notes.Note }
-	call("list_notes", nil, &list)
-	if len(list.Notes) != 1 {
-		t.Fatalf("list_notes: %+v", list)
+	call("list_notes", map[string]any{"target_kind": "node", "target_id": n2.ID}, &list)
+	if len(list.Notes) != 2 {
+		t.Fatalf("list_notes %+v", list)
 	}
-	var ok struct{ OK bool }
-	call("delete_note", map[string]any{"id": created.Note.ID}, &ok)
 
-	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{Name: "get_note", Arguments: map[string]any{"id": created.Note.ID}})
+	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{Name: "get_note", Arguments: map[string]any{"id": "nope"}})
 	if err != nil || !res.IsError {
-		t.Fatalf("a deleted note should come back as a tool error: %v %+v", err, res)
+		t.Fatalf("a missing note should come back as a tool error: %v %+v", err, res)
 	}
 
 	// Without a credential, MCP is a 401 pointing at OAuth discovery.

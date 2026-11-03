@@ -8,11 +8,16 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/go-chi/chi/v5"
 
 	apigen "github.com/KevinMcHugh/rpg/internal/api/gen"
 	"github.com/KevinMcHugh/rpg/internal/app"
+	"github.com/KevinMcHugh/rpg/internal/auth"
 	dbgen "github.com/KevinMcHugh/rpg/internal/db/gen"
+	"github.com/KevinMcHugh/rpg/internal/server/build"
+	"github.com/KevinMcHugh/rpg/internal/server/characters"
+	"github.com/KevinMcHugh/rpg/internal/server/conversations"
 	"github.com/KevinMcHugh/rpg/internal/server/me"
 	"github.com/KevinMcHugh/rpg/internal/server/notes"
 )
@@ -25,6 +30,7 @@ const BaseURL = "/api"
 // an endpoint needs a transaction that app.Store implements by hand.
 type Store interface {
 	dbgen.Querier
+	InTx(ctx context.Context, fn func(q *dbgen.Queries) error) error
 }
 
 // Server implements apigen.StrictServerInterface by composing per-resource
@@ -48,15 +54,27 @@ var _ apigen.StrictServerInterface = (*Server)(nil)
 // -----------------------------------------------------------------------------
 
 // Mount attaches the API to r under BaseURL. requireAuth guards every
-// operation except those the spec marks public with `security: []`, so the
-// spec, not the router, decides who may call what.
+// operation except those the spec marks public with `security: []`, and an
+// operation that changes something also needs a human caller unless the
+// spec marks it `x-agent-writable: true`. So the spec, not the router,
+// decides who may call what.
 func (s *Server) Mount(r chi.Router, requireAuth func(http.Handler) http.Handler) {
 	public := PublicOperations()
+	humanOnly := HumanOnlyOperations()
 	guard := func(next http.Handler) http.Handler {
-		protected := requireAuth(next)
+		protected := requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// The endpoints refuse an agent too (app.RequireHuman); refusing
+			// here as well means an agent's 403 comes before any body
+			// decoding, and an endpoint that forgot is still covered over
+			// REST.
+			if humanOnly[operation(r)] && !auth.IsHuman(r.Context()) {
+				writeError(w, http.StatusForbidden, "only a person may change the game's content; an agent may leave a note instead")
+				return
+			}
+			next.ServeHTTP(w, r)
+		}))
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			pattern := strings.TrimPrefix(chi.RouteContext(r.Context()).RoutePattern(), BaseURL)
-			if public[r.Method+" "+pattern] {
+			if public[operation(r)] {
 				// Anyone may read these, so any site may too. No
 				// credentials are allowed cross-site, so this opens nothing
 				// an anonymous caller could not already get.
@@ -82,25 +100,56 @@ func (s *Server) Mount(r chi.Router, requireAuth func(http.Handler) http.Handler
 	})
 }
 
+// operation is the matched route as the spec names it ("GET /notes/{noteId}").
+func operation(r *http.Request) string {
+	return r.Method + " " + strings.TrimPrefix(chi.RouteContext(r.Context()).RoutePattern(), BaseURL)
+}
+
 // PublicOperations is the set of operations ("GET /notes/{noteId}") whose
 // spec entry overrides the global security with an empty list. An operation
 // that does not mention security inherits the global requirement, so a new
 // endpoint is private until the spec says otherwise.
 func PublicOperations() map[string]bool {
+	return operations(func(_ string, op *openapi3.Operation) bool {
+		return op.Security != nil && len(*op.Security) == 0
+	})
+}
+
+// HumanOnlyOperations is the set of operations only a human caller may
+// make: every one that is not a GET, unless its spec entry says
+// `x-agent-writable: true`. A new write is human-only until the spec says
+// otherwise. See docs/authorship.md.
+func HumanOnlyOperations() map[string]bool {
+	return operations(func(method string, op *openapi3.Operation) bool {
+		writable, _ := op.Extensions["x-agent-writable"].(bool)
+		return method != http.MethodGet && !writable
+	})
+}
+
+// AgentWritableOperations is the set of writes an agent may make.
+func AgentWritableOperations() map[string]bool {
+	return operations(func(method string, op *openapi3.Operation) bool {
+		writable, _ := op.Extensions["x-agent-writable"].(bool)
+		return method != http.MethodGet && writable
+	})
+}
+
+// operations is the set of operations in the embedded spec that match.
+func operations(match func(method string, op *openapi3.Operation) bool) map[string]bool {
 	spec, err := apigen.GetSwagger()
 	if err != nil {
 		// The spec is embedded at build time, so this is a broken build.
 		panic("embedded OpenAPI spec: " + err.Error())
 	}
-	public := map[string]bool{}
+	out := map[string]bool{}
 	for path, item := range spec.Paths.Map() {
 		for method, op := range item.Operations() {
-			if op.Security != nil && len(*op.Security) == 0 {
-				public[method+" "+path] = true
+			if match(method, op) {
+				out[method+" "+path] = true
 			}
 		}
 	}
-	return public
+	return out
 }
 
 func limitBody(next http.Handler) http.Handler {
@@ -131,12 +180,19 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 
 func isNotFound(err error) bool { return errors.Is(err, app.ErrNotFound) }
 
+// isForbidden is an agent caller trying to change the game's content.
+func isForbidden(err error) bool { return errors.Is(err, app.ErrForbidden) }
+
 // isUnprocessable is a request that parsed but cannot be done: a field out
 // of bounds.
 func isUnprocessable(err error) bool { return errors.Is(err, app.ErrBadInput) }
 
 func notFound(err error) apigen.NotFoundJSONResponse {
 	return apigen.NotFoundJSONResponse{Error: err.Error()}
+}
+
+func forbidden(err error) apigen.ForbiddenJSONResponse {
+	return apigen.ForbiddenJSONResponse{Error: err.Error()}
 }
 
 func unprocessable(err error) apigen.UnprocessableJSONResponse {
@@ -156,11 +212,223 @@ func (s *Server) GetMe(ctx context.Context, req apigen.GetMeRequestObject) (apig
 }
 
 // -----------------------------------------------------------------------------
+// Characters
+// -----------------------------------------------------------------------------
+
+func (s *Server) ListCharacters(ctx context.Context, req apigen.ListCharactersRequestObject) (apigen.ListCharactersResponseObject, error) {
+	return Run(ctx, characters.ListEndpoint{Store: s.store, Links: s.links}, req)
+}
+
+func (s *Server) GetCharacter(ctx context.Context, req apigen.GetCharacterRequestObject) (apigen.GetCharacterResponseObject, error) {
+	resp, err := Run(ctx, characters.GetEndpoint{Store: s.store, Links: s.links}, req)
+	if isNotFound(err) {
+		return apigen.GetCharacter404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) CreateCharacter(ctx context.Context, req apigen.CreateCharacterRequestObject) (apigen.CreateCharacterResponseObject, error) {
+	if req.Body == nil {
+		return apigen.CreateCharacter400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
+	}
+	resp, err := Run(ctx, characters.CreateEndpoint{Store: s.store, Links: s.links}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.CreateCharacter403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isUnprocessable(err):
+		return apigen.CreateCharacter422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) UpdateCharacter(ctx context.Context, req apigen.UpdateCharacterRequestObject) (apigen.UpdateCharacterResponseObject, error) {
+	if req.Body == nil {
+		return apigen.UpdateCharacter400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
+	}
+	resp, err := Run(ctx, characters.UpdateEndpoint{Store: s.store, Links: s.links}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.UpdateCharacter403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.UpdateCharacter404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	case isUnprocessable(err):
+		return apigen.UpdateCharacter422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) DeleteCharacter(ctx context.Context, req apigen.DeleteCharacterRequestObject) (apigen.DeleteCharacterResponseObject, error) {
+	resp, err := Run(ctx, characters.DeleteEndpoint{Store: s.store}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.DeleteCharacter403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.DeleteCharacter404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	}
+	return resp, err
+}
+
+// -----------------------------------------------------------------------------
+// Conversations, nodes and choices
+// -----------------------------------------------------------------------------
+
+func (s *Server) ListConversations(ctx context.Context, req apigen.ListConversationsRequestObject) (apigen.ListConversationsResponseObject, error) {
+	return Run(ctx, conversations.ListEndpoint{Store: s.store, Links: s.links}, req)
+}
+
+func (s *Server) GetConversation(ctx context.Context, req apigen.GetConversationRequestObject) (apigen.GetConversationResponseObject, error) {
+	resp, err := Run(ctx, conversations.GetEndpoint{Store: s.store, Links: s.links}, req)
+	if isNotFound(err) {
+		return apigen.GetConversation404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) CreateConversation(ctx context.Context, req apigen.CreateConversationRequestObject) (apigen.CreateConversationResponseObject, error) {
+	if req.Body == nil {
+		return apigen.CreateConversation400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
+	}
+	resp, err := Run(ctx, conversations.CreateEndpoint{Store: s.store, Links: s.links}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.CreateConversation403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isUnprocessable(err):
+		return apigen.CreateConversation422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) UpdateConversation(ctx context.Context, req apigen.UpdateConversationRequestObject) (apigen.UpdateConversationResponseObject, error) {
+	if req.Body == nil {
+		return apigen.UpdateConversation400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
+	}
+	resp, err := Run(ctx, conversations.UpdateEndpoint{Store: s.store, Links: s.links}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.UpdateConversation403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.UpdateConversation404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	case isUnprocessable(err):
+		return apigen.UpdateConversation422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) DeleteConversation(ctx context.Context, req apigen.DeleteConversationRequestObject) (apigen.DeleteConversationResponseObject, error) {
+	resp, err := Run(ctx, conversations.DeleteEndpoint{Store: s.store}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.DeleteConversation403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.DeleteConversation404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) CreateNode(ctx context.Context, req apigen.CreateNodeRequestObject) (apigen.CreateNodeResponseObject, error) {
+	if req.Body == nil {
+		return apigen.CreateNode400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
+	}
+	resp, err := Run(ctx, conversations.CreateNodeEndpoint{Store: s.store, Links: s.links}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.CreateNode403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.CreateNode404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	case isUnprocessable(err):
+		return apigen.CreateNode422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) UpdateNode(ctx context.Context, req apigen.UpdateNodeRequestObject) (apigen.UpdateNodeResponseObject, error) {
+	if req.Body == nil {
+		return apigen.UpdateNode400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
+	}
+	resp, err := Run(ctx, conversations.UpdateNodeEndpoint{Store: s.store, Links: s.links}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.UpdateNode403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.UpdateNode404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	case isUnprocessable(err):
+		return apigen.UpdateNode422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) DeleteNode(ctx context.Context, req apigen.DeleteNodeRequestObject) (apigen.DeleteNodeResponseObject, error) {
+	resp, err := Run(ctx, conversations.DeleteNodeEndpoint{Store: s.store}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.DeleteNode403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.DeleteNode404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) GetNodePath(ctx context.Context, req apigen.GetNodePathRequestObject) (apigen.GetNodePathResponseObject, error) {
+	resp, err := Run(ctx, conversations.PathEndpoint{Store: s.store}, req)
+	if isNotFound(err) {
+		return apigen.GetNodePath404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) CreateChoice(ctx context.Context, req apigen.CreateChoiceRequestObject) (apigen.CreateChoiceResponseObject, error) {
+	if req.Body == nil {
+		return apigen.CreateChoice400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
+	}
+	resp, err := Run(ctx, conversations.CreateChoiceEndpoint{Store: s.store}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.CreateChoice403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.CreateChoice404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	case isUnprocessable(err):
+		return apigen.CreateChoice422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) UpdateChoice(ctx context.Context, req apigen.UpdateChoiceRequestObject) (apigen.UpdateChoiceResponseObject, error) {
+	if req.Body == nil {
+		return apigen.UpdateChoice400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
+	}
+	resp, err := Run(ctx, conversations.UpdateChoiceEndpoint{Store: s.store}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.UpdateChoice403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.UpdateChoice404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	case isUnprocessable(err):
+		return apigen.UpdateChoice422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) DeleteChoice(ctx context.Context, req apigen.DeleteChoiceRequestObject) (apigen.DeleteChoiceResponseObject, error) {
+	resp, err := Run(ctx, conversations.DeleteChoiceEndpoint{Store: s.store}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.DeleteChoice403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.DeleteChoice404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	}
+	return resp, err
+}
+
+// -----------------------------------------------------------------------------
 // Notes
 // -----------------------------------------------------------------------------
 
 func (s *Server) ListNotes(ctx context.Context, req apigen.ListNotesRequestObject) (apigen.ListNotesResponseObject, error) {
-	return Run(ctx, notes.ListEndpoint{Store: s.store, Links: s.links}, req)
+	resp, err := Run(ctx, notes.ListEndpoint{Store: s.store, Links: s.links}, req)
+	if isUnprocessable(err) {
+		return apigen.ListNotes422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
+	}
+	return resp, err
 }
 
 func (s *Server) GetNote(ctx context.Context, req apigen.GetNoteRequestObject) (apigen.GetNoteResponseObject, error) {
@@ -176,7 +444,10 @@ func (s *Server) CreateNote(ctx context.Context, req apigen.CreateNoteRequestObj
 		return apigen.CreateNote400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
 	}
 	resp, err := Run(ctx, notes.CreateEndpoint{Store: s.store, Links: s.links}, req)
-	if isUnprocessable(err) {
+	switch {
+	case isNotFound(err):
+		return apigen.CreateNote404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	case isUnprocessable(err):
 		return apigen.CreateNote422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
 	}
 	return resp, err
@@ -188,6 +459,8 @@ func (s *Server) UpdateNote(ctx context.Context, req apigen.UpdateNoteRequestObj
 	}
 	resp, err := Run(ctx, notes.UpdateEndpoint{Store: s.store, Links: s.links}, req)
 	switch {
+	case isForbidden(err):
+		return apigen.UpdateNote403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
 	case isNotFound(err):
 		return apigen.UpdateNote404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
 	case isUnprocessable(err):
@@ -198,8 +471,19 @@ func (s *Server) UpdateNote(ctx context.Context, req apigen.UpdateNoteRequestObj
 
 func (s *Server) DeleteNote(ctx context.Context, req apigen.DeleteNoteRequestObject) (apigen.DeleteNoteResponseObject, error) {
 	resp, err := Run(ctx, notes.DeleteEndpoint{Store: s.store}, req)
-	if isNotFound(err) {
+	switch {
+	case isForbidden(err):
+		return apigen.DeleteNote403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
 		return apigen.DeleteNote404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
 	}
 	return resp, err
+}
+
+// -----------------------------------------------------------------------------
+// Build
+// -----------------------------------------------------------------------------
+
+func (s *Server) GetBuildReport(ctx context.Context, req apigen.GetBuildReportRequestObject) (apigen.GetBuildReportResponseObject, error) {
+	return Run(ctx, build.Endpoint{Store: s.store, Links: s.links}, req)
 }

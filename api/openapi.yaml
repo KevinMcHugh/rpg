@@ -2,14 +2,22 @@ openapi: 3.0.3
 info:
   title: RPG API
   description: |
-    The JSON API. This spec is the HTTP surface's source of truth:
-    `make generate` turns it into internal/api/gen.
+    The authoring API for the game's content: characters, conversations
+    (nodes and the choices between them), and notes. This spec is the HTTP
+    surface's source of truth: `make generate` turns it into
+    internal/api/gen.
 
     Every operation needs a credential unless it says `security: []`: an
     `rpg_` api key or `rpg_at_` access token as `Authorization: Bearer ...`,
     or the web session cookie. A missing or unknown credential gets a 401
     whose WWW-Authenticate header points at OAuth discovery, which is how an
     MCP client such as claude.ai starts the connector flow.
+
+    Every operation that changes something needs a human caller (a human
+    api key, or a web session signed in with one) unless it says
+    `x-agent-writable: true`. An agent caller gets a 403. Notes are the only
+    thing an agent may write: the game's text is written by people. See
+    docs/authorship.md.
   version: 0.1.0
 
 servers:
@@ -34,11 +42,389 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  # ---------------------------------------------------------------------------
+  # Characters
+  # ---------------------------------------------------------------------------
+
+  /characters:
+    get:
+      operationId: listCharacters
+      summary: List characters by name
+      responses:
+        "200":
+          description: The characters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CharacterList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      operationId: createCharacter
+      summary: Create a character
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CharacterCreate"
+      responses:
+        "201":
+          description: The created character
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Character"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+
+  /characters/{characterId}:
+    parameters:
+      - $ref: "#/components/parameters/CharacterId"
+    get:
+      operationId: getCharacter
+      summary: One character, with their bible
+      responses:
+        "200":
+          description: The character
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Character"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      operationId: updateCharacter
+      summary: Change a character's name, bible, or both
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CharacterUpdate"
+      responses:
+        "200":
+          description: The updated character
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Character"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+    delete:
+      operationId: deleteCharacter
+      summary: Delete a character
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ---------------------------------------------------------------------------
+  # Conversations, nodes and choices
+  # ---------------------------------------------------------------------------
+
+  /conversations:
+    get:
+      operationId: listConversations
+      summary: List conversations, newest first
+      responses:
+        "200":
+          description: The conversations, without their nodes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      operationId: createConversation
+      summary: Create an empty conversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConversationCreate"
+      responses:
+        "201":
+          description: The created conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationGraph"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+
+  /conversations/{conversationId}:
+    parameters:
+      - $ref: "#/components/parameters/ConversationId"
+    get:
+      operationId: getConversation
+      summary: One conversation with every node and choice
+      responses:
+        "200":
+          description: The conversation graph
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationGraph"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      operationId: updateConversation
+      summary: Change a conversation's title, summary or start node
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConversationUpdate"
+      responses:
+        "200":
+          description: The updated conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationGraph"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+    delete:
+      operationId: deleteConversation
+      summary: Delete a conversation
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /conversations/{conversationId}/nodes:
+    parameters:
+      - $ref: "#/components/parameters/ConversationId"
+    post:
+      operationId: createNode
+      summary: Add a line to a conversation
+      description: The first node added becomes the start node if there is none.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NodeCreate"
+      responses:
+        "201":
+          description: The created node
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Node"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+
+  /nodes/{nodeId}:
+    parameters:
+      - $ref: "#/components/parameters/NodeId"
+    patch:
+      operationId: updateNode
+      summary: Change a node's speaker, text, or both
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NodeUpdate"
+      responses:
+        "200":
+          description: The updated node
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Node"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+    delete:
+      operationId: deleteNode
+      summary: Delete a node and the choices it offers
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /nodes/{nodeId}/path:
+    parameters:
+      - $ref: "#/components/parameters/NodeId"
+    get:
+      operationId: getNodePath
+      summary: The shortest route from the conversation's start to this node
+      description: |
+        The lines a player sees and the choices they make to get here. It is
+        empty, with reachable false, when no route exists.
+      responses:
+        "200":
+          description: The path
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NodePath"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /nodes/{nodeId}/choices:
+    parameters:
+      - $ref: "#/components/parameters/NodeId"
+    post:
+      operationId: createChoice
+      summary: Add a choice the player can make at a node
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChoiceCreate"
+      responses:
+        "201":
+          description: The created choice
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Choice"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+
+  /choices/{choiceId}:
+    parameters:
+      - $ref: "#/components/parameters/ChoiceId"
+    patch:
+      operationId: updateChoice
+      summary: Change a choice's text, target or order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChoiceUpdate"
+      responses:
+        "200":
+          description: The updated choice
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Choice"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+    delete:
+      operationId: deleteChoice
+      summary: Delete a choice
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ---------------------------------------------------------------------------
+  # Notes: feedback on the content, the one thing an agent may write
+  # ---------------------------------------------------------------------------
+
   /notes:
     get:
       operationId: listNotes
-      summary: List notes, newest first
-      security: []
+      summary: List notes, oldest first
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/NoteStatus"
+        - name: targetKind
+          in: query
+          schema:
+            $ref: "#/components/schemas/NoteTargetKind"
+        - name: targetId
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: The notes
@@ -46,9 +432,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/NoteList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
     post:
       operationId: createNote
-      summary: Create a note
+      summary: Leave a note on the game, a character, a conversation, a node or a choice
+      x-agent-writable: true
       requestBody:
         required: true
         content:
@@ -66,6 +457,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "422":
           $ref: "#/components/responses/Unprocessable"
 
@@ -75,7 +468,6 @@ paths:
     get:
       operationId: getNote
       summary: One note
-      security: []
       responses:
         "200":
           description: The note
@@ -83,11 +475,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Note"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
     patch:
       operationId: updateNote
-      summary: Change a note's title, body, or both
+      summary: Resolve, dismiss or reopen a note
       requestBody:
         required: true
         content:
@@ -105,6 +499,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "422":
@@ -117,8 +513,32 @@ paths:
           description: Deleted
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+
+  # ---------------------------------------------------------------------------
+  # Build
+  # ---------------------------------------------------------------------------
+
+  /build:
+    get:
+      operationId: getBuildReport
+      summary: Check the content as the build would, without writing a bundle
+      description: |
+        Errors stop a build: text that no human key wrote, a missing start
+        node, a choice pointing at a deleted node. Warnings do not:
+        unreachable nodes, for example.
+      responses:
+        "200":
+          description: The report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BuildReport"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
 components:
   securitySchemes:
@@ -133,6 +553,30 @@ components:
       description: The web session set by /login.
 
   parameters:
+    CharacterId:
+      name: characterId
+      in: path
+      required: true
+      schema:
+        type: string
+    ConversationId:
+      name: conversationId
+      in: path
+      required: true
+      schema:
+        type: string
+    NodeId:
+      name: nodeId
+      in: path
+      required: true
+      schema:
+        type: string
+    ChoiceId:
+      name: choiceId
+      in: path
+      required: true
+      schema:
+        type: string
     NoteId:
       name: noteId
       in: path
@@ -153,6 +597,12 @@ components:
         text/plain:
           schema:
             type: string
+    Forbidden:
+      description: An agent caller tried to change the game's content
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     NotFound:
       description: No such resource
       content:
@@ -176,24 +626,34 @@ components:
 
     Me:
       type: object
-      required: [keyId, name]
+      required: [keyId, name, human]
       properties:
         keyId:
           type: string
         name:
           type: string
           description: The label the key was minted with.
+        human:
+          type: boolean
+          description: |
+            Whether this caller may write the game's text: a human key used
+            directly or through a web session. An OAuth connector token is
+            never human, whichever key approved it.
 
-    Note:
+    # ---- characters ----
+
+    Character:
       type: object
-      required: [id, title, body, createdAt, updatedAt, url]
+      required: [id, name, bible, createdAt, updatedAt, url]
       properties:
         id:
           type: string
-        title:
+        name:
           type: string
-        body:
+          description: Player-facing.
+        bible:
           type: string
+          description: Voice, wants, secrets, sample lines. Authoring only; never ships.
         createdAt:
           type: string
           format: date-time
@@ -202,7 +662,272 @@ components:
           format: date-time
         url:
           type: string
-          description: The note's web page.
+
+    CharacterList:
+      type: object
+      required: [characters]
+      properties:
+        characters:
+          type: array
+          items:
+            $ref: "#/components/schemas/Character"
+
+    CharacterCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        bible:
+          type: string
+
+    CharacterUpdate:
+      type: object
+      description: Fields left out are left alone.
+      properties:
+        name:
+          type: string
+          x-go-type-skip-optional-pointer: false
+        bible:
+          type: string
+          x-go-type-skip-optional-pointer: false
+
+    # ---- conversations ----
+
+    Conversation:
+      type: object
+      required: [id, title, summary, startNodeId, createdAt, updatedAt, url]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+          description: Authoring label; never ships.
+        summary:
+          type: string
+          description: Authoring notes on what the conversation is for; never ships.
+        startNodeId:
+          type: string
+          description: Empty until the conversation has a start node.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        url:
+          type: string
+
+    ConversationList:
+      type: object
+      required: [conversations]
+      properties:
+        conversations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Conversation"
+
+    ConversationGraph:
+      type: object
+      required: [conversation, nodes]
+      properties:
+        conversation:
+          $ref: "#/components/schemas/Conversation"
+        nodes:
+          type: array
+          description: In the order they were written, each with its choices.
+          items:
+            $ref: "#/components/schemas/Node"
+
+    ConversationCreate:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+        summary:
+          type: string
+
+    ConversationUpdate:
+      type: object
+      description: Fields left out are left alone. An empty startNodeId clears it.
+      properties:
+        title:
+          type: string
+          x-go-type-skip-optional-pointer: false
+        summary:
+          type: string
+          x-go-type-skip-optional-pointer: false
+        startNodeId:
+          type: string
+          x-go-type-skip-optional-pointer: false
+
+    Node:
+      type: object
+      required: [id, conversationId, speakerId, speakerName, text, choices, url]
+      properties:
+        id:
+          type: string
+        conversationId:
+          type: string
+        speakerId:
+          type: string
+          description: Empty for the narrator.
+        speakerName:
+          type: string
+          description: Empty for the narrator.
+        text:
+          type: string
+          description: Player-facing.
+        choices:
+          type: array
+          items:
+            $ref: "#/components/schemas/Choice"
+        url:
+          type: string
+
+    NodeCreate:
+      type: object
+      required: [text]
+      properties:
+        speakerId:
+          type: string
+          description: A character id; leave out for the narrator.
+        text:
+          type: string
+
+    NodeUpdate:
+      type: object
+      description: Fields left out are left alone. An empty speakerId makes the line the narrator's.
+      properties:
+        speakerId:
+          type: string
+          x-go-type-skip-optional-pointer: false
+        text:
+          type: string
+          x-go-type-skip-optional-pointer: false
+
+    Choice:
+      type: object
+      required: [id, fromNodeId, toNodeId, text, sortOrder]
+      properties:
+        id:
+          type: string
+        fromNodeId:
+          type: string
+        toNodeId:
+          type: string
+          description: Empty when the choice ends the conversation.
+        text:
+          type: string
+          description: Player-facing.
+        sortOrder:
+          type: integer
+
+    ChoiceCreate:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+        toNodeId:
+          type: string
+          description: A node in the same conversation; leave out to end the conversation.
+        sortOrder:
+          type: integer
+
+    ChoiceUpdate:
+      type: object
+      description: Fields left out are left alone. An empty toNodeId makes the choice end the conversation.
+      properties:
+        text:
+          type: string
+          x-go-type-skip-optional-pointer: false
+        toNodeId:
+          type: string
+          x-go-type-skip-optional-pointer: false
+        sortOrder:
+          type: integer
+          x-go-type-skip-optional-pointer: false
+
+    NodePath:
+      type: object
+      required: [nodeId, conversationId, reachable, steps]
+      properties:
+        nodeId:
+          type: string
+        conversationId:
+          type: string
+        reachable:
+          type: boolean
+        steps:
+          type: array
+          description: From the start node to this one. Every step but the last has the choice taken there.
+          items:
+            $ref: "#/components/schemas/PathStep"
+
+    PathStep:
+      type: object
+      required: [nodeId, speakerName, text, choiceId, choiceText]
+      properties:
+        nodeId:
+          type: string
+        speakerName:
+          type: string
+        text:
+          type: string
+        choiceId:
+          type: string
+        choiceText:
+          type: string
+
+    # ---- notes ----
+
+    NoteTargetKind:
+      type: string
+      enum: [game, character, conversation, node, choice]
+
+    NoteKind:
+      type: string
+      enum: [gap, continuity, plot_idea, pacing, mechanics, question, other]
+
+    NoteStatus:
+      type: string
+      enum: [open, resolved, dismissed]
+
+    Note:
+      type: object
+      required: [id, targetKind, targetId, kind, body, status, parentId, authorName, byHuman, createdAt, updatedAt, url]
+      properties:
+        id:
+          type: string
+        targetKind:
+          $ref: "#/components/schemas/NoteTargetKind"
+        targetId:
+          type: string
+          description: Empty when targetKind is game.
+        kind:
+          $ref: "#/components/schemas/NoteKind"
+        body:
+          type: string
+        status:
+          $ref: "#/components/schemas/NoteStatus"
+        parentId:
+          type: string
+          description: The note this replies to; empty for a new thread.
+        authorName:
+          type: string
+        byHuman:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        url:
+          type: string
+          description: The page of what the note is about.
 
     NoteList:
       type: object
@@ -215,20 +940,76 @@ components:
 
     NoteCreate:
       type: object
-      required: [title]
+      required: [body]
       properties:
-        title:
+        targetKind:
+          $ref: "#/components/schemas/NoteTargetKind"
+        targetId:
           type: string
+        kind:
+          $ref: "#/components/schemas/NoteKind"
         body:
           type: string
+        parentId:
+          type: string
+          description: Reply to this note. A reply takes its parent's target, so leave targetKind and targetId out.
 
     NoteUpdate:
       type: object
-      description: Fields left out are left alone.
+      required: [status]
       properties:
-        title:
+        status:
+          $ref: "#/components/schemas/NoteStatus"
+
+    # ---- build ----
+
+    BuildReport:
+      type: object
+      required: [ok, errors, warnings, stats]
+      properties:
+        ok:
+          type: boolean
+          description: True when there are no errors, so the content would build.
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/BuildIssue"
+        warnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/BuildIssue"
+        stats:
+          $ref: "#/components/schemas/BuildStats"
+
+    BuildIssue:
+      type: object
+      required: [code, message, targetKind, targetId, url]
+      properties:
+        code:
           type: string
-          x-go-type-skip-optional-pointer: false
-        body:
+        message:
           type: string
-          x-go-type-skip-optional-pointer: false
+        targetKind:
+          type: string
+        targetId:
+          type: string
+        url:
+          type: string
+
+    BuildStats:
+      type: object
+      required: [characters, conversations, nodes, choices, words, openNotes]
+      properties:
+        characters:
+          type: integer
+        conversations:
+          type: integer
+        nodes:
+          type: integer
+        choices:
+          type: integer
+        words:
+          type: integer
+          description: Words of player-facing text.
+        openNotes:
+          type: integer

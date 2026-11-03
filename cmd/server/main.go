@@ -2,7 +2,11 @@
 // process, plus the admin commands that mint credentials. See README.md.
 //
 //	server [serve]                    run the server (DATABASE_URL, PORT, PUBLIC_URL)
-//	server keys create --name NAME    mint an api key (printed once)
+//	server keys create --name NAME [--human]
+//	                                  mint an api key (printed once); only a
+//	                                  --human key may write the game's text
+//	server build [--out FILE]         check the content and write the bundle
+//	                                  the game runs on (stdout by default)
 //	server keys list                  list live api keys
 //	server keys rotate --id ID        replace a key, keeping its name
 //	server keys delete --id ID        revoke a key and every token it approved
@@ -17,6 +21,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -33,6 +38,7 @@ import (
 
 	"github.com/KevinMcHugh/rpg/internal/app"
 	"github.com/KevinMcHugh/rpg/internal/auth"
+	"github.com/KevinMcHugh/rpg/internal/content"
 	dbgen "github.com/KevinMcHugh/rpg/internal/db/gen"
 	"github.com/KevinMcHugh/rpg/internal/web"
 )
@@ -51,8 +57,10 @@ func main() {
 		err = keys(args)
 	case "invites":
 		err = invites(args)
+	case "build":
+		err = buildContent(args)
 	default:
-		err = fmt.Errorf("unknown command %q; use serve, keys or invites", cmd)
+		err = fmt.Errorf("unknown command %q; use serve, keys, invites or build", cmd)
 	}
 	if err != nil {
 		slog.Error("server", "err", err)
@@ -87,6 +95,7 @@ func keys(args []string) error {
 	fs := flag.NewFlagSet("keys "+sub, flag.ExitOnError)
 	name := fs.String("name", "", "label for the key (create)")
 	id := fs.String("id", "", "key id (rotate, delete)")
+	human := fs.Bool("human", false, "a person's key, which may write the game's text (create)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -103,20 +112,24 @@ func keys(args []string) error {
 		if *name == "" {
 			return errors.New("--name is required")
 		}
-		return mint(ctx, q, *name)
+		kind := auth.KindAgent
+		if *human {
+			kind = auth.KindHuman
+		}
+		return mint(ctx, q, *name, kind)
 	case "list":
 		rows, err := q.ListAPIKeys(ctx)
 		if err != nil {
 			return err
 		}
 		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "ID\tNAME\tCREATED\tLAST USED")
+		fmt.Fprintln(tw, "ID\tNAME\tKIND\tCREATED\tLAST USED")
 		for _, r := range rows {
 			last := "-"
 			if r.LastUsedAt.Valid {
 				last = r.LastUsedAt.Time.UTC().Format(time.DateTime)
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", r.ID, r.Name, r.CreatedAt.Time.UTC().Format(time.DateTime), last)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", r.ID, r.Name, r.Kind, r.CreatedAt.Time.UTC().Format(time.DateTime), last)
 		}
 		return tw.Flush()
 	case "rotate", "delete":
@@ -137,7 +150,7 @@ func keys(args []string) error {
 			return nil
 		}
 		fmt.Printf("rotated key %s (%s)\n", old.ID, old.Name)
-		return mint(ctx, q, old.Name)
+		return mint(ctx, q, old.Name, old.Kind)
 	default:
 		return fmt.Errorf("unknown keys subcommand %q", sub)
 	}
@@ -214,16 +227,62 @@ func invites(args []string) error {
 	}
 }
 
-func mint(ctx context.Context, q *dbgen.Queries, name string) error {
+func mint(ctx context.Context, q *dbgen.Queries, name, kind string) error {
 	raw, err := auth.GenerateKey()
 	if err != nil {
 		return err
 	}
-	row, err := q.CreateAPIKey(ctx, dbgen.CreateAPIKeyParams{ID: xid.New().String(), Name: name, KeyHash: auth.Hash(raw)})
+	row, err := q.CreateAPIKey(ctx, dbgen.CreateAPIKeyParams{ID: xid.New().String(), Name: name, KeyHash: auth.Hash(raw), Kind: kind})
 	if err != nil {
 		return fmt.Errorf("create api key: %w", err)
 	}
-	fmt.Printf("key_id:  %s\napi_key: %s\n\nSave the key now; it is never shown again.\n", row.ID, raw)
+	fmt.Printf("key_id:  %s\nkind:    %s\napi_key: %s\n\nSave the key now; it is never shown again.\n", row.ID, row.Kind, raw)
+	return nil
+}
+
+// buildContent checks the content and, if it passes, writes the bundle the
+// game runs on. Errors stop it; warnings are printed and let it through.
+func buildContent(args []string) error {
+	fs := flag.NewFlagSet("build", flag.ExitOnError)
+	out := fs.String("out", "", "file to write the bundle to (default stdout)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	ctx := context.Background()
+	pool, err := openPool(ctx)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+
+	c, err := content.Load(ctx, dbgen.New(pool))
+	if err != nil {
+		return err
+	}
+	bundle, report := content.Compile(c)
+	for _, w := range report.Warnings {
+		fmt.Fprintf(os.Stderr, "warning: %s: %s\n", w.Code, w.Message)
+	}
+	for _, e := range report.Errors {
+		fmt.Fprintf(os.Stderr, "error: %s: %s\n", e.Code, e.Message)
+	}
+	if !report.OK() {
+		return fmt.Errorf("%d errors; no bundle written", len(report.Errors))
+	}
+	b, err := json.MarshalIndent(bundle, "", "  ")
+	if err != nil {
+		return err
+	}
+	b = append(b, '\n')
+	if *out == "" {
+		_, err = os.Stdout.Write(b)
+		return err
+	}
+	if err := os.WriteFile(*out, b, 0o644); err != nil {
+		return err
+	}
+	s := report.Stats
+	fmt.Fprintf(os.Stderr, "wrote %s: %d conversations, %d lines, %d choices, %d words\n", *out, s.Conversations, s.Nodes, s.Choices, s.Words)
 	return nil
 }
 

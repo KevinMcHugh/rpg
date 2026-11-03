@@ -1,59 +1,56 @@
 # RPG
 
-A starting point for a small Go web app that people use in a browser and Claude uses over the [Model Context Protocol](https://modelcontextprotocol.io). One binary serves the web pages, a JSON API and MCP. It deploys to a [sprites.dev](https://sprites.dev) sprite, which a GitHub workflow redeploys on every push to `main`.
+The authoring tool for a story-driven party RPG in the BioWare mold: a big plot in acts, told through conversations, quests and companions, presented as text in the spirit of Disco Elysium or classic Fallout.
 
-It is distilled from two apps that grew this architecture: [inventory](https://github.com/KevinMcHugh/inventory), a datastore for agents, and Creature Lab, the species catalog in [mars-sim](https://github.com/KevinMcHugh/mars-sim) ([its write-up](https://github.com/KevinMcHugh/mars-sim/blob/main/docs/creature-lab.md)). It keeps what both settled on, and takes Creature Lab's choice wherever the two differ. [docs/architecture.md](docs/architecture.md) explains each choice.
+People write the game. Claude reads it over the [Model Context Protocol](https://modelcontextprotocol.io) and leaves notes (gaps, continuity problems, plot ideas, pacing, questions), but cannot write a word a player sees. That is enforced by the API, the endpoints, the database and the build, not by a prompt: see [docs/authorship.md](docs/authorship.md).
 
-The example resource is **notes** (a title and a body). It shows every layer: migration, SQL, spec, endpoints, MCP tools, pages and tests. Replace it with your own.
+Content is authored here, in Postgres, and compiled into a bundle the game runs on. The database tolerates work in progress; the build refuses anything that would break in play, or that no person wrote.
 
-## What you get
+It is built on [app-template](https://github.com/KevinMcHugh/app-template): one Go binary serves the pages, a JSON API and MCP, and deploys to a [sprites.dev](https://sprites.dev) sprite. [docs/architecture.md](docs/architecture.md) explains the choices.
 
-- **One contract per operation.** `api/openapi.yaml` is the source of truth. oapi-codegen generates a strict server from it, and each operation is an `Endpoint` (Interact → Build → Render). REST, the MCP tools and the web pages all drive the same endpoint, so a rule lives in one place.
-- **Postgres through sqlc**, migrations through dbmate, with xid ids, soft delete, and `created_at`/`updated_at`/`deleted_at` on every table.
-- **Auth that claude.ai can use:** api keys for scripts and Claude Code; OAuth 2.1 (dynamic client registration and PKCE) for claude.ai custom connectors; single-use invites for newcomers; cookie sessions for the pages. The spec decides who may call what: an operation with `security: []` is public, and everything else is private.
-- **Server-rendered pages with no script.** html/template behind a strict CSP. There is no npm step, so the binary is the whole deploy.
-- **Tests** that pin which operations are public without needing a database, plus end-to-end tests of the API, OAuth, invites, the pages and a real MCP client session against Postgres.
-- **Deploy:** sprite setup steps, a redeploy script (checkpoint, migrate, build, swap the binary, health check, roll back) and a CI workflow that runs it. Config and secrets go on the sprite service's environment, never in env files ([docs/configuration.md](docs/configuration.md)).
+## What is here
 
-## Start a new app from it
+- **Characters**: a player-facing name, and a bible (voice, wants, secrets) that never ships but that Claude reads before commenting on anything they say.
+- **Conversations**: a graph of nodes (a line, spoken by a character or the narrator) joined by choices (what the player says, leading to another node or ending the conversation). Titles and summaries are authoring labels.
+- **Notes**: feedback on the game, a character, a conversation, a node or a choice, from you or from Claude, with threads and open/resolved/dismissed.
+- **Provenance**: every player-facing string is stored with a revision recording which key wrote it, and only a human key may write one.
+- **The build**: `server build` (and the Build page, and Claude's `check_build`) checks provenance, start nodes, choices leading nowhere and unreachable nodes, then writes `content.json` with only what players see.
 
-```sh
-# on GitHub: "Use this template", or clone and re-point origin
-tools/rename.sh github.com/you/widgets widgets "Widget Works" ww
-```
-
-`rename.sh` rewrites the module path, the display name, the slug and the key prefix (`ww_` keys, `ww_at_` tokens), then regenerates. After that, follow [docs/adding-a-resource.md](docs/adding-a-resource.md) to replace notes with your own resource.
+Not yet: quests, conditions and effects on choices (flags, skill checks, approval), the game itself.
 
 ## Run it locally
 
 Prereqs: Go (the version in `go.mod`; `go` fetches it if yours is older) and Postgres. sqlc, oapi-codegen and dbmate run through `go run …@version`, so you do not install them.
 
 ```sh
-export DATABASE_URL="postgres://localhost/app?sslmode=disable"
-createdb app
-make dev                 # migrate, then serve on :8080
-make key NAME=you        # in another terminal: mint an api key (printed once)
+export DATABASE_URL="postgres://localhost/rpg?sslmode=disable"
+createdb rpg
+make dev                        # migrate, then serve on :8080
+make key NAME=you               # in another terminal: your key, which may write content (printed once)
+make agent-key NAME=claude-code # Claude's key, which may only read and leave notes
 ```
 
-Open http://localhost:8080, sign in with the key, and add a note. From a script:
+Open http://localhost:8080, sign in with your key, and write a conversation. Connect Claude Code with the agent key:
 
 ```sh
-curl -H "Authorization: Bearer rpg_…" -d '{"title":"hi"}' localhost:8080/api/notes
-curl localhost:8080/api/notes          # public: no key needed
+claude mcp add --transport http rpg http://localhost:8080/mcp/rpc --header "Authorization: Bearer rpg_…"
 ```
 
-Connect Claude Code: `claude mcp add --transport http app http://localhost:8080/mcp/rpc --header "Authorization: Bearer rpg_…"`.
+Then ask it to review a conversation. It reads the characters' bibles and the path to each line, checks the build, and leaves notes beside the lines they are about.
+
+`make bundle` writes `content.json`, or tells you what stops it.
 
 ## Layout
 
 ```
-api/openapi.yaml        the HTTP API's contract (and which operations are public)
-cmd/server/             the binary: serve, keys, invites
+api/openapi.yaml        the HTTP API's contract (and who may call what)
+cmd/server/             the binary: serve, build, keys, invites
 db/migrations/          dbmate migrations
 db/queries/             sqlc queries
 deploy/                 sprite scripts: run-postgres.sh, redeploy.sh
 docs/                   how it works and why
-internal/app/           Store, Links, shared errors and the app's name
+internal/app/           Store, Revise, RequireHuman, Links, shared errors and the app's name
+internal/content/       the build: checks the content and compiles the game's bundle
 internal/auth/          key/token formats, middleware, who-is-calling context
 internal/oauth/         the OAuth 2.1 server claude.ai needs
 internal/server/        Endpoint contract, the composed REST server, one package per resource
@@ -61,7 +58,6 @@ internal/appmcp/        MCP tools over the same endpoints
 internal/web/           the router, the pages (templates/), end-to-end tests
 internal/api/gen/       oapi-codegen output: do not edit
 internal/db/gen/        sqlc output: do not edit
-tools/rename.sh         make a copy your own
 ```
 
 ## Make targets
@@ -73,16 +69,19 @@ tools/rename.sh         make a copy your own
 | `make check` | fail if the generated code is stale (CI runs it) |
 | `make migrate` / `make rollback` | dbmate up / roll back the last migration |
 | `make new-migration NAME=…` | create a timestamped migration file |
-| `make key NAME=…` | mint an api key |
+| `make key NAME=…` | mint a person's api key, which may write content |
+| `make agent-key NAME=…` | mint an agent's api key, which may only read and leave notes |
+| `make bundle` | check the content and write `content.json` |
 | `make invite NOTE=…` | mint a single-use invite |
 | `make build` | compile to `bin/server` |
 | `make test` | run the tests; set `TEST_DATABASE_URL` to a scratch database **the tests may wipe** to include the end-to-end ones |
 
 ## Docs
 
+- [Authorship](docs/authorship.md): people write the game, Claude reviews it, and how that is enforced
 - [Architecture](docs/architecture.md): the layers, the request flow, and why it is built this way
 - [Adding a resource](docs/adding-a-resource.md): the end-to-end recipe
-- [Auth](docs/auth.md): keys, OAuth, invites, sessions, and public versus private
+- [Auth](docs/auth.md): keys (human and agent), OAuth, invites, sessions
 - [Deploy](docs/deploy.md): the sprites.dev recipe (by CLI or through the Fly.io MCP connector) and CI redeploys
 - [Configuration](docs/configuration.md): config and secrets live on the sprite service's environment, never in env files
 - [CLAUDE.md](CLAUDE.md): orientation for Claude Code sessions

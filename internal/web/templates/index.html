@@ -1,30 +1,67 @@
-{{define "title"}}Notes · {{.AppName}}{{end}}
+{{define "title"}}{{.AppName}}{{end}}
 {{define "content"}}
-<h1>Notes</h1>
-<p class="muted">{{len .Notes}} note{{if ne (len .Notes) 1}}s{{end}}.</p>
-{{if .SignedIn}}
-<details class="panel"{{if not .Notes}} open{{end}}>
-  <summary>New note</summary>
-  <form method="POST" action="/notes" class="stack" style="margin-top:.75rem">
-    <input name="title" placeholder="Title" aria-label="Title" required maxlength="200">
-    <textarea name="body" placeholder="Body" aria-label="Body"></textarea>
-    <div><button type="submit">Save</button></div>
-  </form>
-</details>
-{{end}}
-{{if not .Notes}}
-<div class="panel"><p>No notes yet.{{if not .SignedIn}} <a href="/login?next=/">Sign in</a> to add one, or ask Claude over MCP.{{end}}</p></div>
-{{end}}
-<div class="list">
-{{range .Notes}}
-  <article class="card">
-    <h3><a href="/notes/{{.ID}}">{{.Title}}</a></h3>
-    {{if .Body}}<div class="excerpt">{{.Body}}</div>{{end}}
-    <div class="row muted" style="font-size:.8rem">
-      <span>{{.UpdatedAt.Format "2006-01-02 15:04"}}</span>
-      <code class="id" title="Click to select. This is the id the MCP tools take.">{{.ID}}</code>
-    </div>
-  </article>
-{{end}}
+<div class="row" style="justify-content:space-between">
+  <h1>{{.AppName}}</h1>
+  <a href="/build" class="badge{{if not .Report.OK}} err{{else}} start{{end}}">{{if .Report.OK}}builds{{else}}{{len .Report.Errors}} build error{{if ne (len .Report.Errors) 1}}s{{end}}{{end}}</a>
 </div>
+<p class="muted">{{.Report.Stats.Conversations}} conversations · {{.Report.Stats.Nodes}} lines · {{.Report.Stats.Choices}} choices · {{.Report.Stats.Words}} words · <a href="/notes">{{.Report.Stats.OpenNotes}} open notes</a></p>
+
+<div class="grid2">
+<section>
+  <h2>Conversations</h2>
+  {{if .Human}}
+  <details class="panel"{{if not .Conversations}} open{{end}}>
+    <summary>New conversation</summary>
+    <form method="POST" action="/conversations" class="stack" style="margin-top:.75rem">
+      <input name="title" placeholder="Title (authoring only)" aria-label="Title" required maxlength="200">
+      <textarea name="summary" placeholder="What is this conversation for? (authoring only)" aria-label="Summary"></textarea>
+      <div><button type="submit">Create</button></div>
+    </form>
+  </details>
+  {{end}}
+  <div class="list">
+  {{range .Conversations}}
+    <article class="card">
+      <h3><a href="/conversations/{{.ID}}">{{.Title}}</a></h3>
+      {{if .Summary}}<div class="excerpt">{{.Summary}}</div>{{end}}
+      <div class="row muted" style="font-size:.8rem">
+        {{if not .StartNodeID}}<span class="badge err">no start</span>{{end}}
+        <code class="id" title="Click to select. This is the id the MCP tools take.">{{.ID}}</code>
+      </div>
+    </article>
+  {{else}}
+    <p class="muted">No conversations yet.</p>
+  {{end}}
+  </div>
+</section>
+
+<section>
+  <h2>Characters</h2>
+  {{if .Human}}
+  <details class="panel"{{if not .Characters}} open{{end}}>
+    <summary>New character</summary>
+    <form method="POST" action="/characters" class="stack" style="margin-top:.75rem">
+      <input name="name" placeholder="Name" aria-label="Name" required maxlength="100">
+      <textarea name="bible" placeholder="Bible: voice, wants, secrets (authoring only)" aria-label="Bible"></textarea>
+      <div><button type="submit">Create</button></div>
+    </form>
+  </details>
+  {{end}}
+  <div class="list">
+  {{range .Characters}}
+    <article class="card">
+      <h3><a href="/characters/{{.ID}}">{{.Name}}</a></h3>
+      {{if .Bible}}<div class="excerpt">{{.Bible}}</div>{{end}}
+    </article>
+  {{else}}
+    <p class="muted">No characters yet.</p>
+  {{end}}
+  </div>
+</section>
+</div>
+
+<section style="margin-top:1.5rem">
+  <h2>Notes on the whole game</h2>
+  {{template "notes" (notebox "game" "" (index .Notes "game:") .Human .Path)}}
+</section>
 {{end}}

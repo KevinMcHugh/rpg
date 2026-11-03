@@ -53,19 +53,36 @@ func Hash(raw string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// Key kinds. A human key may write the game's text; an agent key may read
+// it and leave notes. See docs/authorship.md.
+const (
+	KindHuman = "human"
+	KindAgent = "agent"
+)
+
+// Caller is who a request acts as.
+type Caller struct {
+	// KeyID is the api key behind the request: used directly, or through an
+	// OAuth token or web session it approved.
+	KeyID string
+	// Human is true only for a human key used directly or through a web
+	// session. An OAuth connector token is never human, whichever key
+	// approved it: what holds it is a model.
+	Human bool
+}
+
 type ctxKey struct{}
 
-// WithKey returns ctx carrying the id of the api key a request acts as
-// (directly, or through an OAuth token or web session it approved).
-func WithKey(ctx context.Context, apiKeyID string) context.Context {
-	return context.WithValue(ctx, ctxKey{}, apiKeyID)
+// WithCaller returns ctx carrying c.
+func WithCaller(ctx context.Context, c Caller) context.Context {
+	return context.WithValue(ctx, ctxKey{}, c)
 }
 
 // KeyID is the api key the request acts as, or "" outside an authenticated
 // request (a CLI command, a test).
 func KeyID(ctx context.Context) string {
-	v, _ := ctx.Value(ctxKey{}).(string)
-	return v
+	c, _ := ctx.Value(ctxKey{}).(Caller)
+	return c.KeyID
 }
 
 // KeyIDPtr is KeyID as a nullable column value.
@@ -74,4 +91,10 @@ func KeyIDPtr(ctx context.Context) *string {
 		return &v
 	}
 	return nil
+}
+
+// IsHuman reports whether the request may write the game's text.
+func IsHuman(ctx context.Context) bool {
+	c, _ := ctx.Value(ctxKey{}).(Caller)
+	return c.Human
 }

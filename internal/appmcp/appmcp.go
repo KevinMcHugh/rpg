@@ -4,6 +4,12 @@
 // own output in place of Render, so a rule lives in one place whichever
 // surface calls it.
 //
+// The game's text is written by people, so there is deliberately no tool
+// that writes it: Claude reads the content and leaves notes. The endpoints
+// would refuse a connector token anyway (a connector is never a human
+// caller), but a tool that cannot succeed is only a temptation. Tools lists
+// every tool, and a test pins it. See docs/authorship.md.
+//
 // The caller is already authenticated by the time a tool runs (the /mcp/rpc
 // route requires a credential), so a tool reads who it is acting as from
 // the context with auth.KeyID, and never takes it as an argument.
@@ -17,22 +23,43 @@ import (
 	apigen "github.com/KevinMcHugh/rpg/internal/api/gen"
 	"github.com/KevinMcHugh/rpg/internal/app"
 	"github.com/KevinMcHugh/rpg/internal/server"
+	"github.com/KevinMcHugh/rpg/internal/server/build"
+	"github.com/KevinMcHugh/rpg/internal/server/characters"
+	"github.com/KevinMcHugh/rpg/internal/server/conversations"
 	"github.com/KevinMcHugh/rpg/internal/server/me"
 	"github.com/KevinMcHugh/rpg/internal/server/notes"
 )
 
-// Instructions is sent to every client on connect. Tell the model what the
-// app is for and the usual order of tools; keep it short.
-const Instructions = `This server stores notes: a title and a free-text body.
+// Instructions is sent to every client on connect.
+const Instructions = `This is the authoring tool for a story-driven party RPG: characters, conversations (a graph of lines, called nodes, joined by the choices a player makes), and notes.
 
-Use list_notes to see what exists and get_note for one in full. create_note, update_note and delete_note change them. Confirm with the user before deleting anything.`
+Every word a player sees is written by a person. You cannot change the game's content, and you must not write it for them. Your job is to read it closely and leave notes that make it better:
+- gap: a path, consequence or character beat the content is missing ("nothing acknowledges that the player sided with the guild").
+- continuity: something that contradicts the content elsewhere. Cite both places by id.
+- plot_idea: a direction the story could take, a payoff for something set up earlier.
+- pacing, mechanics: structure, length, how choices are spread.
+- question: something you need the author to decide or explain.
+
+In a note, describe intent, function and character beats. Never write sample dialogue, a sample choice, a name or any prose that could be pasted into the game: say what a line needs to do, not what it should say. Keep notes short and specific, and target the narrowest thing they are about.
+
+Before commenting on a line, read the character's bible (get_character) and how the player got there (get_path_to). check_build lists what would stop the content shipping. list_notes shows what is already open, so you do not repeat it; reply_to_note continues a thread. Only the author resolves notes.`
+
+// Tools is the name of every tool, in the order they are registered. None
+// of them writes the game's content.
+var Tools = []string{
+	"whoami",
+	"list_characters", "get_character",
+	"list_conversations", "get_conversation", "get_path_to",
+	"check_build",
+	"list_notes", "get_note", "add_note", "reply_to_note",
+}
 
 // NewServer builds the MCP server with every tool registered.
 func NewServer(store server.Store, links app.Links) *mcpsdk.Server {
 	s := mcpsdk.NewServer(&mcpsdk.Implementation{Name: app.Name, Version: "0.1.0"},
 		&mcpsdk.ServerOptions{Instructions: Instructions})
 	registerRead(s, store, links)
-	registerWrite(s, store, links)
+	registerNotes(s, store, links)
 	return s
 }
 
@@ -40,35 +67,62 @@ func NewServer(store server.Store, links app.Links) *mcpsdk.Server {
 
 type Empty struct{}
 
+type IDInput struct {
+	ID string `json:"id" jsonschema:"the id"`
+}
+
 type MeOutput struct {
 	Me me.Me `json:"me"`
+}
+
+type ListCharactersOutput struct {
+	Characters []characters.Character `json:"characters"`
+}
+
+type CharacterOutput struct {
+	Character characters.Character `json:"character"`
+}
+
+type ListConversationsOutput struct {
+	Conversations []conversations.Conversation `json:"conversations"`
+}
+
+type ConversationOutput struct {
+	Conversation conversations.Graph `json:"conversation"`
+}
+
+type PathOutput struct {
+	Path conversations.Path `json:"path"`
+}
+
+type BuildOutput struct {
+	Report build.Report `json:"report"`
+}
+
+type ListNotesInput struct {
+	Status     string `json:"status,omitempty" jsonschema:"open, resolved or dismissed; omit for all"`
+	TargetKind string `json:"target_kind,omitempty" jsonschema:"game, character, conversation, node or choice; omit for all"`
+	TargetID   string `json:"target_id,omitempty" jsonschema:"only notes on this id"`
 }
 
 type ListNotesOutput struct {
 	Notes []notes.Note `json:"notes"`
 }
 
-type NoteIDInput struct {
-	ID string `json:"id" jsonschema:"note id"`
-}
-
 type NoteOutput struct {
 	Note notes.Note `json:"note"`
 }
 
-type CreateNoteInput struct {
-	Title string `json:"title" jsonschema:"a short title, up to 200 characters"`
-	Body  string `json:"body,omitempty" jsonschema:"the note's text, up to 20000 characters"`
+type AddNoteInput struct {
+	TargetKind string `json:"target_kind" jsonschema:"what the note is about: game, character, conversation, node or choice"`
+	TargetID   string `json:"target_id,omitempty" jsonschema:"its id; omit for game"`
+	Kind       string `json:"kind" jsonschema:"gap, continuity, plot_idea, pacing, mechanics, question or other"`
+	Body       string `json:"body" jsonschema:"the note, up to 10000 characters. Describe intent; never write dialogue, choices, names or prose for the game"`
 }
 
-type UpdateNoteInput struct {
-	ID    string  `json:"id" jsonschema:"note id"`
-	Title *string `json:"title,omitempty" jsonschema:"new title; omit to keep it"`
-	Body  *string `json:"body,omitempty" jsonschema:"new body; omit to keep it"`
-}
-
-type OKOutput struct {
-	OK bool `json:"ok"`
+type ReplyInput struct {
+	NoteID string `json:"note_id" jsonschema:"the note to reply to"`
+	Body   string `json:"body" jsonschema:"the reply. Describe intent; never write dialogue, choices, names or prose for the game"`
 }
 
 // ---- registration -----------------------------------------------------------
@@ -76,56 +130,103 @@ type OKOutput struct {
 func registerRead(s *mcpsdk.Server, store server.Store, links app.Links) {
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "whoami",
-		Description: "The api key this connection acts as.",
+		Description: "The api key this connection acts as, and whether it may write content (over MCP, it never may).",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ Empty) (*mcpsdk.CallToolResult, MeOutput, error) {
 		vm, err := server.BuildViewModel(ctx, me.Endpoint{Store: store}, apigen.GetMeRequestObject{})
 		return nil, MeOutput{Me: vm}, err
 	})
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
+		Name:        "list_characters",
+		Description: "Every character, by name, with their bible.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ Empty) (*mcpsdk.CallToolResult, ListCharactersOutput, error) {
+		vm, err := server.BuildViewModel(ctx, characters.ListEndpoint{Store: store, Links: links}, apigen.ListCharactersRequestObject{})
+		return nil, ListCharactersOutput{Characters: vm}, err
+	})
+
+	mcpsdk.AddTool(s, &mcpsdk.Tool{
+		Name:        "get_character",
+		Description: "One character. The bible is the author's notes on their voice, wants and secrets: read it before commenting on anything they say.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in IDInput) (*mcpsdk.CallToolResult, CharacterOutput, error) {
+		vm, err := server.BuildViewModel(ctx, characters.GetEndpoint{Store: store, Links: links}, apigen.GetCharacterRequestObject{CharacterId: in.ID})
+		return nil, CharacterOutput{Character: vm}, err
+	})
+
+	mcpsdk.AddTool(s, &mcpsdk.Tool{
+		Name:        "list_conversations",
+		Description: "Every conversation, newest first, with its title and summary but not its nodes.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ Empty) (*mcpsdk.CallToolResult, ListConversationsOutput, error) {
+		vm, err := server.BuildViewModel(ctx, conversations.ListEndpoint{Store: store, Links: links}, apigen.ListConversationsRequestObject{})
+		return nil, ListConversationsOutput{Conversations: vm}, err
+	})
+
+	mcpsdk.AddTool(s, &mcpsdk.Tool{
+		Name:        "get_conversation",
+		Description: "One conversation in full: every node (a line, with its speaker) and the choices from it. A choice with no toNodeId ends the conversation.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in IDInput) (*mcpsdk.CallToolResult, ConversationOutput, error) {
+		vm, err := server.BuildViewModel(ctx, conversations.GetEndpoint{Store: store, Links: links}, apigen.GetConversationRequestObject{ConversationId: in.ID})
+		return nil, ConversationOutput{Conversation: vm}, err
+	})
+
+	mcpsdk.AddTool(s, &mcpsdk.Tool{
+		Name:        "get_path_to",
+		Description: "The shortest route a player takes from the conversation's start to a node: each line they read and the choice they made after it. Read it before commenting on a line.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in IDInput) (*mcpsdk.CallToolResult, PathOutput, error) {
+		vm, err := server.BuildViewModel(ctx, conversations.PathEndpoint{Store: store}, apigen.GetNodePathRequestObject{NodeId: in.ID})
+		return nil, PathOutput{Path: vm}, err
+	})
+
+	mcpsdk.AddTool(s, &mcpsdk.Tool{
+		Name:        "check_build",
+		Description: "Check the content as the build would. Errors stop it shipping (no start node, a choice leading nowhere, text no person wrote); warnings do not (unreachable nodes).",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ Empty) (*mcpsdk.CallToolResult, BuildOutput, error) {
+		vm, err := server.BuildViewModel(ctx, build.Endpoint{Store: store, Links: links}, apigen.GetBuildReportRequestObject{})
+		return nil, BuildOutput{Report: vm}, err
+	})
+}
+
+func registerNotes(s *mcpsdk.Server, store server.Store, links app.Links) {
+	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "list_notes",
-		Description: "List every note, newest first.",
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ Empty) (*mcpsdk.CallToolResult, ListNotesOutput, error) {
-		vm, err := server.BuildViewModel(ctx, notes.ListEndpoint{Store: store, Links: links}, apigen.ListNotesRequestObject{})
+		Description: "Notes, oldest first, optionally filtered. Check what is already open before adding one.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in ListNotesInput) (*mcpsdk.CallToolResult, ListNotesOutput, error) {
+		vm, err := server.BuildViewModel(ctx, notes.ListEndpoint{Store: store, Links: links}, apigen.ListNotesRequestObject{Params: apigen.ListNotesParams{
+			Status:     apigen.NoteStatus(in.Status),
+			TargetKind: apigen.NoteTargetKind(in.TargetKind),
+			TargetId:   in.TargetID,
+		}})
 		return nil, ListNotesOutput{Notes: vm}, err
 	})
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "get_note",
-		Description: "One note in full.",
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in NoteIDInput) (*mcpsdk.CallToolResult, NoteOutput, error) {
+		Description: "One note.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in IDInput) (*mcpsdk.CallToolResult, NoteOutput, error) {
 		vm, err := server.BuildViewModel(ctx, notes.GetEndpoint{Store: store, Links: links}, apigen.GetNoteRequestObject{NoteId: in.ID})
 		return nil, NoteOutput{Note: vm}, err
 	})
-}
 
-func registerWrite(s *mcpsdk.Server, store server.Store, links app.Links) {
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
-		Name:        "create_note",
-		Description: "Save a new note.",
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in CreateNoteInput) (*mcpsdk.CallToolResult, NoteOutput, error) {
-		vm, err := server.BuildViewModel(ctx, notes.CreateEndpoint{Store: store, Links: links}, apigen.CreateNoteRequestObject{
-			Body: &apigen.NoteCreate{Title: in.Title, Body: in.Body},
-		})
+		Name:        "add_note",
+		Description: "Leave a note for the author on the game, a character, a conversation, a node or a choice. Say what is missing, wrong or possible; never write the game's text.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in AddNoteInput) (*mcpsdk.CallToolResult, NoteOutput, error) {
+		vm, err := server.BuildViewModel(ctx, notes.CreateEndpoint{Store: store, Links: links}, apigen.CreateNoteRequestObject{Body: &apigen.NoteCreate{
+			TargetKind: apigen.NoteTargetKind(in.TargetKind),
+			TargetId:   in.TargetID,
+			Kind:       apigen.NoteKind(in.Kind),
+			Body:       in.Body,
+		}})
 		return nil, NoteOutput{Note: vm}, err
 	})
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
-		Name:        "update_note",
-		Description: "Change a note's title, body, or both. Fields left out stay as they are.",
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in UpdateNoteInput) (*mcpsdk.CallToolResult, NoteOutput, error) {
-		vm, err := server.BuildViewModel(ctx, notes.UpdateEndpoint{Store: store, Links: links}, apigen.UpdateNoteRequestObject{
-			NoteId: in.ID,
-			Body:   &apigen.NoteUpdate{Title: in.Title, Body: in.Body},
-		})
+		Name:        "reply_to_note",
+		Description: "Reply in a note's thread, for example to answer the author's question on one of your notes.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in ReplyInput) (*mcpsdk.CallToolResult, NoteOutput, error) {
+		vm, err := server.BuildViewModel(ctx, notes.CreateEndpoint{Store: store, Links: links}, apigen.CreateNoteRequestObject{Body: &apigen.NoteCreate{
+			ParentId: in.NoteID,
+			Body:     in.Body,
+		}})
 		return nil, NoteOutput{Note: vm}, err
-	})
-
-	mcpsdk.AddTool(s, &mcpsdk.Tool{
-		Name:        "delete_note",
-		Description: "Delete a note. Confirm with the user first.",
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in NoteIDInput) (*mcpsdk.CallToolResult, OKOutput, error) {
-		ok, err := server.BuildViewModel(ctx, notes.DeleteEndpoint{Store: store}, apigen.DeleteNoteRequestObject{NoteId: in.ID})
-		return nil, OKOutput{OK: ok}, err
 	})
 }

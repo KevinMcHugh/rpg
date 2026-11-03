@@ -9,10 +9,12 @@
   color-scheme: light dark;
   --bg: #f7f8fa; --panel: #ffffff; --fg: #14171c; --muted: #5b6370; --line: #dde1e7;
   --accent: #2f5bd3; --accent-fg: #ffffff; --ok: #2f6b3a; --err: #b00020;
+  --note: #fbf6e6; --note-line: #e3d29a; --agent: #6b4fa8;
 }
 @media (prefers-color-scheme: dark) {
   :root { --bg: #0f1115; --panel: #171a20; --fg: #e8eaee; --muted: #9aa3b0; --line: #2a2f38;
-          --accent: #7ea2ff; --accent-fg: #0f1115; --ok: #8fd19e; --err: #ff9aa8; }
+          --accent: #7ea2ff; --accent-fg: #0f1115; --ok: #8fd19e; --err: #ff9aa8;
+          --note: #221f15; --note-line: #5a4e2a; --agent: #b9a2ef; }
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, -apple-system, sans-serif; }
@@ -45,18 +47,88 @@ form.inline { display: inline; }
    button: user-select: all makes one click select the whole id. */
 code.id { font-family: ui-monospace, Menlo, monospace; font-size: .8rem; padding: .05rem .35rem; border: 1px dashed var(--line); border-radius: 4px; user-select: all; -webkit-user-select: all; cursor: text; word-break: break-all; }
 details summary { cursor: pointer; color: var(--accent); }
+select { font: inherit; padding: .4rem .5rem; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--fg); max-width: 100%; }
+.grid2 { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); }
+.badge { font-size: .75rem; padding: .05rem .45rem; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.badge.start { border-color: var(--ok); color: var(--ok); }
+.badge.err { border-color: var(--err); color: var(--err); }
+.badge.agent { border-color: var(--agent); color: var(--agent); }
+/* A line of dialogue: the speaker, then what they say, set like a script. */
+.node { scroll-margin-top: 1rem; }
+.node:target { outline: 2px solid var(--accent); }
+.speaker { font-weight: 700; letter-spacing: .02em; text-transform: uppercase; font-size: .85rem; }
+.speaker.narrator { color: var(--muted); font-style: italic; text-transform: none; letter-spacing: 0; }
+.line { white-space: pre-wrap; overflow-wrap: anywhere; font-family: Georgia, "Iowan Old Style", serif; font-size: 1.05rem; }
+ol.choices { margin: .25rem 0 0; padding-left: 1.4rem; display: grid; gap: .35rem; }
+ol.choices li:target { outline: 2px solid var(--accent); }
+.to { color: var(--muted); font-size: .85rem; }
+/* Notes are feedback, never content, so they look nothing like it. */
+.notes { border-left: 3px solid var(--note-line); background: var(--note); border-radius: 0 8px 8px 0; padding: .5rem .75rem; display: grid; gap: .5rem; font-size: .9rem; }
+.note { display: grid; gap: .15rem; }
+.note.reply { margin-left: 1rem; }
+.note .meta { color: var(--muted); font-size: .78rem; display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+.note .text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.note.closed .text { color: var(--muted); }
+.notes form.stack textarea { min-height: 4rem; }
+button.small { padding: .15rem .5rem; font-size: .78rem; }
 </style>
 </head>
 <body>
 <header class="top">
   <a class="brand" href="/">{{.AppName}}</a>
-  <nav><a href="/">Notes</a></nav>
+  <nav>{{if .SignedIn}}<a href="/">Content</a><a href="/notes">Notes</a><a href="/build">Build</a>{{end}}</nav>
   {{block "account" .}}{{if .SignedIn}}<form class="inline" method="POST" action="/logout"><button class="ghost" type="submit">Sign out</button></form>{{else}}<a class="btn ghost" href="/login?next={{.Path}}">Sign in</a>{{end}}{{end}}
 </header>
 <main>
+{{if and .SignedIn (not .Human)}}<p class="flash err">You are signed in with an agent key: you can read everything and leave notes, but only a person may change the game's content.</p>{{end}}
 {{if .Flash}}<p class="flash">{{.Flash}}</p>{{end}}
 {{if .Error}}<p class="flash err">{{.Error}}</p>{{end}}
 {{template "content" .}}
 </main>
 </body>
 </html>
+{{/* notes renders the thread on one target (a noteBox) and the form to add
+     to it. Notes are feedback, never content: they never ship. */}}
+{{define "notes"}}
+<div class="notes">
+  {{range .Notes}}
+  <div class="note{{if .ParentID}} reply{{end}}{{if ne .Status "open"}} closed{{end}}" id="note-{{.ID}}">
+    <div class="meta">
+      <strong>{{.AuthorName}}</strong>
+      {{if not .ByHuman}}<span class="badge agent">agent</span>{{end}}
+      {{if not .ParentID}}<span class="badge">{{label .Kind}}</span>{{end}}
+      {{if ne .Status "open"}}<span class="badge">{{.Status}}</span>{{end}}
+      <span>{{.CreatedAt.Format "Jan 2 15:04"}}</span>
+      {{if and $.Human (not .ParentID)}}
+        {{if eq .Status "open"}}
+        <form class="inline" method="POST" action="/notes/{{.ID}}/status"><input type="hidden" name="back" value="{{$.Back}}"><input type="hidden" name="status" value="resolved"><button class="ghost small" type="submit">Resolve</button></form>
+        <form class="inline" method="POST" action="/notes/{{.ID}}/status"><input type="hidden" name="back" value="{{$.Back}}"><input type="hidden" name="status" value="dismissed"><button class="ghost small" type="submit">Dismiss</button></form>
+        {{else}}
+        <form class="inline" method="POST" action="/notes/{{.ID}}/status"><input type="hidden" name="back" value="{{$.Back}}"><input type="hidden" name="status" value="open"><button class="ghost small" type="submit">Reopen</button></form>
+        {{end}}
+      {{end}}
+    </div>
+    <div class="text">{{.Body}}</div>
+    {{if not .ParentID}}
+    <details>
+      <summary style="font-size:.78rem">Reply</summary>
+      <form method="POST" action="/notes" class="stack" style="margin-top:.4rem">
+        <input type="hidden" name="parent_id" value="{{.ID}}"><input type="hidden" name="back" value="{{$.Back}}">
+        <textarea name="body" aria-label="Reply" required></textarea>
+        <div><button class="small" type="submit">Reply</button></div>
+      </form>
+    </details>
+    {{end}}
+  </div>
+  {{end}}
+  <details>
+    <summary style="font-size:.85rem">Add a note</summary>
+    <form method="POST" action="/notes" class="stack" style="margin-top:.4rem">
+      <input type="hidden" name="target_kind" value="{{.Kind}}"><input type="hidden" name="target_id" value="{{.ID}}"><input type="hidden" name="back" value="{{.Back}}">
+      <select name="kind" aria-label="Kind">{{range noteKinds}}<option value="{{.}}">{{label .}}</option>{{end}}</select>
+      <textarea name="body" aria-label="Note" required></textarea>
+      <div><button class="small" type="submit">Add note</button></div>
+    </form>
+  </details>
+</div>
+{{end}}

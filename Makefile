@@ -1,6 +1,6 @@
 # See README.md. Code generators and dbmate run with `go run …@version`, so
 # their dependency trees stay out of go.mod.
-.PHONY: dev generate migrate rollback new-migration key invite build test check help
+.PHONY: dev generate migrate rollback new-migration key agent-key invite build bundle test check help
 
 # Generators run on the toolchain go.mod names, never whichever one go run
 # picks: oapi-codegen embeds the spec gzipped, and gzip output differs
@@ -31,12 +31,19 @@ new-migration: ## Create a migration file (usage: make new-migration NAME=create
 	@if [ -z "$(NAME)" ]; then echo "usage: make new-migration NAME=<description>"; exit 1; fi
 	$(DBMATE) new "$(NAME)"
 
-key: ## Mint an api key (usage: make key NAME=kev)
+key: ## Mint a person's api key, which may write content (usage: make key NAME=kev)
 	@if [ -z "$(NAME)" ]; then echo "usage: make key NAME=<label>"; exit 1; fi
+	go run ./cmd/server keys create --name "$(NAME)" --human
+
+agent-key: ## Mint an agent's api key, which may only read and leave notes (usage: make agent-key NAME=claude-code)
+	@if [ -z "$(NAME)" ]; then echo "usage: make agent-key NAME=<label>"; exit 1; fi
 	go run ./cmd/server keys create --name "$(NAME)"
 
 invite: ## Mint a single-use invite for a newcomer (usage: make invite NOTE=ana)
 	go run ./cmd/server invites create --note "$(NOTE)"
+
+bundle: ## Check the content and write the game's bundle to content.json (needs DATABASE_URL)
+	go run ./cmd/server build --out content.json
 
 build: ## Build the binary to bin/server
 	go build -o bin/server ./cmd/server

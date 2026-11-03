@@ -9,31 +9,56 @@ import (
 	"context"
 )
 
+const countOpenNotes = `-- name: CountOpenNotes :one
+SELECT COUNT(*) FROM notes
+WHERE status = 'open' AND parent_id IS NULL AND deleted_at IS NULL
+`
+
+func (q *Queries) CountOpenNotes(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countOpenNotes)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createNote = `-- name: CreateNote :one
-INSERT INTO notes (id, title, body, created_by)
-VALUES ($1, $2, $3, $4)
-RETURNING id, title, body, created_by, created_at, updated_at, deleted_at
+INSERT INTO notes (id, target_kind, target_id, kind, body, parent_id, by_human, created_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, target_kind, target_id, kind, body, status, parent_id, by_human, created_by, created_at, updated_at, deleted_at
 `
 
 type CreateNoteParams struct {
-	ID        string  `json:"id"`
-	Title     string  `json:"title"`
-	Body      string  `json:"body"`
-	CreatedBy *string `json:"created_by"`
+	ID         string  `json:"id"`
+	TargetKind string  `json:"target_kind"`
+	TargetID   *string `json:"target_id"`
+	Kind       string  `json:"kind"`
+	Body       string  `json:"body"`
+	ParentID   *string `json:"parent_id"`
+	ByHuman    bool    `json:"by_human"`
+	CreatedBy  *string `json:"created_by"`
 }
 
 func (q *Queries) CreateNote(ctx context.Context, arg CreateNoteParams) (Note, error) {
 	row := q.db.QueryRow(ctx, createNote,
 		arg.ID,
-		arg.Title,
+		arg.TargetKind,
+		arg.TargetID,
+		arg.Kind,
 		arg.Body,
+		arg.ParentID,
+		arg.ByHuman,
 		arg.CreatedBy,
 	)
 	var i Note
 	err := row.Scan(
 		&i.ID,
-		&i.Title,
+		&i.TargetKind,
+		&i.TargetID,
+		&i.Kind,
 		&i.Body,
+		&i.Status,
+		&i.ParentID,
+		&i.ByHuman,
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -56,48 +81,86 @@ func (q *Queries) DeleteNote(ctx context.Context, id string) (int64, error) {
 }
 
 const getNote = `-- name: GetNote :one
-SELECT id, title, body, created_by, created_at, updated_at, deleted_at FROM notes
-WHERE id = $1 AND deleted_at IS NULL
+SELECT notes.id, notes.target_kind, notes.target_id, notes.kind, notes.body, notes.status, notes.parent_id, notes.by_human, notes.created_by, notes.created_at, notes.updated_at, notes.deleted_at, api_keys.name AS author_name
+FROM notes
+LEFT JOIN api_keys ON api_keys.id = notes.created_by
+WHERE notes.id = $1 AND notes.deleted_at IS NULL
 `
 
-func (q *Queries) GetNote(ctx context.Context, id string) (Note, error) {
+type GetNoteRow struct {
+	Note       Note    `json:"note"`
+	AuthorName *string `json:"author_name"`
+}
+
+// A note with the name of the key that wrote it.
+func (q *Queries) GetNote(ctx context.Context, id string) (GetNoteRow, error) {
 	row := q.db.QueryRow(ctx, getNote, id)
-	var i Note
+	var i GetNoteRow
 	err := row.Scan(
-		&i.ID,
-		&i.Title,
-		&i.Body,
-		&i.CreatedBy,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.DeletedAt,
+		&i.Note.ID,
+		&i.Note.TargetKind,
+		&i.Note.TargetID,
+		&i.Note.Kind,
+		&i.Note.Body,
+		&i.Note.Status,
+		&i.Note.ParentID,
+		&i.Note.ByHuman,
+		&i.Note.CreatedBy,
+		&i.Note.CreatedAt,
+		&i.Note.UpdatedAt,
+		&i.Note.DeletedAt,
+		&i.AuthorName,
 	)
 	return i, err
 }
 
 const listNotes = `-- name: ListNotes :many
-SELECT id, title, body, created_by, created_at, updated_at, deleted_at FROM notes
-WHERE deleted_at IS NULL
-ORDER BY created_at DESC
+SELECT notes.id, notes.target_kind, notes.target_id, notes.kind, notes.body, notes.status, notes.parent_id, notes.by_human, notes.created_by, notes.created_at, notes.updated_at, notes.deleted_at, api_keys.name AS author_name
+FROM notes
+LEFT JOIN api_keys ON api_keys.id = notes.created_by
+WHERE notes.deleted_at IS NULL
+  AND ($1::text IS NULL OR notes.status = $1)
+  AND ($2::text IS NULL OR notes.target_kind = $2)
+  AND ($3::text IS NULL OR notes.target_id = $3)
+ORDER BY notes.created_at, notes.id
 `
 
-func (q *Queries) ListNotes(ctx context.Context) ([]Note, error) {
-	rows, err := q.db.Query(ctx, listNotes)
+type ListNotesParams struct {
+	Status     *string `json:"status"`
+	TargetKind *string `json:"target_kind"`
+	TargetID   *string `json:"target_id"`
+}
+
+type ListNotesRow struct {
+	Note       Note    `json:"note"`
+	AuthorName *string `json:"author_name"`
+}
+
+// Filters left NULL match everything. Oldest first, so a thread reads in
+// order.
+func (q *Queries) ListNotes(ctx context.Context, arg ListNotesParams) ([]ListNotesRow, error) {
+	rows, err := q.db.Query(ctx, listNotes, arg.Status, arg.TargetKind, arg.TargetID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Note{}
+	items := []ListNotesRow{}
 	for rows.Next() {
-		var i Note
+		var i ListNotesRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.Title,
-			&i.Body,
-			&i.CreatedBy,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.DeletedAt,
+			&i.Note.ID,
+			&i.Note.TargetKind,
+			&i.Note.TargetID,
+			&i.Note.Kind,
+			&i.Note.Body,
+			&i.Note.Status,
+			&i.Note.ParentID,
+			&i.Note.ByHuman,
+			&i.Note.CreatedBy,
+			&i.Note.CreatedAt,
+			&i.Note.UpdatedAt,
+			&i.Note.DeletedAt,
+			&i.AuthorName,
 		); err != nil {
 			return nil, err
 		}
@@ -109,30 +172,29 @@ func (q *Queries) ListNotes(ctx context.Context) ([]Note, error) {
 	return items, nil
 }
 
-const updateNote = `-- name: UpdateNote :one
-UPDATE notes SET
-    title = COALESCE($2, title),
-    body = COALESCE($3, body),
-    updated_at = NOW()
+const setNoteStatus = `-- name: SetNoteStatus :one
+UPDATE notes SET status = $2, updated_at = NOW()
 WHERE id = $1 AND deleted_at IS NULL
-RETURNING id, title, body, created_by, created_at, updated_at, deleted_at
+RETURNING id, target_kind, target_id, kind, body, status, parent_id, by_human, created_by, created_at, updated_at, deleted_at
 `
 
-type UpdateNoteParams struct {
-	ID    string  `json:"id"`
-	Title *string `json:"title"`
-	Body  *string `json:"body"`
+type SetNoteStatusParams struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
 }
 
-// Sets whichever of title and body are given (non-null) and leaves the
-// rest alone, so a PATCH can send one field.
-func (q *Queries) UpdateNote(ctx context.Context, arg UpdateNoteParams) (Note, error) {
-	row := q.db.QueryRow(ctx, updateNote, arg.ID, arg.Title, arg.Body)
+func (q *Queries) SetNoteStatus(ctx context.Context, arg SetNoteStatusParams) (Note, error) {
+	row := q.db.QueryRow(ctx, setNoteStatus, arg.ID, arg.Status)
 	var i Note
 	err := row.Scan(
 		&i.ID,
-		&i.Title,
+		&i.TargetKind,
+		&i.TargetID,
+		&i.Kind,
 		&i.Body,
+		&i.Status,
+		&i.ParentID,
+		&i.ByHuman,
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,

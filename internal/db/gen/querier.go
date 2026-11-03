@@ -13,33 +13,76 @@ type Querier interface {
 	// code cannot both succeed.
 	ClaimInviteByHash(ctx context.Context, codeHash string) (Invite, error)
 	ConsumeOAuthCode(ctx context.Context, codeHash string) (OauthCode, error)
+	CountOpenNotes(ctx context.Context) (int64, error)
 	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (ApiKey, error)
+	CreateCharacter(ctx context.Context, arg CreateCharacterParams) (Character, error)
+	CreateChoice(ctx context.Context, arg CreateChoiceParams) (Choice, error)
+	CreateConversation(ctx context.Context, arg CreateConversationParams) (Conversation, error)
 	CreateInvite(ctx context.Context, arg CreateInviteParams) (Invite, error)
+	CreateNode(ctx context.Context, arg CreateNodeParams) (Node, error)
 	CreateNote(ctx context.Context, arg CreateNoteParams) (Note, error)
 	CreateOAuthClient(ctx context.Context, arg CreateOAuthClientParams) (OauthClient, error)
 	CreateOAuthCode(ctx context.Context, arg CreateOAuthCodeParams) error
 	CreateOAuthToken(ctx context.Context, arg CreateOAuthTokenParams) error
+	CreateTextRevision(ctx context.Context, arg CreateTextRevisionParams) (TextRevision, error)
 	DeleteAPIKey(ctx context.Context, id string) error
+	DeleteCharacter(ctx context.Context, id string) (int64, error)
+	DeleteChoice(ctx context.Context, id string) (int64, error)
+	// A deleted node takes the choices it offered with it.
+	DeleteChoicesFromNode(ctx context.Context, fromNodeID string) error
+	// Its nodes and choices stay behind but no longer ship: the build reads
+	// only live conversations.
+	DeleteConversation(ctx context.Context, id string) (int64, error)
 	DeleteInvite(ctx context.Context, id string) (int64, error)
+	DeleteNode(ctx context.Context, id string) (int64, error)
 	DeleteNote(ctx context.Context, id string) (int64, error)
 	GetAPIKey(ctx context.Context, id string) (ApiKey, error)
 	GetAPIKeyByHash(ctx context.Context, keyHash string) (ApiKey, error)
-	GetNote(ctx context.Context, id string) (Note, error)
+	GetCharacter(ctx context.Context, id string) (Character, error)
+	GetChoice(ctx context.Context, id string) (Choice, error)
+	GetConversation(ctx context.Context, id string) (Conversation, error)
+	GetNode(ctx context.Context, id string) (Node, error)
+	// A note with the name of the key that wrote it.
+	GetNote(ctx context.Context, id string) (GetNoteRow, error)
 	GetOAuthClient(ctx context.Context, id string) (OauthClient, error)
-	// A token stops working when its api key is deleted.
-	GetOAuthTokenByHash(ctx context.Context, tokenHash string) (OauthToken, error)
 	GetOAuthTokenByRefreshHash(ctx context.Context, refreshTokenHash *string) (OauthToken, error)
 	ListAPIKeys(ctx context.Context) ([]ApiKey, error)
 	// Unused, unexpired, undeleted invites.
 	ListActiveInvites(ctx context.Context) ([]Invite, error)
-	ListNotes(ctx context.Context) ([]Note, error)
+	// Every live choice from a live node of a live conversation, for the
+	// build. A choice whose target was deleted is still listed, so the build
+	// can report it.
+	ListAllChoices(ctx context.Context) ([]Choice, error)
+	// Every live node of every live conversation, for the build.
+	ListAllNodes(ctx context.Context) ([]Node, error)
+	ListCharacters(ctx context.Context) ([]Character, error)
+	ListChoicesByConversation(ctx context.Context, conversationID string) ([]Choice, error)
+	ListConversations(ctx context.Context) ([]Conversation, error)
+	ListNodesByConversation(ctx context.Context, conversationID string) ([]Node, error)
+	// Filters left NULL match everything. Oldest first, so a thread reads in
+	// order.
+	ListNotes(ctx context.Context, arg ListNotesParams) ([]ListNotesRow, error)
+	// Revisions with the kind and name of the key that wrote them, for the
+	// build's provenance check.
+	ListTextRevisionsByIDs(ctx context.Context, ids []string) ([]ListTextRevisionsByIDsRow, error)
+	// A token stops working when its api key is deleted. client_id is NULL for
+	// a web session, and the key's kind says whether a person holds it.
+	ResolveAccessToken(ctx context.Context, tokenHash string) (ResolveAccessTokenRow, error)
 	RevokeOAuthToken(ctx context.Context, id string) error
 	RevokeOAuthTokenByHash(ctx context.Context, tokenHash string) error
 	SetInviteKey(ctx context.Context, arg SetInviteKeyParams) error
+	SetNoteStatus(ctx context.Context, arg SetNoteStatusParams) (Note, error)
 	TouchAPIKey(ctx context.Context, id string) error
-	// Sets whichever of title and body are given (non-null) and leaves the
-	// rest alone, so a PATCH can send one field.
-	UpdateNote(ctx context.Context, arg UpdateNoteParams) (Note, error)
+	// A new name comes with its new revision.
+	UpdateCharacter(ctx context.Context, arg UpdateCharacterParams) (Character, error)
+	// set_target says whether to change to_node_id, so a PATCH can make a
+	// choice end the conversation. A new text comes with its new revision.
+	UpdateChoice(ctx context.Context, arg UpdateChoiceParams) (Choice, error)
+	// set_start says whether to change start_node_id, so a PATCH can clear it.
+	UpdateConversation(ctx context.Context, arg UpdateConversationParams) (Conversation, error)
+	// set_speaker says whether to change speaker_id, so a PATCH can make a
+	// line the narrator's. A new text comes with its new revision.
+	UpdateNode(ctx context.Context, arg UpdateNodeParams) (Node, error)
 }
 
 var _ Querier = (*Queries)(nil)

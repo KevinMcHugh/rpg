@@ -1,0 +1,19 @@
+{{define "title"}}Build · {{.AppName}}{{end}}
+{{define "content"}}
+<h1>Build</h1>
+{{if .Report.OK}}
+<p class="flash">The content builds. Every line of it was written by a person.</p>
+{{else}}
+<p class="flash err">{{len .Report.Errors}} error{{if ne (len .Report.Errors) 1}}s{{end}} stop the content from building.</p>
+{{end}}
+<p class="muted">{{.Report.Stats.Characters}} characters · {{.Report.Stats.Conversations}} conversations · {{.Report.Stats.Nodes}} lines · {{.Report.Stats.Choices}} choices · {{.Report.Stats.Words}} words · <a href="/notes">{{.Report.Stats.OpenNotes}} open notes</a></p>
+{{if .Report.Errors}}
+<h2>Errors</h2>
+<div class="list">{{range .Report.Errors}}<div class="card"><div class="row"><span class="badge err">{{label .Code}}</span><a href="{{.URL}}">{{.Message}}</a></div></div>{{end}}</div>
+{{end}}
+{{if .Report.Warnings}}
+<h2 style="margin-top:1.5rem">Warnings</h2>
+<div class="list">{{range .Report.Warnings}}<div class="card"><div class="row"><span class="badge">{{label .Code}}</span><a href="{{.URL}}">{{.Message}}</a></div></div>{{end}}</div>
+{{end}}
+<p class="muted" style="margin-top:1.5rem">Write the bundle the game runs on with <code>server build --out content.json</code>. It refuses while there are errors.</p>
+{{end}}

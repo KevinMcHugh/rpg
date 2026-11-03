@@ -11,3 +11,6 @@ bin/
 .vscode/
 
 .sprite
+
+# The bundle `server build` writes.
+content.json

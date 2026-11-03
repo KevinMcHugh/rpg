@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -21,6 +22,220 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for NoteKind.
+const (
+	Continuity NoteKind = "continuity"
+	Gap        NoteKind = "gap"
+	Mechanics  NoteKind = "mechanics"
+	Other      NoteKind = "other"
+	Pacing     NoteKind = "pacing"
+	PlotIdea   NoteKind = "plot_idea"
+	Question   NoteKind = "question"
+)
+
+// Valid indicates whether the value is a known member of the NoteKind enum.
+func (e NoteKind) Valid() bool {
+	switch e {
+	case Continuity:
+		return true
+	case Gap:
+		return true
+	case Mechanics:
+		return true
+	case Other:
+		return true
+	case Pacing:
+		return true
+	case PlotIdea:
+		return true
+	case Question:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for NoteStatus.
+const (
+	Dismissed NoteStatus = "dismissed"
+	Open      NoteStatus = "open"
+	Resolved  NoteStatus = "resolved"
+)
+
+// Valid indicates whether the value is a known member of the NoteStatus enum.
+func (e NoteStatus) Valid() bool {
+	switch e {
+	case Dismissed:
+		return true
+	case Open:
+		return true
+	case Resolved:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for NoteTargetKind.
+const (
+	NoteTargetKindCharacter    NoteTargetKind = "character"
+	NoteTargetKindChoice       NoteTargetKind = "choice"
+	NoteTargetKindConversation NoteTargetKind = "conversation"
+	NoteTargetKindGame         NoteTargetKind = "game"
+	NoteTargetKindNode         NoteTargetKind = "node"
+)
+
+// Valid indicates whether the value is a known member of the NoteTargetKind enum.
+func (e NoteTargetKind) Valid() bool {
+	switch e {
+	case NoteTargetKindCharacter:
+		return true
+	case NoteTargetKindChoice:
+		return true
+	case NoteTargetKindConversation:
+		return true
+	case NoteTargetKindGame:
+		return true
+	case NoteTargetKindNode:
+		return true
+	default:
+		return false
+	}
+}
+
+// BuildIssue defines model for BuildIssue.
+type BuildIssue struct {
+	Code       string `json:"code"`
+	Message    string `json:"message"`
+	TargetId   string `json:"targetId"`
+	TargetKind string `json:"targetKind"`
+	Url        string `json:"url"`
+}
+
+// BuildReport defines model for BuildReport.
+type BuildReport struct {
+	Errors []BuildIssue `json:"errors"`
+
+	// Ok True when there are no errors, so the content would build.
+	Ok       bool         `json:"ok"`
+	Stats    BuildStats   `json:"stats"`
+	Warnings []BuildIssue `json:"warnings"`
+}
+
+// BuildStats defines model for BuildStats.
+type BuildStats struct {
+	Characters    int `json:"characters"`
+	Choices       int `json:"choices"`
+	Conversations int `json:"conversations"`
+	Nodes         int `json:"nodes"`
+	OpenNotes     int `json:"openNotes"`
+
+	// Words Words of player-facing text.
+	Words int `json:"words"`
+}
+
+// Character defines model for Character.
+type Character struct {
+	// Bible Voice, wants, secrets, sample lines. Authoring only; never ships.
+	Bible     string    `json:"bible"`
+	CreatedAt time.Time `json:"createdAt"`
+	Id        string    `json:"id"`
+
+	// Name Player-facing.
+	Name      string    `json:"name"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	Url       string    `json:"url"`
+}
+
+// CharacterCreate defines model for CharacterCreate.
+type CharacterCreate struct {
+	Bible string `json:"bible,omitempty"`
+	Name  string `json:"name"`
+}
+
+// CharacterList defines model for CharacterList.
+type CharacterList struct {
+	Characters []Character `json:"characters"`
+}
+
+// CharacterUpdate Fields left out are left alone.
+type CharacterUpdate struct {
+	Bible *string `json:"bible,omitempty"`
+	Name  *string `json:"name,omitempty"`
+}
+
+// Choice defines model for Choice.
+type Choice struct {
+	FromNodeId string `json:"fromNodeId"`
+	Id         string `json:"id"`
+	SortOrder  int    `json:"sortOrder"`
+
+	// Text Player-facing.
+	Text string `json:"text"`
+
+	// ToNodeId Empty when the choice ends the conversation.
+	ToNodeId string `json:"toNodeId"`
+}
+
+// ChoiceCreate defines model for ChoiceCreate.
+type ChoiceCreate struct {
+	SortOrder int    `json:"sortOrder,omitempty"`
+	Text      string `json:"text"`
+
+	// ToNodeId A node in the same conversation; leave out to end the conversation.
+	ToNodeId string `json:"toNodeId,omitempty"`
+}
+
+// ChoiceUpdate Fields left out are left alone. An empty toNodeId makes the choice end the conversation.
+type ChoiceUpdate struct {
+	SortOrder *int    `json:"sortOrder,omitempty"`
+	Text      *string `json:"text,omitempty"`
+	ToNodeId  *string `json:"toNodeId,omitempty"`
+}
+
+// Conversation defines model for Conversation.
+type Conversation struct {
+	CreatedAt time.Time `json:"createdAt"`
+	Id        string    `json:"id"`
+
+	// StartNodeId Empty until the conversation has a start node.
+	StartNodeId string `json:"startNodeId"`
+
+	// Summary Authoring notes on what the conversation is for; never ships.
+	Summary string `json:"summary"`
+
+	// Title Authoring label; never ships.
+	Title     string    `json:"title"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	Url       string    `json:"url"`
+}
+
+// ConversationCreate defines model for ConversationCreate.
+type ConversationCreate struct {
+	Summary string `json:"summary,omitempty"`
+	Title   string `json:"title"`
+}
+
+// ConversationGraph defines model for ConversationGraph.
+type ConversationGraph struct {
+	Conversation Conversation `json:"conversation"`
+
+	// Nodes In the order they were written, each with its choices.
+	Nodes []Node `json:"nodes"`
+}
+
+// ConversationList defines model for ConversationList.
+type ConversationList struct {
+	Conversations []Conversation `json:"conversations"`
+}
+
+// ConversationUpdate Fields left out are left alone. An empty startNodeId clears it.
+type ConversationUpdate struct {
+	StartNodeId *string `json:"startNodeId,omitempty"`
+	Summary     *string `json:"summary,omitempty"`
+	Title       *string `json:"title,omitempty"`
+}
+
 // Error defines model for Error.
 type Error struct {
 	Error string `json:"error"`
@@ -28,40 +243,128 @@ type Error struct {
 
 // Me defines model for Me.
 type Me struct {
+	// Human Whether this caller may write the game's text: a human key used
+	// directly or through a web session. An OAuth connector token is
+	// never human, whichever key approved it.
+	Human bool   `json:"human"`
 	KeyId string `json:"keyId"`
 
 	// Name The label the key was minted with.
 	Name string `json:"name"`
 }
 
+// Node defines model for Node.
+type Node struct {
+	Choices        []Choice `json:"choices"`
+	ConversationId string   `json:"conversationId"`
+	Id             string   `json:"id"`
+
+	// SpeakerId Empty for the narrator.
+	SpeakerId string `json:"speakerId"`
+
+	// SpeakerName Empty for the narrator.
+	SpeakerName string `json:"speakerName"`
+
+	// Text Player-facing.
+	Text string `json:"text"`
+	Url  string `json:"url"`
+}
+
+// NodeCreate defines model for NodeCreate.
+type NodeCreate struct {
+	// SpeakerId A character id; leave out for the narrator.
+	SpeakerId string `json:"speakerId,omitempty"`
+	Text      string `json:"text"`
+}
+
+// NodePath defines model for NodePath.
+type NodePath struct {
+	ConversationId string `json:"conversationId"`
+	NodeId         string `json:"nodeId"`
+	Reachable      bool   `json:"reachable"`
+
+	// Steps From the start node to this one. Every step but the last has the choice taken there.
+	Steps []PathStep `json:"steps"`
+}
+
+// NodeUpdate Fields left out are left alone. An empty speakerId makes the line the narrator's.
+type NodeUpdate struct {
+	SpeakerId *string `json:"speakerId,omitempty"`
+	Text      *string `json:"text,omitempty"`
+}
+
 // Note defines model for Note.
 type Note struct {
-	Body      string    `json:"body"`
-	CreatedAt time.Time `json:"createdAt"`
-	Id        string    `json:"id"`
-	Title     string    `json:"title"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	AuthorName string    `json:"authorName"`
+	Body       string    `json:"body"`
+	ByHuman    bool      `json:"byHuman"`
+	CreatedAt  time.Time `json:"createdAt"`
+	Id         string    `json:"id"`
+	Kind       NoteKind  `json:"kind"`
 
-	// Url The note's web page.
+	// ParentId The note this replies to; empty for a new thread.
+	ParentId string     `json:"parentId"`
+	Status   NoteStatus `json:"status"`
+
+	// TargetId Empty when targetKind is game.
+	TargetId   string         `json:"targetId"`
+	TargetKind NoteTargetKind `json:"targetKind"`
+	UpdatedAt  time.Time      `json:"updatedAt"`
+
+	// Url The page of what the note is about.
 	Url string `json:"url"`
 }
 
 // NoteCreate defines model for NoteCreate.
 type NoteCreate struct {
-	Body  string `json:"body,omitempty"`
-	Title string `json:"title"`
+	Body string   `json:"body"`
+	Kind NoteKind `json:"kind,omitempty"`
+
+	// ParentId Reply to this note. A reply takes its parent's target, so leave targetKind and targetId out.
+	ParentId   string         `json:"parentId,omitempty"`
+	TargetId   string         `json:"targetId,omitempty"`
+	TargetKind NoteTargetKind `json:"targetKind,omitempty"`
 }
+
+// NoteKind defines model for NoteKind.
+type NoteKind string
 
 // NoteList defines model for NoteList.
 type NoteList struct {
 	Notes []Note `json:"notes"`
 }
 
-// NoteUpdate Fields left out are left alone.
+// NoteStatus defines model for NoteStatus.
+type NoteStatus string
+
+// NoteTargetKind defines model for NoteTargetKind.
+type NoteTargetKind string
+
+// NoteUpdate defines model for NoteUpdate.
 type NoteUpdate struct {
-	Body  *string `json:"body,omitempty"`
-	Title *string `json:"title,omitempty"`
+	Status NoteStatus `json:"status"`
 }
+
+// PathStep defines model for PathStep.
+type PathStep struct {
+	ChoiceId    string `json:"choiceId"`
+	ChoiceText  string `json:"choiceText"`
+	NodeId      string `json:"nodeId"`
+	SpeakerName string `json:"speakerName"`
+	Text        string `json:"text"`
+}
+
+// CharacterId defines model for CharacterId.
+type CharacterId = string
+
+// ChoiceId defines model for ChoiceId.
+type ChoiceId = string
+
+// ConversationId defines model for ConversationId.
+type ConversationId = string
+
+// NodeId defines model for NodeId.
+type NodeId = string
 
 // NoteId defines model for NoteId.
 type NoteId = string
@@ -69,11 +372,45 @@ type NoteId = string
 // BadRequest defines model for BadRequest.
 type BadRequest = Error
 
+// Forbidden defines model for Forbidden.
+type Forbidden = Error
+
 // NotFound defines model for NotFound.
 type NotFound = Error
 
 // Unprocessable defines model for Unprocessable.
 type Unprocessable = Error
+
+// ListNotesParams defines parameters for ListNotes.
+type ListNotesParams struct {
+	Status     NoteStatus     `form:"status,omitempty" json:"status,omitempty"`
+	TargetKind NoteTargetKind `form:"targetKind,omitempty" json:"targetKind,omitempty"`
+	TargetId   string         `form:"targetId,omitempty" json:"targetId,omitempty"`
+}
+
+// CreateCharacterJSONRequestBody defines body for CreateCharacter for application/json ContentType.
+type CreateCharacterJSONRequestBody = CharacterCreate
+
+// UpdateCharacterJSONRequestBody defines body for UpdateCharacter for application/json ContentType.
+type UpdateCharacterJSONRequestBody = CharacterUpdate
+
+// UpdateChoiceJSONRequestBody defines body for UpdateChoice for application/json ContentType.
+type UpdateChoiceJSONRequestBody = ChoiceUpdate
+
+// CreateConversationJSONRequestBody defines body for CreateConversation for application/json ContentType.
+type CreateConversationJSONRequestBody = ConversationCreate
+
+// UpdateConversationJSONRequestBody defines body for UpdateConversation for application/json ContentType.
+type UpdateConversationJSONRequestBody = ConversationUpdate
+
+// CreateNodeJSONRequestBody defines body for CreateNode for application/json ContentType.
+type CreateNodeJSONRequestBody = NodeCreate
+
+// UpdateNodeJSONRequestBody defines body for UpdateNode for application/json ContentType.
+type UpdateNodeJSONRequestBody = NodeUpdate
+
+// CreateChoiceJSONRequestBody defines body for CreateChoice for application/json ContentType.
+type CreateChoiceJSONRequestBody = ChoiceCreate
 
 // CreateNoteJSONRequestBody defines body for CreateNote for application/json ContentType.
 type CreateNoteJSONRequestBody = NoteCreate
@@ -83,13 +420,67 @@ type UpdateNoteJSONRequestBody = NoteUpdate
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// GetBuildReport Check the content as the build would, without writing a bundle
+	// (GET /build)
+	GetBuildReport(w http.ResponseWriter, r *http.Request)
+	// ListCharacters List characters by name
+	// (GET /characters)
+	ListCharacters(w http.ResponseWriter, r *http.Request)
+	// CreateCharacter Create a character
+	// (POST /characters)
+	CreateCharacter(w http.ResponseWriter, r *http.Request)
+	// DeleteCharacter Delete a character
+	// (DELETE /characters/{characterId})
+	DeleteCharacter(w http.ResponseWriter, r *http.Request, characterId CharacterId)
+	// GetCharacter One character, with their bible
+	// (GET /characters/{characterId})
+	GetCharacter(w http.ResponseWriter, r *http.Request, characterId CharacterId)
+	// UpdateCharacter Change a character's name, bible, or both
+	// (PATCH /characters/{characterId})
+	UpdateCharacter(w http.ResponseWriter, r *http.Request, characterId CharacterId)
+	// DeleteChoice Delete a choice
+	// (DELETE /choices/{choiceId})
+	DeleteChoice(w http.ResponseWriter, r *http.Request, choiceId ChoiceId)
+	// UpdateChoice Change a choice's text, target or order
+	// (PATCH /choices/{choiceId})
+	UpdateChoice(w http.ResponseWriter, r *http.Request, choiceId ChoiceId)
+	// ListConversations List conversations, newest first
+	// (GET /conversations)
+	ListConversations(w http.ResponseWriter, r *http.Request)
+	// CreateConversation Create an empty conversation
+	// (POST /conversations)
+	CreateConversation(w http.ResponseWriter, r *http.Request)
+	// DeleteConversation Delete a conversation
+	// (DELETE /conversations/{conversationId})
+	DeleteConversation(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
+	// GetConversation One conversation with every node and choice
+	// (GET /conversations/{conversationId})
+	GetConversation(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
+	// UpdateConversation Change a conversation's title, summary or start node
+	// (PATCH /conversations/{conversationId})
+	UpdateConversation(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
+	// CreateNode Add a line to a conversation
+	// (POST /conversations/{conversationId}/nodes)
+	CreateNode(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
 	// GetMe The api key this request acts as
 	// (GET /me)
 	GetMe(w http.ResponseWriter, r *http.Request)
-	// ListNotes List notes, newest first
+	// DeleteNode Delete a node and the choices it offers
+	// (DELETE /nodes/{nodeId})
+	DeleteNode(w http.ResponseWriter, r *http.Request, nodeId NodeId)
+	// UpdateNode Change a node's speaker, text, or both
+	// (PATCH /nodes/{nodeId})
+	UpdateNode(w http.ResponseWriter, r *http.Request, nodeId NodeId)
+	// CreateChoice Add a choice the player can make at a node
+	// (POST /nodes/{nodeId}/choices)
+	CreateChoice(w http.ResponseWriter, r *http.Request, nodeId NodeId)
+	// GetNodePath The shortest route from the conversation's start to this node
+	// (GET /nodes/{nodeId}/path)
+	GetNodePath(w http.ResponseWriter, r *http.Request, nodeId NodeId)
+	// ListNotes List notes, oldest first
 	// (GET /notes)
-	ListNotes(w http.ResponseWriter, r *http.Request)
-	// CreateNote Create a note
+	ListNotes(w http.ResponseWriter, r *http.Request, params ListNotesParams)
+	// CreateNote Leave a note on the game, a character, a conversation, a node or a choice
 	// (POST /notes)
 	CreateNote(w http.ResponseWriter, r *http.Request)
 	// DeleteNote Delete a note
@@ -98,7 +489,7 @@ type ServerInterface interface {
 	// GetNote One note
 	// (GET /notes/{noteId})
 	GetNote(w http.ResponseWriter, r *http.Request, noteId NoteId)
-	// UpdateNote Change a note's title, body, or both
+	// UpdateNote Resolve, dismiss or reopen a note
 	// (PATCH /notes/{noteId})
 	UpdateNote(w http.ResponseWriter, r *http.Request, noteId NoteId)
 }
@@ -107,19 +498,127 @@ type ServerInterface interface {
 
 type Unimplemented struct{}
 
+// GetBuildReport Check the content as the build would, without writing a bundle
+// (GET /build)
+func (_ Unimplemented) GetBuildReport(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListCharacters List characters by name
+// (GET /characters)
+func (_ Unimplemented) ListCharacters(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateCharacter Create a character
+// (POST /characters)
+func (_ Unimplemented) CreateCharacter(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DeleteCharacter Delete a character
+// (DELETE /characters/{characterId})
+func (_ Unimplemented) DeleteCharacter(w http.ResponseWriter, r *http.Request, characterId CharacterId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetCharacter One character, with their bible
+// (GET /characters/{characterId})
+func (_ Unimplemented) GetCharacter(w http.ResponseWriter, r *http.Request, characterId CharacterId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// UpdateCharacter Change a character's name, bible, or both
+// (PATCH /characters/{characterId})
+func (_ Unimplemented) UpdateCharacter(w http.ResponseWriter, r *http.Request, characterId CharacterId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DeleteChoice Delete a choice
+// (DELETE /choices/{choiceId})
+func (_ Unimplemented) DeleteChoice(w http.ResponseWriter, r *http.Request, choiceId ChoiceId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// UpdateChoice Change a choice's text, target or order
+// (PATCH /choices/{choiceId})
+func (_ Unimplemented) UpdateChoice(w http.ResponseWriter, r *http.Request, choiceId ChoiceId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListConversations List conversations, newest first
+// (GET /conversations)
+func (_ Unimplemented) ListConversations(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateConversation Create an empty conversation
+// (POST /conversations)
+func (_ Unimplemented) CreateConversation(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DeleteConversation Delete a conversation
+// (DELETE /conversations/{conversationId})
+func (_ Unimplemented) DeleteConversation(w http.ResponseWriter, r *http.Request, conversationId ConversationId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetConversation One conversation with every node and choice
+// (GET /conversations/{conversationId})
+func (_ Unimplemented) GetConversation(w http.ResponseWriter, r *http.Request, conversationId ConversationId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// UpdateConversation Change a conversation's title, summary or start node
+// (PATCH /conversations/{conversationId})
+func (_ Unimplemented) UpdateConversation(w http.ResponseWriter, r *http.Request, conversationId ConversationId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateNode Add a line to a conversation
+// (POST /conversations/{conversationId}/nodes)
+func (_ Unimplemented) CreateNode(w http.ResponseWriter, r *http.Request, conversationId ConversationId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // GetMe The api key this request acts as
 // (GET /me)
 func (_ Unimplemented) GetMe(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// ListNotes List notes, newest first
-// (GET /notes)
-func (_ Unimplemented) ListNotes(w http.ResponseWriter, r *http.Request) {
+// DeleteNode Delete a node and the choices it offers
+// (DELETE /nodes/{nodeId})
+func (_ Unimplemented) DeleteNode(w http.ResponseWriter, r *http.Request, nodeId NodeId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// CreateNote Create a note
+// UpdateNode Change a node's speaker, text, or both
+// (PATCH /nodes/{nodeId})
+func (_ Unimplemented) UpdateNode(w http.ResponseWriter, r *http.Request, nodeId NodeId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateChoice Add a choice the player can make at a node
+// (POST /nodes/{nodeId}/choices)
+func (_ Unimplemented) CreateChoice(w http.ResponseWriter, r *http.Request, nodeId NodeId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetNodePath The shortest route from the conversation's start to this node
+// (GET /nodes/{nodeId}/path)
+func (_ Unimplemented) GetNodePath(w http.ResponseWriter, r *http.Request, nodeId NodeId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListNotes List notes, oldest first
+// (GET /notes)
+func (_ Unimplemented) ListNotes(w http.ResponseWriter, r *http.Request, params ListNotesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateNote Leave a note on the game, a character, a conversation, a node or a choice
 // (POST /notes)
 func (_ Unimplemented) CreateNote(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -137,7 +636,7 @@ func (_ Unimplemented) GetNote(w http.ResponseWriter, r *http.Request, noteId No
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// UpdateNote Change a note's title, body, or both
+// UpdateNote Resolve, dismiss or reopen a note
 // (PATCH /notes/{noteId})
 func (_ Unimplemented) UpdateNote(w http.ResponseWriter, r *http.Request, noteId NoteId) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -151,6 +650,310 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// GetBuildReport operation middleware
+func (siw *ServerInterfaceWrapper) GetBuildReport(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetBuildReport(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListCharacters operation middleware
+func (siw *ServerInterfaceWrapper) ListCharacters(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListCharacters(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateCharacter operation middleware
+func (siw *ServerInterfaceWrapper) CreateCharacter(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateCharacter(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteCharacter operation middleware
+func (siw *ServerInterfaceWrapper) DeleteCharacter(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "characterId" -------------
+	var characterId CharacterId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "characterId", chi.URLParam(r, "characterId"), &characterId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "characterId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteCharacter(w, r, characterId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCharacter operation middleware
+func (siw *ServerInterfaceWrapper) GetCharacter(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "characterId" -------------
+	var characterId CharacterId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "characterId", chi.URLParam(r, "characterId"), &characterId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "characterId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCharacter(w, r, characterId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateCharacter operation middleware
+func (siw *ServerInterfaceWrapper) UpdateCharacter(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "characterId" -------------
+	var characterId CharacterId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "characterId", chi.URLParam(r, "characterId"), &characterId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "characterId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateCharacter(w, r, characterId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteChoice operation middleware
+func (siw *ServerInterfaceWrapper) DeleteChoice(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "choiceId" -------------
+	var choiceId ChoiceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "choiceId", chi.URLParam(r, "choiceId"), &choiceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "choiceId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteChoice(w, r, choiceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateChoice operation middleware
+func (siw *ServerInterfaceWrapper) UpdateChoice(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "choiceId" -------------
+	var choiceId ChoiceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "choiceId", chi.URLParam(r, "choiceId"), &choiceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "choiceId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateChoice(w, r, choiceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListConversations operation middleware
+func (siw *ServerInterfaceWrapper) ListConversations(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListConversations(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateConversation operation middleware
+func (siw *ServerInterfaceWrapper) CreateConversation(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateConversation(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteConversation operation middleware
+func (siw *ServerInterfaceWrapper) DeleteConversation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversationId" -------------
+	var conversationId ConversationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversationId", chi.URLParam(r, "conversationId"), &conversationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversationId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteConversation(w, r, conversationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetConversation operation middleware
+func (siw *ServerInterfaceWrapper) GetConversation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversationId" -------------
+	var conversationId ConversationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversationId", chi.URLParam(r, "conversationId"), &conversationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversationId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetConversation(w, r, conversationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateConversation operation middleware
+func (siw *ServerInterfaceWrapper) UpdateConversation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversationId" -------------
+	var conversationId ConversationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversationId", chi.URLParam(r, "conversationId"), &conversationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversationId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateConversation(w, r, conversationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateNode operation middleware
+func (siw *ServerInterfaceWrapper) CreateNode(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversationId" -------------
+	var conversationId ConversationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversationId", chi.URLParam(r, "conversationId"), &conversationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversationId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateNode(w, r, conversationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // GetMe operation middleware
 func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request) {
@@ -166,11 +969,160 @@ func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request)
 	handler.ServeHTTP(w, r)
 }
 
+// DeleteNode operation middleware
+func (siw *ServerInterfaceWrapper) DeleteNode(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "nodeId" -------------
+	var nodeId NodeId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "nodeId", chi.URLParam(r, "nodeId"), &nodeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "nodeId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteNode(w, r, nodeId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateNode operation middleware
+func (siw *ServerInterfaceWrapper) UpdateNode(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "nodeId" -------------
+	var nodeId NodeId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "nodeId", chi.URLParam(r, "nodeId"), &nodeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "nodeId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateNode(w, r, nodeId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateChoice operation middleware
+func (siw *ServerInterfaceWrapper) CreateChoice(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "nodeId" -------------
+	var nodeId NodeId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "nodeId", chi.URLParam(r, "nodeId"), &nodeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "nodeId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateChoice(w, r, nodeId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetNodePath operation middleware
+func (siw *ServerInterfaceWrapper) GetNodePath(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "nodeId" -------------
+	var nodeId NodeId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "nodeId", chi.URLParam(r, "nodeId"), &nodeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "nodeId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetNodePath(w, r, nodeId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListNotes operation middleware
 func (siw *ServerInterfaceWrapper) ListNotes(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListNotesParams
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "targetKind" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "targetKind", r.URL.Query(), &params.TargetKind, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "targetKind"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "targetKind", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "targetId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "targetId", r.URL.Query(), &params.TargetId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "targetId"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "targetId", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListNotes(w, r)
+		siw.Handler.ListNotes(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -389,6 +1341,57 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/me", wrapper.GetMe)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/characters", wrapper.ListCharacters)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/characters", wrapper.CreateCharacter)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/characters/{characterId}", wrapper.DeleteCharacter)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/characters/{characterId}", wrapper.GetCharacter)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/characters/{characterId}", wrapper.UpdateCharacter)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/conversations", wrapper.ListConversations)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/conversations", wrapper.CreateConversation)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/conversations/{conversationId}", wrapper.DeleteConversation)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/conversations/{conversationId}", wrapper.GetConversation)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/conversations/{conversationId}", wrapper.UpdateConversation)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/conversations/{conversationId}/nodes", wrapper.CreateNode)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/nodes/{nodeId}", wrapper.DeleteNode)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/nodes/{nodeId}", wrapper.UpdateNode)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/nodes/{nodeId}/path", wrapper.GetNodePath)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/nodes/{nodeId}/choices", wrapper.CreateChoice)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/choices/{choiceId}", wrapper.DeleteChoice)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/choices/{choiceId}", wrapper.UpdateChoice)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/notes", wrapper.ListNotes)
 	})
 	r.Group(func(r chi.Router) {
@@ -403,17 +1406,887 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/notes/{noteId}", wrapper.UpdateNote)
 	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/build", wrapper.GetBuildReport)
+	})
 
 	return r
 }
 
 type BadRequestJSONResponse Error
 
+type ForbiddenJSONResponse Error
+
 type NotFoundJSONResponse Error
 
 type UnauthorizedTextResponse string
 
 type UnprocessableJSONResponse Error
+
+type GetBuildReportRequestObject struct {
+}
+
+type GetBuildReportResponseObject interface {
+	VisitGetBuildReportResponse(w http.ResponseWriter) error
+}
+
+type GetBuildReport200JSONResponse BuildReport
+
+func (response GetBuildReport200JSONResponse) VisitGetBuildReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBuildReport401TextResponse UnauthorizedTextResponse
+
+func (response GetBuildReport401TextResponse) VisitGetBuildReportResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type ListCharactersRequestObject struct {
+}
+
+type ListCharactersResponseObject interface {
+	VisitListCharactersResponse(w http.ResponseWriter) error
+}
+
+type ListCharacters200JSONResponse CharacterList
+
+func (response ListCharacters200JSONResponse) VisitListCharactersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCharacters401TextResponse UnauthorizedTextResponse
+
+func (response ListCharacters401TextResponse) VisitListCharactersResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type CreateCharacterRequestObject struct {
+	Body *CreateCharacterJSONRequestBody
+}
+
+type CreateCharacterResponseObject interface {
+	VisitCreateCharacterResponse(w http.ResponseWriter) error
+}
+
+type CreateCharacter201JSONResponse Character
+
+func (response CreateCharacter201JSONResponse) VisitCreateCharacterResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCharacter400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateCharacter400JSONResponse) VisitCreateCharacterResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCharacter401TextResponse UnauthorizedTextResponse
+
+func (response CreateCharacter401TextResponse) VisitCreateCharacterResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type CreateCharacter403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateCharacter403JSONResponse) VisitCreateCharacterResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCharacter422JSONResponse struct{ UnprocessableJSONResponse }
+
+func (response CreateCharacter422JSONResponse) VisitCreateCharacterResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteCharacterRequestObject struct {
+	CharacterId CharacterId `json:"characterId"`
+}
+
+type DeleteCharacterResponseObject interface {
+	VisitDeleteCharacterResponse(w http.ResponseWriter) error
+}
+
+type DeleteCharacter204Response struct {
+}
+
+func (response DeleteCharacter204Response) VisitDeleteCharacterResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteCharacter401TextResponse UnauthorizedTextResponse
+
+func (response DeleteCharacter401TextResponse) VisitDeleteCharacterResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type DeleteCharacter403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteCharacter403JSONResponse) VisitDeleteCharacterResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteCharacter404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteCharacter404JSONResponse) VisitDeleteCharacterResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCharacterRequestObject struct {
+	CharacterId CharacterId `json:"characterId"`
+}
+
+type GetCharacterResponseObject interface {
+	VisitGetCharacterResponse(w http.ResponseWriter) error
+}
+
+type GetCharacter200JSONResponse Character
+
+func (response GetCharacter200JSONResponse) VisitGetCharacterResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCharacter401TextResponse UnauthorizedTextResponse
+
+func (response GetCharacter401TextResponse) VisitGetCharacterResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type GetCharacter404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetCharacter404JSONResponse) VisitGetCharacterResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCharacterRequestObject struct {
+	CharacterId CharacterId `json:"characterId"`
+	Body        *UpdateCharacterJSONRequestBody
+}
+
+type UpdateCharacterResponseObject interface {
+	VisitUpdateCharacterResponse(w http.ResponseWriter) error
+}
+
+type UpdateCharacter200JSONResponse Character
+
+func (response UpdateCharacter200JSONResponse) VisitUpdateCharacterResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCharacter400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdateCharacter400JSONResponse) VisitUpdateCharacterResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCharacter401TextResponse UnauthorizedTextResponse
+
+func (response UpdateCharacter401TextResponse) VisitUpdateCharacterResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type UpdateCharacter403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateCharacter403JSONResponse) VisitUpdateCharacterResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCharacter404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateCharacter404JSONResponse) VisitUpdateCharacterResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCharacter422JSONResponse struct{ UnprocessableJSONResponse }
+
+func (response UpdateCharacter422JSONResponse) VisitUpdateCharacterResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteChoiceRequestObject struct {
+	ChoiceId ChoiceId `json:"choiceId"`
+}
+
+type DeleteChoiceResponseObject interface {
+	VisitDeleteChoiceResponse(w http.ResponseWriter) error
+}
+
+type DeleteChoice204Response struct {
+}
+
+func (response DeleteChoice204Response) VisitDeleteChoiceResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteChoice401TextResponse UnauthorizedTextResponse
+
+func (response DeleteChoice401TextResponse) VisitDeleteChoiceResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type DeleteChoice403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteChoice403JSONResponse) VisitDeleteChoiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteChoice404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteChoice404JSONResponse) VisitDeleteChoiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateChoiceRequestObject struct {
+	ChoiceId ChoiceId `json:"choiceId"`
+	Body     *UpdateChoiceJSONRequestBody
+}
+
+type UpdateChoiceResponseObject interface {
+	VisitUpdateChoiceResponse(w http.ResponseWriter) error
+}
+
+type UpdateChoice200JSONResponse Choice
+
+func (response UpdateChoice200JSONResponse) VisitUpdateChoiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateChoice400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdateChoice400JSONResponse) VisitUpdateChoiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateChoice401TextResponse UnauthorizedTextResponse
+
+func (response UpdateChoice401TextResponse) VisitUpdateChoiceResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type UpdateChoice403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateChoice403JSONResponse) VisitUpdateChoiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateChoice404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateChoice404JSONResponse) VisitUpdateChoiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateChoice422JSONResponse struct{ UnprocessableJSONResponse }
+
+func (response UpdateChoice422JSONResponse) VisitUpdateChoiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListConversationsRequestObject struct {
+}
+
+type ListConversationsResponseObject interface {
+	VisitListConversationsResponse(w http.ResponseWriter) error
+}
+
+type ListConversations200JSONResponse ConversationList
+
+func (response ListConversations200JSONResponse) VisitListConversationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListConversations401TextResponse UnauthorizedTextResponse
+
+func (response ListConversations401TextResponse) VisitListConversationsResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type CreateConversationRequestObject struct {
+	Body *CreateConversationJSONRequestBody
+}
+
+type CreateConversationResponseObject interface {
+	VisitCreateConversationResponse(w http.ResponseWriter) error
+}
+
+type CreateConversation201JSONResponse ConversationGraph
+
+func (response CreateConversation201JSONResponse) VisitCreateConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateConversation400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateConversation400JSONResponse) VisitCreateConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateConversation401TextResponse UnauthorizedTextResponse
+
+func (response CreateConversation401TextResponse) VisitCreateConversationResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type CreateConversation403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateConversation403JSONResponse) VisitCreateConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateConversation422JSONResponse struct{ UnprocessableJSONResponse }
+
+func (response CreateConversation422JSONResponse) VisitCreateConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteConversationRequestObject struct {
+	ConversationId ConversationId `json:"conversationId"`
+}
+
+type DeleteConversationResponseObject interface {
+	VisitDeleteConversationResponse(w http.ResponseWriter) error
+}
+
+type DeleteConversation204Response struct {
+}
+
+func (response DeleteConversation204Response) VisitDeleteConversationResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteConversation401TextResponse UnauthorizedTextResponse
+
+func (response DeleteConversation401TextResponse) VisitDeleteConversationResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type DeleteConversation403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteConversation403JSONResponse) VisitDeleteConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteConversation404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteConversation404JSONResponse) VisitDeleteConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetConversationRequestObject struct {
+	ConversationId ConversationId `json:"conversationId"`
+}
+
+type GetConversationResponseObject interface {
+	VisitGetConversationResponse(w http.ResponseWriter) error
+}
+
+type GetConversation200JSONResponse ConversationGraph
+
+func (response GetConversation200JSONResponse) VisitGetConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetConversation401TextResponse UnauthorizedTextResponse
+
+func (response GetConversation401TextResponse) VisitGetConversationResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type GetConversation404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetConversation404JSONResponse) VisitGetConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateConversationRequestObject struct {
+	ConversationId ConversationId `json:"conversationId"`
+	Body           *UpdateConversationJSONRequestBody
+}
+
+type UpdateConversationResponseObject interface {
+	VisitUpdateConversationResponse(w http.ResponseWriter) error
+}
+
+type UpdateConversation200JSONResponse ConversationGraph
+
+func (response UpdateConversation200JSONResponse) VisitUpdateConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateConversation400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdateConversation400JSONResponse) VisitUpdateConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateConversation401TextResponse UnauthorizedTextResponse
+
+func (response UpdateConversation401TextResponse) VisitUpdateConversationResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type UpdateConversation403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateConversation403JSONResponse) VisitUpdateConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateConversation404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateConversation404JSONResponse) VisitUpdateConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateConversation422JSONResponse struct{ UnprocessableJSONResponse }
+
+func (response UpdateConversation422JSONResponse) VisitUpdateConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNodeRequestObject struct {
+	ConversationId ConversationId `json:"conversationId"`
+	Body           *CreateNodeJSONRequestBody
+}
+
+type CreateNodeResponseObject interface {
+	VisitCreateNodeResponse(w http.ResponseWriter) error
+}
+
+type CreateNode201JSONResponse Node
+
+func (response CreateNode201JSONResponse) VisitCreateNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNode400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateNode400JSONResponse) VisitCreateNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNode401TextResponse UnauthorizedTextResponse
+
+func (response CreateNode401TextResponse) VisitCreateNodeResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type CreateNode403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateNode403JSONResponse) VisitCreateNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNode404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateNode404JSONResponse) VisitCreateNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNode422JSONResponse struct{ UnprocessableJSONResponse }
+
+func (response CreateNode422JSONResponse) VisitCreateNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type GetMeRequestObject struct {
 }
@@ -447,7 +2320,290 @@ func (response GetMe401TextResponse) VisitGetMeResponse(w http.ResponseWriter) e
 	return err
 }
 
+type DeleteNodeRequestObject struct {
+	NodeId NodeId `json:"nodeId"`
+}
+
+type DeleteNodeResponseObject interface {
+	VisitDeleteNodeResponse(w http.ResponseWriter) error
+}
+
+type DeleteNode204Response struct {
+}
+
+func (response DeleteNode204Response) VisitDeleteNodeResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteNode401TextResponse UnauthorizedTextResponse
+
+func (response DeleteNode401TextResponse) VisitDeleteNodeResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type DeleteNode403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteNode403JSONResponse) VisitDeleteNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteNode404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteNode404JSONResponse) VisitDeleteNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateNodeRequestObject struct {
+	NodeId NodeId `json:"nodeId"`
+	Body   *UpdateNodeJSONRequestBody
+}
+
+type UpdateNodeResponseObject interface {
+	VisitUpdateNodeResponse(w http.ResponseWriter) error
+}
+
+type UpdateNode200JSONResponse Node
+
+func (response UpdateNode200JSONResponse) VisitUpdateNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateNode400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdateNode400JSONResponse) VisitUpdateNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateNode401TextResponse UnauthorizedTextResponse
+
+func (response UpdateNode401TextResponse) VisitUpdateNodeResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type UpdateNode403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateNode403JSONResponse) VisitUpdateNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateNode404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateNode404JSONResponse) VisitUpdateNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateNode422JSONResponse struct{ UnprocessableJSONResponse }
+
+func (response UpdateNode422JSONResponse) VisitUpdateNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateChoiceRequestObject struct {
+	NodeId NodeId `json:"nodeId"`
+	Body   *CreateChoiceJSONRequestBody
+}
+
+type CreateChoiceResponseObject interface {
+	VisitCreateChoiceResponse(w http.ResponseWriter) error
+}
+
+type CreateChoice201JSONResponse Choice
+
+func (response CreateChoice201JSONResponse) VisitCreateChoiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateChoice400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateChoice400JSONResponse) VisitCreateChoiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateChoice401TextResponse UnauthorizedTextResponse
+
+func (response CreateChoice401TextResponse) VisitCreateChoiceResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type CreateChoice403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateChoice403JSONResponse) VisitCreateChoiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateChoice404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateChoice404JSONResponse) VisitCreateChoiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateChoice422JSONResponse struct{ UnprocessableJSONResponse }
+
+func (response CreateChoice422JSONResponse) VisitCreateChoiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetNodePathRequestObject struct {
+	NodeId NodeId `json:"nodeId"`
+}
+
+type GetNodePathResponseObject interface {
+	VisitGetNodePathResponse(w http.ResponseWriter) error
+}
+
+type GetNodePath200JSONResponse NodePath
+
+func (response GetNodePath200JSONResponse) VisitGetNodePathResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetNodePath401TextResponse UnauthorizedTextResponse
+
+func (response GetNodePath401TextResponse) VisitGetNodePathResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type GetNodePath404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetNodePath404JSONResponse) VisitGetNodePathResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListNotesRequestObject struct {
+	Params ListNotesParams
 }
 
 type ListNotesResponseObject interface {
@@ -464,6 +2620,31 @@ func (response ListNotes200JSONResponse) VisitListNotesResponse(w http.ResponseW
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListNotes401TextResponse UnauthorizedTextResponse
+
+func (response ListNotes401TextResponse) VisitListNotesResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type ListNotes422JSONResponse struct{ UnprocessableJSONResponse }
+
+func (response ListNotes422JSONResponse) VisitListNotesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -515,6 +2696,20 @@ func (response CreateNote401TextResponse) VisitCreateNoteResponse(w http.Respons
 	return err
 }
 
+type CreateNote404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateNote404JSONResponse) VisitCreateNoteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CreateNote422JSONResponse struct{ UnprocessableJSONResponse }
 
 func (response CreateNote422JSONResponse) VisitCreateNoteResponse(w http.ResponseWriter) error {
@@ -556,6 +2751,20 @@ func (response DeleteNote401TextResponse) VisitDeleteNoteResponse(w http.Respons
 	return err
 }
 
+type DeleteNote403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteNote403JSONResponse) VisitDeleteNoteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type DeleteNote404JSONResponse struct{ NotFoundJSONResponse }
 
 func (response DeleteNote404JSONResponse) VisitDeleteNoteResponse(w http.ResponseWriter) error {
@@ -589,6 +2798,17 @@ func (response GetNote200JSONResponse) VisitGetNoteResponse(w http.ResponseWrite
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
 	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetNote401TextResponse UnauthorizedTextResponse
+
+func (response GetNote401TextResponse) VisitGetNoteResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
 	return err
 }
 
@@ -654,6 +2874,20 @@ func (response UpdateNote401TextResponse) VisitUpdateNoteResponse(w http.Respons
 	return err
 }
 
+type UpdateNote403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateNote403JSONResponse) VisitUpdateNoteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type UpdateNote404JSONResponse struct{ NotFoundJSONResponse }
 
 func (response UpdateNote404JSONResponse) VisitUpdateNoteResponse(w http.ResponseWriter) error {
@@ -684,13 +2918,67 @@ func (response UpdateNote422JSONResponse) VisitUpdateNoteResponse(w http.Respons
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// GetBuildReport Check the content as the build would, without writing a bundle
+	// (GET /build)
+	GetBuildReport(ctx context.Context, request GetBuildReportRequestObject) (GetBuildReportResponseObject, error)
+	// ListCharacters List characters by name
+	// (GET /characters)
+	ListCharacters(ctx context.Context, request ListCharactersRequestObject) (ListCharactersResponseObject, error)
+	// CreateCharacter Create a character
+	// (POST /characters)
+	CreateCharacter(ctx context.Context, request CreateCharacterRequestObject) (CreateCharacterResponseObject, error)
+	// DeleteCharacter Delete a character
+	// (DELETE /characters/{characterId})
+	DeleteCharacter(ctx context.Context, request DeleteCharacterRequestObject) (DeleteCharacterResponseObject, error)
+	// GetCharacter One character, with their bible
+	// (GET /characters/{characterId})
+	GetCharacter(ctx context.Context, request GetCharacterRequestObject) (GetCharacterResponseObject, error)
+	// UpdateCharacter Change a character's name, bible, or both
+	// (PATCH /characters/{characterId})
+	UpdateCharacter(ctx context.Context, request UpdateCharacterRequestObject) (UpdateCharacterResponseObject, error)
+	// DeleteChoice Delete a choice
+	// (DELETE /choices/{choiceId})
+	DeleteChoice(ctx context.Context, request DeleteChoiceRequestObject) (DeleteChoiceResponseObject, error)
+	// UpdateChoice Change a choice's text, target or order
+	// (PATCH /choices/{choiceId})
+	UpdateChoice(ctx context.Context, request UpdateChoiceRequestObject) (UpdateChoiceResponseObject, error)
+	// ListConversations List conversations, newest first
+	// (GET /conversations)
+	ListConversations(ctx context.Context, request ListConversationsRequestObject) (ListConversationsResponseObject, error)
+	// CreateConversation Create an empty conversation
+	// (POST /conversations)
+	CreateConversation(ctx context.Context, request CreateConversationRequestObject) (CreateConversationResponseObject, error)
+	// DeleteConversation Delete a conversation
+	// (DELETE /conversations/{conversationId})
+	DeleteConversation(ctx context.Context, request DeleteConversationRequestObject) (DeleteConversationResponseObject, error)
+	// GetConversation One conversation with every node and choice
+	// (GET /conversations/{conversationId})
+	GetConversation(ctx context.Context, request GetConversationRequestObject) (GetConversationResponseObject, error)
+	// UpdateConversation Change a conversation's title, summary or start node
+	// (PATCH /conversations/{conversationId})
+	UpdateConversation(ctx context.Context, request UpdateConversationRequestObject) (UpdateConversationResponseObject, error)
+	// CreateNode Add a line to a conversation
+	// (POST /conversations/{conversationId}/nodes)
+	CreateNode(ctx context.Context, request CreateNodeRequestObject) (CreateNodeResponseObject, error)
 	// GetMe The api key this request acts as
 	// (GET /me)
 	GetMe(ctx context.Context, request GetMeRequestObject) (GetMeResponseObject, error)
-	// ListNotes List notes, newest first
+	// DeleteNode Delete a node and the choices it offers
+	// (DELETE /nodes/{nodeId})
+	DeleteNode(ctx context.Context, request DeleteNodeRequestObject) (DeleteNodeResponseObject, error)
+	// UpdateNode Change a node's speaker, text, or both
+	// (PATCH /nodes/{nodeId})
+	UpdateNode(ctx context.Context, request UpdateNodeRequestObject) (UpdateNodeResponseObject, error)
+	// CreateChoice Add a choice the player can make at a node
+	// (POST /nodes/{nodeId}/choices)
+	CreateChoice(ctx context.Context, request CreateChoiceRequestObject) (CreateChoiceResponseObject, error)
+	// GetNodePath The shortest route from the conversation's start to this node
+	// (GET /nodes/{nodeId}/path)
+	GetNodePath(ctx context.Context, request GetNodePathRequestObject) (GetNodePathResponseObject, error)
+	// ListNotes List notes, oldest first
 	// (GET /notes)
 	ListNotes(ctx context.Context, request ListNotesRequestObject) (ListNotesResponseObject, error)
-	// CreateNote Create a note
+	// CreateNote Leave a note on the game, a character, a conversation, a node or a choice
 	// (POST /notes)
 	CreateNote(ctx context.Context, request CreateNoteRequestObject) (CreateNoteResponseObject, error)
 	// DeleteNote Delete a note
@@ -699,7 +2987,7 @@ type StrictServerInterface interface {
 	// GetNote One note
 	// (GET /notes/{noteId})
 	GetNote(ctx context.Context, request GetNoteRequestObject) (GetNoteResponseObject, error)
-	// UpdateNote Change a note's title, body, or both
+	// UpdateNote Resolve, dismiss or reopen a note
 	// (PATCH /notes/{noteId})
 	UpdateNote(ctx context.Context, request UpdateNoteRequestObject) (UpdateNoteResponseObject, error)
 }
@@ -743,6 +3031,402 @@ type strictHandler struct {
 	options     StrictHTTPServerOptions
 }
 
+// GetBuildReport operation middleware
+func (sh *strictHandler) GetBuildReport(w http.ResponseWriter, r *http.Request) {
+	var request GetBuildReportRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetBuildReport(ctx, request.(GetBuildReportRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetBuildReport")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetBuildReportResponseObject); ok {
+		if err := validResponse.VisitGetBuildReportResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListCharacters operation middleware
+func (sh *strictHandler) ListCharacters(w http.ResponseWriter, r *http.Request) {
+	var request ListCharactersRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListCharacters(ctx, request.(ListCharactersRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListCharacters")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListCharactersResponseObject); ok {
+		if err := validResponse.VisitListCharactersResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateCharacter operation middleware
+func (sh *strictHandler) CreateCharacter(w http.ResponseWriter, r *http.Request) {
+	var request CreateCharacterRequestObject
+
+	var body CreateCharacterJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateCharacter(ctx, request.(CreateCharacterRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateCharacter")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateCharacterResponseObject); ok {
+		if err := validResponse.VisitCreateCharacterResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteCharacter operation middleware
+func (sh *strictHandler) DeleteCharacter(w http.ResponseWriter, r *http.Request, characterId CharacterId) {
+	var request DeleteCharacterRequestObject
+
+	request.CharacterId = characterId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteCharacter(ctx, request.(DeleteCharacterRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteCharacter")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteCharacterResponseObject); ok {
+		if err := validResponse.VisitDeleteCharacterResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetCharacter operation middleware
+func (sh *strictHandler) GetCharacter(w http.ResponseWriter, r *http.Request, characterId CharacterId) {
+	var request GetCharacterRequestObject
+
+	request.CharacterId = characterId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetCharacter(ctx, request.(GetCharacterRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetCharacter")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetCharacterResponseObject); ok {
+		if err := validResponse.VisitGetCharacterResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateCharacter operation middleware
+func (sh *strictHandler) UpdateCharacter(w http.ResponseWriter, r *http.Request, characterId CharacterId) {
+	var request UpdateCharacterRequestObject
+
+	request.CharacterId = characterId
+
+	var body UpdateCharacterJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateCharacter(ctx, request.(UpdateCharacterRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateCharacter")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateCharacterResponseObject); ok {
+		if err := validResponse.VisitUpdateCharacterResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteChoice operation middleware
+func (sh *strictHandler) DeleteChoice(w http.ResponseWriter, r *http.Request, choiceId ChoiceId) {
+	var request DeleteChoiceRequestObject
+
+	request.ChoiceId = choiceId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteChoice(ctx, request.(DeleteChoiceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteChoice")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteChoiceResponseObject); ok {
+		if err := validResponse.VisitDeleteChoiceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateChoice operation middleware
+func (sh *strictHandler) UpdateChoice(w http.ResponseWriter, r *http.Request, choiceId ChoiceId) {
+	var request UpdateChoiceRequestObject
+
+	request.ChoiceId = choiceId
+
+	var body UpdateChoiceJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateChoice(ctx, request.(UpdateChoiceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateChoice")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateChoiceResponseObject); ok {
+		if err := validResponse.VisitUpdateChoiceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListConversations operation middleware
+func (sh *strictHandler) ListConversations(w http.ResponseWriter, r *http.Request) {
+	var request ListConversationsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListConversations(ctx, request.(ListConversationsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListConversations")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListConversationsResponseObject); ok {
+		if err := validResponse.VisitListConversationsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateConversation operation middleware
+func (sh *strictHandler) CreateConversation(w http.ResponseWriter, r *http.Request) {
+	var request CreateConversationRequestObject
+
+	var body CreateConversationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateConversation(ctx, request.(CreateConversationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateConversation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateConversationResponseObject); ok {
+		if err := validResponse.VisitCreateConversationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteConversation operation middleware
+func (sh *strictHandler) DeleteConversation(w http.ResponseWriter, r *http.Request, conversationId ConversationId) {
+	var request DeleteConversationRequestObject
+
+	request.ConversationId = conversationId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteConversation(ctx, request.(DeleteConversationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteConversation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteConversationResponseObject); ok {
+		if err := validResponse.VisitDeleteConversationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetConversation operation middleware
+func (sh *strictHandler) GetConversation(w http.ResponseWriter, r *http.Request, conversationId ConversationId) {
+	var request GetConversationRequestObject
+
+	request.ConversationId = conversationId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetConversation(ctx, request.(GetConversationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetConversation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetConversationResponseObject); ok {
+		if err := validResponse.VisitGetConversationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateConversation operation middleware
+func (sh *strictHandler) UpdateConversation(w http.ResponseWriter, r *http.Request, conversationId ConversationId) {
+	var request UpdateConversationRequestObject
+
+	request.ConversationId = conversationId
+
+	var body UpdateConversationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateConversation(ctx, request.(UpdateConversationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateConversation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateConversationResponseObject); ok {
+		if err := validResponse.VisitUpdateConversationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateNode operation middleware
+func (sh *strictHandler) CreateNode(w http.ResponseWriter, r *http.Request, conversationId ConversationId) {
+	var request CreateNodeRequestObject
+
+	request.ConversationId = conversationId
+
+	var body CreateNodeJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateNode(ctx, request.(CreateNodeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateNode")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateNodeResponseObject); ok {
+		if err := validResponse.VisitCreateNodeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetMe operation middleware
 func (sh *strictHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 	var request GetMeRequestObject
@@ -767,9 +3451,129 @@ func (sh *strictHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// DeleteNode operation middleware
+func (sh *strictHandler) DeleteNode(w http.ResponseWriter, r *http.Request, nodeId NodeId) {
+	var request DeleteNodeRequestObject
+
+	request.NodeId = nodeId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteNode(ctx, request.(DeleteNodeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteNode")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteNodeResponseObject); ok {
+		if err := validResponse.VisitDeleteNodeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateNode operation middleware
+func (sh *strictHandler) UpdateNode(w http.ResponseWriter, r *http.Request, nodeId NodeId) {
+	var request UpdateNodeRequestObject
+
+	request.NodeId = nodeId
+
+	var body UpdateNodeJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateNode(ctx, request.(UpdateNodeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateNode")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateNodeResponseObject); ok {
+		if err := validResponse.VisitUpdateNodeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateChoice operation middleware
+func (sh *strictHandler) CreateChoice(w http.ResponseWriter, r *http.Request, nodeId NodeId) {
+	var request CreateChoiceRequestObject
+
+	request.NodeId = nodeId
+
+	var body CreateChoiceJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateChoice(ctx, request.(CreateChoiceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateChoice")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateChoiceResponseObject); ok {
+		if err := validResponse.VisitCreateChoiceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetNodePath operation middleware
+func (sh *strictHandler) GetNodePath(w http.ResponseWriter, r *http.Request, nodeId NodeId) {
+	var request GetNodePathRequestObject
+
+	request.NodeId = nodeId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetNodePath(ctx, request.(GetNodePathRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetNodePath")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetNodePathResponseObject); ok {
+		if err := validResponse.VisitGetNodePathResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListNotes operation middleware
-func (sh *strictHandler) ListNotes(w http.ResponseWriter, r *http.Request) {
+func (sh *strictHandler) ListNotes(w http.ResponseWriter, r *http.Request, params ListNotesParams) {
 	var request ListNotesRequestObject
+
+	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.ListNotes(ctx, request.(ListNotesRequestObject))
@@ -912,28 +3716,68 @@ func (sh *strictHandler) UpdateNote(w http.ResponseWriter, r *http.Request, note
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"7Dzdcts2s6+yw3Nm0s7QktPkSr1yc5rU0ybNJO7JRZSpIXIloqYAFgCtqBm9+zcL8AekSImSLXuaL3eS",
+	"CO4u9n8XC30JIrnMpEBhdDD5EmRMsSUaVPbbi4QpFhlUlzF95SKYBBkzSRAGgi0xmASRtyIMFP6dc4Vx",
+	"MDEqxzDQUYJLRq+adUbLtVFcLILNJgxeJJJHuANw8fhAqFLcotLMcCn6YTcXHYbhjYz7qRbu4aEQzS6I",
+	"5lCIG1qsMyk0Win+xOJ3+HeO2tC3SAqDwn5kWZbyyLJh/JeWgn6rwf6vwnkwCf5nXGvI2D3V45+Vksqh",
+	"ilFHimcEJJgEr1k6l2qJMagC5SYMXko143GM4vT4LwSwBQoDEUtTVGAUxxiMhChhYoFgEoQFW+ITDSUh",
+	"TgIvZS7i09P3RoLOowQUapmrCAn7H4LlJpGK/4NtCgx+NuMsZbyFu0PkW3gihTEKw1kaglQgBe2eGeAa",
+	"cnEj5EqEgJ8z0il6rvBW3mDsCMqUjFBrNkvx9Dy5SrDUFsiY0hjDLDfAYM4xjYlemRuQc5iRjLS1mQKo",
+	"Ve+cp/Gl1rklNVMyQ2W4U/1IxtjBrzBY0u4W3c8MUws0l/GOh79y0f04V2m3kdfm+9FRVdPQAOqhd9A+",
+	"hSU0OfsLI6uvdsvvMJPKbO8Zic/2Eze41PvE4rFvU6FiSrE1fZc39H5LXipHWCUoyJoUAlMIQoLDG4KW",
+	"9HtpXrCSeUoC5Wk8CioEMylTZIJQaMPMMCrf25WbMFgxJbhY3M8mW8KRN0FY8tDDVNLZK4735TZaGlgG",
+	"SO3pBRcGF6joXRfn+h56gapnCUWcnkcyQ0GxpefxSqpYb0v3A/1M1palbI3qbM4iLhZAnsiTXwWnrdr1",
+	"dtvkl7TWey5p8Ent4m+Vhmyzd8YLF9XcxP8TghBWTBjSSIwU2g9smaUIKReoR3DhvK5YgBTp+kcQeIsK",
+	"dMIz7e20tu1IITMYX1iboyjHTDAJYmbwzPAldr3Cu72Ei+1tot/6DO+kIM/iQykY5JB4XCYcYcFRf7c+",
+	"3n6fVAnphX1xh6h62bGbSLtqJ+bfuDb7LHCQu6gg7vUWHvCdpP1hObgt85cU4jSkODc2ypEvtV9YKgWS",
+	"EgxiYhh8PlvIM/rxTN/w7ExaBCw9yySZqgomc5Zq7GX2YACbzl2SuW1zfq7ksk6XhxqHlsr8rmJU3lPP",
+	"bZEjOsZ2jKxJab778zIz6yqggfNOgCLWZSCrvFgH5C5T8jbuIS5o93f4qZebfVY0kDsHbP8CyC8Dd7vX",
+	"bNnc8o+QIrtFq51GEluO4Iolq3+zR1oHXAhAK7xyd7BkN6hbYuykdzhXD7Ctbu4fAkD22cvdDNTbfIeD",
+	"vLe4pg1TZreZ5cLwdEsikDANDOz7Vh07TVjnyyVT6w4VriK5kAY1SAErKnW20HANc6n2h3rDTYq78KRs",
+	"hul+OCcN2I7Imi1N/h8RwT1O9bqfWgT9TNvjC+yyfQS8UixLugq6pibvjOL+Wj9Vbgr10jk+SeZPn9aw",
+	"QoWwUtwYFCEgixJYcZMAN7pwK1bag1IJksb+LMKntCR0H4d6sp12yTAs4WmxajC1+8m8s2/3lBqiFJnS",
+	"wE2HC2/6nqNdcK+GHwCjxxLu5MNd+6S72t9vdG5Zl6xed1h5ki+Z6CgNEzSJNRKuywbbkq2tqTRaaxQH",
+	"J8DAwoEbXEOuMZ6KmCuMTLoGSUCUzBcJMFjhDDRqTZGZxP47uVny2wIjQyvlDZLrngrnbi3UEFYJjxL7",
+	"AyFgWabkLcakG1PR2Wi4wfXlIfUY9aWsn7dbIyQrpmFJkoqtQ9if9ziUVW3l+NolhTcy7pCD1xwYWLfQ",
+	"+q4+TrTVFx8c0zNkN+UJQFdEn1thIghCZqTqDt0OyptORh8A59jsf3hU3TocqBnQ3EaVztftjL7IStLt",
+	"jaj9/L2AqrwEHvuJ+EG8OjI1J6LfMrMnCPdZVH/ZpyigsmYZ22gHYtYRpV8qubRbrnNEKkesK7Lx4udb",
+	"VBQsMLPdY2ONVxubWXr1gGE3ZeNycAwnLrw3mO2NjNXxT8cJU7npcod9LL97vCwVyiuGqOPVUJgnuiOC",
+	"+pp4fOy7Ww206WRLl+G4Q5M33b2jMJjJuDtNna1/KcPbtvbdXy10UxwR7E4ODdqu/yYMMqZQmMu4Ow4J",
+	"aSMs16AwSzmJVf5YCJycAQOBK4qpyOJuB2yYyfUQgt67la2DkP6WSXV2QdUVJQDdzqhxbrKPhqt69Z2q",
+	"qG1GZmyB1N2u6kPLWa6BzWRuBvZ3+s5rbtwvVvUqlnuiDX2lrTXx8FKNeNTbZ+1T/PvTyHeYpevK/RIH",
+	"R3BhNXNtHay2pZJ7n9JByyF7MuRCmKczTMTF18sYuiVw0IncIZrVEq1lXB+3S/go8iUtXrDM+XnDRc4N",
+	"yTtLpfmTx8jos01F7CEfnTzzSAdhYI84XYknKQJ5yOrtELLu0k6UZzkDC0+DAwJW35mL5wm8XcsMhY1m",
+	"Wqa3SAodc73kWmPcu5mrhnxq/lkTqBKcVtAsquAqu+qFXofLrXLwQH/XYk0BoIs3VT7Qk7D3KKp7eNXX",
+	"od2RMrWy5yMzvSo72ZHFXsbVx6vuxJDIwShX3KzfExcLp4NMoaLCrSONFaCyxZ/AMk5VlJ1GYO43Zv4s",
+	"yj0WRai1q/XIB1gJ2eBsIddeITEmcxWNvOHYjZEcvVdVgkYDszWMU7ngFrodtHEQ6lEbIqh4o0bHMv4r",
+	"rt3YAhdz2Y2MVY3Bi7eXVXbeHDSZ1Nm8DhttST0V35FwtPOGVbKqYYZmhS5fXX4f2sfWZEdwRZ5XZxhR",
+	"7KJXfrm6ejsVOldzFhFWN19Coc6o3CQTuKZ0EBYoUDGD12ByJchRAxdGToXNwgRLxyzj4wWK0VRMhUuq",
+	"ScMtoSAQY2rU1rMlkIuUBMcNaLbWcF0qxwQ+frqeABNTcU2cvS7lT+K/LoR/3ZA7MA3XRY/1H4twAj9Z",
+	"8cNoNLoOp6JgrC9bJ0WKP+SHSARSlQMuPp0LNET58/OnU7FKpEb48OHDGWGjBREzCAmyGBXYjFQDM4Vq",
+	"xlxHkhhR9ByI44lc2a29fvEWopSjMG6uh2mIUpbHOGLclSrVIVLRzZinctXJWzuc48aUSHpLNAntpmS5",
+	"66UUXZfviu9T0TCqptLzhaB+iHDNSynw+5awpuL685kdlzqjFg6VJxPSFry25URjkKpi37MR2JN6W4DQ",
+	"1ujwfCocsax8q2oLTdp9IeJe0Vslm8xQZimO4D3iVMQy0mNnS9RTHy3jopfj+mnBu7evyMCCMCDbceZ3",
+	"Pno6Oi/HHVjGg0nwbHQ+emaDsEmsdxrb8RP6tMCO9oFtrWnQRmbA3KjKxNFqZSKk18haKWkwBFZpmxXy",
+	"VJD90s9FmWl1yHLEAIMYUzQYu5MN+FDMlEAsyZonU5GLqj60a3RofQh+tvMKjgeVolCMCF6h8YeAWhN/",
+	"P5yf39vYlo+md3jLPQ2D5+dP++BVBI4b824bv+UavEgwummMDxXVuxWKmyUKrT5TCUxqZHkMs1zEKVpg",
+	"4+Z5fyHwJvcov3pRLzsh95qzCT388yi+Bx4SJg8kGZkNcJTRS93BDVdIvPAysWIa76eikrhfTjh0waaZ",
+	"npDb2WwJ4un9o+8VgivBas45WZzvl4U3X3uc+OilZ/tfqsdo6Y0ffhiCxh/kbJma3S8wf8NN8xl/8aa7",
+	"N85tkh/b1qD/s783Naghx+fbTte9Ez8ky86f73+jGgVucstR2+RW2O1cXqHZwYnzB9TopiYfxePjOfa7",
+	"8ChwPps8OVfgZpg2YeOywcduNPWSsX8ZYfOJ3jZRss1+VxA+mDdz6IZ5sweUfdFE+td4s8MU7T7cn7sP",
+	"4Bn0E23jZOj00ybUM2mS0ivagmz8xX0Y6A9p6dftDMvzxkNN2TFxiB1XPDyFEXvDZw9uwY51+8y3ZPA3",
+	"2+20XWJPUViGRR+ZDNcO8xSW2x6I6a8IGitPKfv2FE9fAPcJqsseF0XdkNC91QtNVAJXqA3MudJmb+HQ",
+	"bNuexFC3J9MeunzYGk3bV0a0Jqr+CyqJ8gC6ufUtGxx/aZ6OD4mkbRX7WuNpS2l664ud/Dh/BK33FsLC",
+	"rXysmsMnxVYdaButdmKEGuhHJy0NrR2QujysX3ykNGaohlQZzb/HLz5iXuMxibIban+HUCyk/KYeghri",
+	"YMfV5PPdNb5IBLYFbHOFwsrimO7wYiSXxfxRTS/weXFt1E4OuDtOXWnFG3f8ewqz8cbxHjiNeOMktjNz",
+	"cFL9Zhm+ZVzEMbBiik1uBUqyAHcy3hcwX+Mpw+Trfpnaw7P7yNIJWnmAWsyBWbEDi4wG5uYXnKGPv7iT",
+	"/gGJVWVkX2lCVQV9/1CdG5DzeXHacphHLO4X7I39J3ZejxPrdzmvMrx/c147wjox54kuB3TDomvR6DM2",
+	"DXjsXQA4XlF3HvqdvL32WMd9u9pr9Vnft/ZaX7At5+UTLP4JAiIm7Ei5m2mok8+WzmbFnYHOUYurYhhd",
+	"AyvBauwYfLL38CwyI4GaenZgHy6NvQdk+wzFmVI9OWEHyEM3lSwkKJkbBPzMtdE9IxTVFYcTe02Lo0cX",
+	"Lbseo1gm5DqRyqA2BbPm5SWLVgHi0vd63jfGO4ROpzLFKGtvM9b9G8gWEju493eO9rprMbdXzVkPFYg/",
+	"89kNsjHgPRxsc7h4F+jLJuD24OankypkMWDco5BONkdr5F29D5HmaAhBpvHgNjRt62Qpl3m0etEMqBfN",
+	"A4ewhw5Iv9lLA8zuFKSoJgpD//g2bJWFYZn+28HIqEx02gOPhQwrpzT+4v5xb1DxZL7y4skpVl9R3b3/",
+	"8wdR/lrpH6HFXCI/NACagbXjSR3ZY9WOZkDtaL7l4i11e+du2oRQ3LNx/9QoMxSVgfo3Mqwe+ncxPn6i",
+	"PMS/K/HxE2mgRnVb6q29KxfQ3D9lZ/8ZAA==",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

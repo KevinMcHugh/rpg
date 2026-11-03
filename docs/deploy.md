@@ -29,7 +29,7 @@ sprite exec -- bash -lc "sudo -u postgres createuser -s sprite; sudo -u postgres
 # DATABASE_URL inline.
 DSN="postgres:///$APP?host=/var/run/postgresql&sslmode=disable"
 sprite exec -- bash -lc "cd ~/$APP && DATABASE_URL='$DSN' dbmate --migrations-dir db/migrations --no-dump-schema up && go build -o bin/server ./cmd/server"
-sprite exec -- bash -lc "DATABASE_URL='$DSN' ~/$APP/bin/server keys create --name you"   # SAVE THE KEY
+sprite exec -- bash -lc "DATABASE_URL='$DSN' ~/$APP/bin/server keys create --name you --human"   # SAVE THE KEY
 
 # PUBLIC_URL must be the https URL, because OAuth discovery advertises it.
 # Add any secrets the app needs to the same --env list.
@@ -85,4 +85,4 @@ Until `SPRITE_NAME` is set, the deploy job is skipped and only the tests run. To
 ## Connect Claude
 
 - **claude.ai:** add a custom connector at `https://myapp-<org>.sprites.app/mcp/rpc` with automatic client registration, then paste an `rpg_` key when asked, or an `rpg_iv_` invite the first time.
-- **Claude Code:** `claude mcp add --transport http myapp https://myapp-<org>.sprites.app/mcp/rpc --header "Authorization: Bearer rpg_…"`.
+- **Claude Code:** mint an agent key (`server keys create --name claude-code`, no `--human`), then `claude mcp add --transport http myapp https://myapp-<org>.sprites.app/mcp/rpc --header "Authorization: Bearer rpg_…"`.

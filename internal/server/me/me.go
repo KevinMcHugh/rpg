@@ -15,6 +15,8 @@ import (
 type Me struct {
 	KeyID string `json:"keyId"`
 	Name  string `json:"name"`
+	// Human says whether this caller may write the game's text.
+	Human bool `json:"human"`
 }
 
 type Store interface {
@@ -25,16 +27,22 @@ type Store interface {
 // auth middleware has put a key on the context before this runs.
 type Endpoint struct{ Store Store }
 
-func (e Endpoint) Interact(ctx context.Context, _ apigen.GetMeRequestObject) (dbgen.ApiKey, error) {
+func (e Endpoint) Interact(ctx context.Context, _ apigen.GetMeRequestObject) (Me, error) {
 	id := auth.KeyID(ctx)
 	if id == "" {
-		return dbgen.ApiKey{}, errors.New("me: no api key on the context")
+		return Me{}, errors.New("me: no api key on the context")
 	}
-	return e.Store.GetAPIKey(ctx, id)
+	k, err := e.Store.GetAPIKey(ctx, id)
+	if err != nil {
+		return Me{}, err
+	}
+	// Human comes from the context, not the key: a human key's connector
+	// token is still an agent.
+	return Me{KeyID: k.ID, Name: k.Name, Human: auth.IsHuman(ctx)}, nil
 }
 
-func (Endpoint) Build(k dbgen.ApiKey) Me { return Me{KeyID: k.ID, Name: k.Name} }
+func (Endpoint) Build(m Me) Me { return m }
 
 func (Endpoint) Render(vm Me) apigen.GetMeResponseObject {
-	return apigen.GetMe200JSONResponse{KeyId: vm.KeyID, Name: vm.Name}
+	return apigen.GetMe200JSONResponse{KeyId: vm.KeyID, Name: vm.Name, Human: vm.Human}
 }

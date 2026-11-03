@@ -1,6 +1,6 @@
 # Adding a resource, end to end
 
-A recipe for a new CRUD resource, using `widget` as the example. The notes resource (`internal/server/notes`) is a complete worked example of every step; copying it and renaming is usually the quickest start.
+A recipe for a new CRUD resource, using `widget` as the example. The characters resource (`internal/server/characters`) is a complete worked example of every step, including a player-facing field written through `app.Revise`; copying it and renaming is usually the quickest start.
 
 ## 1. Migration
 
@@ -56,10 +56,11 @@ Every read and write filters `deleted_at IS NULL`.
 
 ## 3. Spec
 
-Add paths and schemas to `api/openapi.yaml`, following the notes entries. Then decide who may call each operation:
+Add paths and schemas to `api/openapi.yaml`, following the characters entries. Then decide who may call each operation:
 
 - Leave `security` out and the operation is **private**, inheriting the global bearer-or-cookie requirement.
 - Add `security: []` only to make it **public**. Public responses also get `Access-Control-Allow-Origin: *`.
+- Every write needs a **person** unless it says `x-agent-writable: true`. Add that only for feedback-like data an agent should be able to write, never for anything a player sees ([authorship.md](authorship.md)).
 
 For a PATCH body, mark each optional field `x-go-type-skip-optional-pointer: false`, so "not sent" differs from "sent empty".
 
@@ -75,12 +76,13 @@ The build now fails at `var _ apigen.StrictServerInterface = (*Server)(nil)` unt
 
 ## 5. Endpoints
 
-Create `internal/server/widgets/widgets.go`, using `notes/notes.go` as the model:
+Create `internal/server/widgets/widgets.go`, using `characters/characters.go` as the model:
 
 - a view model `Widget` with JSON tags, `ToViewModel(dbgen.Widget, app.Links) Widget`, and an unexported `toAPI(Widget) apigen.Widget`;
 - for each operation, a narrow `Store` interface and an endpoint struct with `Interact`, `Build` and `Render`;
 - validation in `Interact`, returning `fmt.Errorf("%w: …", app.ErrBadInput)` or `app.NotFound(err, "widget", id)`;
-- `auth.KeyIDPtr(ctx)` for `created_by`.
+- `auth.KeyIDPtr(ctx)` for `created_by`;
+- `app.RequireHuman(ctx)` first in every write, and, for a player-facing field, a `*_revision_id` column written through `app.Revise` in the same transaction (`InTx`), plus a check in `internal/content` so the build verifies it.
 
 If a view model links to a page, add a method to `app.Links`.
 
@@ -110,14 +112,14 @@ If Claude should see it, add tools in `internal/appmcp/appmcp.go`: an input stru
 
 If people should see it in the browser, add a template in `internal/web/templates/` and its name to `parsePages`, page handlers in `pages.go` that call `server.BuildViewModel`, and routes in `server.go`:
 
-- reads in the `auth.Optional` group, with forms wrapped in `{{if .SignedIn}}`;
-- writes in the `auth.Require` group, which also checks `sameOrigin`. Hiding a form is only for looks; this group is what actually stops an anonymous write.
+- reads in the first `auth.Require` group, with editing forms wrapped in `{{if .Human}}`;
+- writes in the second `auth.Require` group, which also checks `sameOrigin`. Hiding a form is only for looks; this group stops an anonymous write, and the endpoint stops an agent's.
 
 Post, then redirect with `redirect(w, r, path, msg, isErr)`. The pages run no script.
 
 ## 9. Tests
 
-- If the public set changed, update `TestPublicOperations` in `internal/server/server_test.go`, and add the new operations to `TestAnonymousCallers`.
+- If the public or agent-writable set changed, update `TestPublicOperations` or `TestAgentWritableOperations` in `internal/server/server_test.go`. Add the new writes to `TestHumanOnlyOperations` and `TestAgentCallers`.
 - Add a flow to `internal/web/e2e_test.go`: create, read, update, delete over the API, plus the MCP tools. Run it with `TEST_DATABASE_URL` set.
 
 ## 10. Docs

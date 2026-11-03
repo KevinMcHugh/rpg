@@ -84,23 +84,40 @@ func (s *Server) Handler() http.Handler {
 		r.Handle("/mcp/rpc/*", s.MCP)
 	})
 
-	// The read-only pages are public, like the reads in the API. A
-	// signed-in visitor gets the same pages with their forms and buttons.
+	// The content is unreleased, so even reading it needs a session.
 	r.Group(func(r chi.Router) {
-		r.Use(auth.Optional(q))
+		r.Use(auth.Require(q, s.toLogin))
 		r.Use(pageHeaders)
 		r.Get("/", s.indexPage)
-		r.Get("/notes/{id}", s.notePage)
+		r.Get("/characters/{id}", s.characterPage)
+		r.Get("/conversations/{id}", s.conversationPage)
+		r.Get("/nodes/{id}", s.nodeRedirect)
+		r.Get("/choices/{id}", s.choiceRedirect)
+		r.Get("/notes", s.notesPage)
+		r.Get("/build", s.buildPage)
 	})
 
-	// Everything that changes something needs a session. Hiding a form from
-	// a signed-out visitor is only for looks; this group is what stops them.
+	// Everything that changes something needs a session too, and a
+	// same-origin request. Whether the session may change content (is it a
+	// person's?) is the endpoints' call, as it is for the API and MCP.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.Require(q, s.toLogin))
 		r.Use(s.sameOrigin)
 		r.Use(pageHeaders)
+		r.Post("/characters", s.createCharacter)
+		r.Post("/characters/{id}", s.updateCharacter)
+		r.Post("/characters/{id}/delete", s.deleteCharacter)
+		r.Post("/conversations", s.createConversation)
+		r.Post("/conversations/{id}", s.updateConversation)
+		r.Post("/conversations/{id}/delete", s.deleteConversation)
+		r.Post("/conversations/{id}/nodes", s.createNode)
+		r.Post("/nodes/{id}", s.updateNode)
+		r.Post("/nodes/{id}/delete", s.deleteNode)
+		r.Post("/nodes/{id}/choices", s.createChoice)
+		r.Post("/choices/{id}", s.updateChoice)
+		r.Post("/choices/{id}/delete", s.deleteChoice)
 		r.Post("/notes", s.createNote)
-		r.Post("/notes/{id}", s.updateNote)
+		r.Post("/notes/{id}/status", s.setNoteStatus)
 		r.Post("/notes/{id}/delete", s.deleteNote)
 	})
 	return r
@@ -143,7 +160,7 @@ func requestOrigin(r *http.Request) string {
 }
 
 // pageHeaders forbids every script on the pages. Nothing on them needs one,
-// and much of what they show is text a model wrote.
+// and the notes they show are text a model wrote.
 func pageHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")

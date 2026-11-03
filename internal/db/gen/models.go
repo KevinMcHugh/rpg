@@ -12,10 +12,46 @@ type ApiKey struct {
 	ID         string             `json:"id"`
 	Name       string             `json:"name"`
 	KeyHash    string             `json:"key_hash"`
+	Kind       string             `json:"kind"`
 	LastUsedAt pgtype.Timestamptz `json:"last_used_at"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
 	DeletedAt  pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type Character struct {
+	ID             string             `json:"id"`
+	Name           string             `json:"name"`
+	NameRevisionID string             `json:"name_revision_id"`
+	Bible          string             `json:"bible"`
+	CreatedBy      *string            `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt      pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type Choice struct {
+	ID             string             `json:"id"`
+	FromNodeID     string             `json:"from_node_id"`
+	ToNodeID       *string            `json:"to_node_id"`
+	Text           string             `json:"text"`
+	TextRevisionID string             `json:"text_revision_id"`
+	SortOrder      int32              `json:"sort_order"`
+	CreatedBy      *string            `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt      pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type Conversation struct {
+	ID          string             `json:"id"`
+	Title       string             `json:"title"`
+	Summary     string             `json:"summary"`
+	StartNodeID *string            `json:"start_node_id"`
+	CreatedBy   *string            `json:"created_by"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt   pgtype.Timestamptz `json:"deleted_at"`
 }
 
 type Invite struct {
@@ -30,14 +66,31 @@ type Invite struct {
 	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
 }
 
+type Node struct {
+	ID             string             `json:"id"`
+	ConversationID string             `json:"conversation_id"`
+	SpeakerID      *string            `json:"speaker_id"`
+	Text           string             `json:"text"`
+	TextRevisionID string             `json:"text_revision_id"`
+	CreatedBy      *string            `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt      pgtype.Timestamptz `json:"deleted_at"`
+}
+
 type Note struct {
-	ID        string             `json:"id"`
-	Title     string             `json:"title"`
-	Body      string             `json:"body"`
-	CreatedBy *string            `json:"created_by"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
+	ID         string             `json:"id"`
+	TargetKind string             `json:"target_kind"`
+	TargetID   *string            `json:"target_id"`
+	Kind       string             `json:"kind"`
+	Body       string             `json:"body"`
+	Status     string             `json:"status"`
+	ParentID   *string            `json:"parent_id"`
+	ByHuman    bool               `json:"by_human"`
+	CreatedBy  *string            `json:"created_by"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt  pgtype.Timestamptz `json:"deleted_at"`
 }
 
 type OauthClient struct {
@@ -72,4 +125,14 @@ type OauthToken struct {
 	RefreshExpiresAt pgtype.Timestamptz `json:"refresh_expires_at"`
 	RevokedAt        pgtype.Timestamptz `json:"revoked_at"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+}
+
+type TextRevision struct {
+	ID         string             `json:"id"`
+	TargetKind string             `json:"target_kind"`
+	TargetID   string             `json:"target_id"`
+	Field      string             `json:"field"`
+	Body       string             `json:"body"`
+	AuthorKey  string             `json:"author_key"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 }

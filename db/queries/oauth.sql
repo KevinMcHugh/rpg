@@ -27,9 +27,10 @@ INSERT INTO oauth_tokens (
     sqlc.narg(refresh_token_hash), sqlc.narg(refresh_expires_at)
 );
 
--- A token stops working when its api key is deleted.
--- name: GetOAuthTokenByHash :one
-SELECT oauth_tokens.* FROM oauth_tokens
+-- A token stops working when its api key is deleted. client_id is NULL for
+-- a web session, and the key's kind says whether a person holds it.
+-- name: ResolveAccessToken :one
+SELECT oauth_tokens.api_key_id, oauth_tokens.client_id, api_keys.kind FROM oauth_tokens
 JOIN api_keys ON api_keys.id = oauth_tokens.api_key_id AND api_keys.deleted_at IS NULL
 WHERE token_hash = $1
   AND oauth_tokens.revoked_at IS NULL

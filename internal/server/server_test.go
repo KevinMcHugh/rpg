@@ -11,82 +11,185 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/KevinMcHugh/rpg/internal/app"
+	"github.com/KevinMcHugh/rpg/internal/auth"
 	dbgen "github.com/KevinMcHugh/rpg/internal/db/gen"
 	"github.com/KevinMcHugh/rpg/internal/server"
 )
 
-// fakeStore answers the public reads from memory. Any other query panics
-// through the nil Querier, which is the point: a private operation must be
-// refused before it reaches the store.
+// fakeStore answers the few queries these tests reach from memory. Any
+// other query panics through the nil Store, which is the point: a refused
+// operation must be refused before it reaches the store.
 type fakeStore struct {
-	dbgen.Querier
-	note dbgen.Note
+	server.Store
+	character dbgen.Character
+	notes     []dbgen.Note
 }
 
-func (f fakeStore) ListNotes(context.Context) ([]dbgen.Note, error) {
-	return []dbgen.Note{f.note}, nil
+func (f *fakeStore) ListCharacters(context.Context) ([]dbgen.Character, error) {
+	return []dbgen.Character{f.character}, nil
 }
 
-func (f fakeStore) GetNote(_ context.Context, id string) (dbgen.Note, error) {
-	if id != f.note.ID {
-		return dbgen.Note{}, pgx.ErrNoRows
+func (f *fakeStore) GetCharacter(context.Context, string) (dbgen.Character, error) {
+	return f.character, nil
+}
+
+func (f *fakeStore) CreateNote(_ context.Context, arg dbgen.CreateNoteParams) (dbgen.Note, error) {
+	n := dbgen.Note{ID: arg.ID, TargetKind: arg.TargetKind, TargetID: arg.TargetID, Kind: arg.Kind, Body: arg.Body, Status: "open", ByHuman: arg.ByHuman}
+	f.notes = append(f.notes, n)
+	return n, nil
+}
+
+func (f *fakeStore) GetNote(_ context.Context, id string) (dbgen.GetNoteRow, error) {
+	name := "claude"
+	for _, n := range f.notes {
+		if n.ID == id {
+			return dbgen.GetNoteRow{Note: n, AuthorName: &name}, nil
+		}
 	}
-	return f.note, nil
+	panic("no note " + id)
 }
 
-// TestPublicOperations pins which operations anyone may call. Update it when
-// the spec marks another operation `security: []`, and only then.
+// TestPublicOperations pins which operations anyone may call: none, since
+// the content is unreleased. Update it when the spec marks an operation
+// `security: []`, and only then.
 func TestPublicOperations(t *testing.T) {
-	got := slices.Sorted(maps.Keys(server.PublicOperations()))
-	want := []string{"GET /notes", "GET /notes/{noteId}"}
-	if !slices.Equal(got, want) {
-		t.Fatalf("public operations %v, want %v", got, want)
+	if got := slices.Sorted(maps.Keys(server.PublicOperations())); len(got) != 0 {
+		t.Fatalf("public operations %v, want none", got)
 	}
+}
+
+// TestAgentWritableOperations pins the writes an agent may make. The game's
+// text is written by people, so this is only ever notes. Update it when the
+// spec marks a write `x-agent-writable: true`, and think twice first.
+func TestAgentWritableOperations(t *testing.T) {
+	got := slices.Sorted(maps.Keys(server.AgentWritableOperations()))
+	want := []string{"POST /notes"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("agent-writable operations %v, want %v", got, want)
+	}
+}
+
+// TestHumanOnlyOperations checks that every write but the agent-writable
+// ones needs a person, including writes added after this test was.
+func TestHumanOnlyOperations(t *testing.T) {
+	human, agent := server.HumanOnlyOperations(), server.AgentWritableOperations()
+	for _, op := range []string{
+		"POST /characters", "PATCH /characters/{characterId}", "DELETE /characters/{characterId}",
+		"POST /conversations", "PATCH /conversations/{conversationId}", "DELETE /conversations/{conversationId}",
+		"POST /conversations/{conversationId}/nodes", "PATCH /nodes/{nodeId}", "DELETE /nodes/{nodeId}",
+		"POST /nodes/{nodeId}/choices", "PATCH /choices/{choiceId}", "DELETE /choices/{choiceId}",
+		"PATCH /notes/{noteId}", "DELETE /notes/{noteId}",
+	} {
+		if !human[op] {
+			t.Errorf("%s is not human-only", op)
+		}
+	}
+	for op := range human {
+		if strings.HasPrefix(op, "GET ") || agent[op] {
+			t.Errorf("%s is human-only but should not be", op)
+		}
+	}
+}
+
+// mount builds the API with a stand-in for auth: anonymous callers get a
+// 401, and caller (if set) is put on every other request's context.
+func mount(store server.Store, caller *auth.Caller) http.Handler {
+	r := chi.NewRouter()
+	requireAuth := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if caller == nil {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(auth.WithCaller(r.Context(), *caller)))
+		})
+	}
+	server.New(store, app.NewLinks("https://app.example")).Mount(r, requireAuth)
+	return r
+}
+
+type call struct {
+	method, path, body string
+	want               int
+}
+
+func (c call) run(t *testing.T, h http.Handler) *httptest.ResponseRecorder {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(c.method, c.path, strings.NewReader(c.body))
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rec, req)
+	if rec.Code != c.want {
+		t.Errorf("%s %s: %d, want %d: %s", c.method, c.path, rec.Code, c.want, rec.Body)
+	}
+	return rec
 }
 
 func TestAnonymousCallers(t *testing.T) {
-	store := fakeStore{note: dbgen.Note{ID: "n1", Title: "hello", Body: "world"}}
-
-	r := chi.NewRouter()
-	deny := func(http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusUnauthorized) })
-	}
-	server.New(store, app.NewLinks("https://app.example")).Mount(r, deny)
-
-	for _, tc := range []struct {
-		method, path string
-		want         int
-	}{
-		{"GET", "/api/notes", http.StatusOK},
-		{"GET", "/api/notes/n1", http.StatusOK},
-		{"GET", "/api/notes/nope", http.StatusNotFound},
-		{"POST", "/api/notes", http.StatusUnauthorized},
-		{"PATCH", "/api/notes/n1", http.StatusUnauthorized},
-		{"DELETE", "/api/notes/n1", http.StatusUnauthorized},
-		{"GET", "/api/me", http.StatusUnauthorized},
+	h := mount(&fakeStore{}, nil)
+	for _, c := range []call{
+		{"GET", "/api/characters", "", 401},
+		{"GET", "/api/conversations/c1", "", 401},
+		{"GET", "/api/notes", "", 401},
+		{"GET", "/api/build", "", 401},
+		{"POST", "/api/notes", `{"body":"x"}`, 401},
+		{"POST", "/api/characters", `{"name":"x"}`, 401},
+		{"GET", "/api/me", "", 401},
 	} {
-		rec := httptest.NewRecorder()
-		r.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, strings.NewReader(`{}`)))
-		if rec.Code != tc.want {
-			t.Errorf("%s %s: %d, want %d: %s", tc.method, tc.path, rec.Code, tc.want, rec.Body)
-		}
-		// Public reads open to any origin; nothing else does.
-		cors := rec.Header().Get("Access-Control-Allow-Origin")
-		if public := tc.want != http.StatusUnauthorized; public != (cors == "*") {
-			t.Errorf("%s %s: Access-Control-Allow-Origin %q", tc.method, tc.path, cors)
-		}
+		c.run(t, h)
+	}
+}
+
+// An agent may read everything and leave notes, and nothing else. Its
+// writes are refused before they reach the store (which would panic).
+func TestAgentCallers(t *testing.T) {
+	store := &fakeStore{character: dbgen.Character{ID: "c1", Name: "Aria"}}
+	h := mount(store, &auth.Caller{KeyID: "k1", Human: false})
+	for _, c := range []call{
+		{"POST", "/api/characters", `{"name":"Mallory"}`, 403},
+		{"PATCH", "/api/characters/c1", `{"name":"Mallory"}`, 403},
+		{"DELETE", "/api/characters/c1", "", 403},
+		{"POST", "/api/conversations", `{"title":"x"}`, 403},
+		{"POST", "/api/conversations/v1/nodes", `{"text":"Hello."}`, 403},
+		{"PATCH", "/api/nodes/n1", `{"text":"Hello."}`, 403},
+		{"POST", "/api/nodes/n1/choices", `{"text":"Goodbye."}`, 403},
+		{"PATCH", "/api/choices/x1", `{"text":"Goodbye."}`, 403},
+		{"PATCH", "/api/notes/n1", `{"status":"resolved"}`, 403},
+		{"DELETE", "/api/notes/n1", "", 403},
+		// A bad body is still a 403, not a 400: the guard runs first.
+		{"POST", "/api/characters", `not json`, 403},
+		{"GET", "/api/characters", "", 200},
+	} {
+		c.run(t, h)
 	}
 
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest("GET", "/api/notes/n1", nil))
-	var note struct{ ID, Title, URL string }
+	rec := call{"POST", "/api/notes", `{"targetKind":"character","targetId":"c1","kind":"gap","body":"Her bible never says what she wants."}`, 201}.run(t, h)
+	var note struct {
+		Kind, Body, URL string
+		ByHuman         bool
+	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &note); err != nil {
 		t.Fatal(err)
 	}
-	if note.ID != "n1" || note.Title != "hello" || note.URL != "https://app.example/notes/n1" {
-		t.Fatalf("note %+v", note)
+	if note.Kind != "gap" || note.ByHuman || note.URL != "https://app.example/characters/c1" {
+		t.Fatalf("agent note %+v", note)
+	}
+}
+
+// The endpoints refuse an agent on their own, for the surfaces that do not
+// pass the REST guard (MCP, and pages signed in with an agent key).
+func TestEndpointsRefuseAgents(t *testing.T) {
+	ctx := auth.WithCaller(context.Background(), auth.Caller{KeyID: "k1"})
+	if err := app.RequireHuman(ctx); err == nil {
+		t.Fatal("an agent passed RequireHuman")
+	}
+	if _, err := app.Revise(ctx, nil, "node", "n1", "text", "Hello."); err == nil {
+		t.Fatal("an agent wrote a text revision")
+	}
+	human := auth.WithCaller(context.Background(), auth.Caller{KeyID: "k1", Human: true})
+	if err := app.RequireHuman(human); err != nil {
+		t.Fatalf("a person was refused: %v", err)
 	}
 }

@@ -1,15 +1,18 @@
-// Package notes holds the endpoints for the example resource: list, get,
-// create, update and delete. Copy it as the starting point for a resource
-// of your own (docs/adding-a-resource.md).
+// Package notes holds the endpoints for notes: feedback on the game's
+// content, from a person or from an agent. Creating a note is the one write
+// an agent may make (`x-agent-writable` in the spec). Notes never ship.
 package notes
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/rs/xid"
 
 	apigen "github.com/KevinMcHugh/rpg/internal/api/gen"
@@ -18,73 +21,91 @@ import (
 	dbgen "github.com/KevinMcHugh/rpg/internal/db/gen"
 )
 
-// Limits, in characters.
-const (
-	MaxTitle = 200
-	MaxBody  = 20000
+// MaxBody is the limit on a note's text, in characters.
+const MaxBody = 10000
+
+// The values the spec's enums allow, in the order the pages offer them.
+var (
+	TargetKinds = []string{"game", "character", "conversation", "node", "choice"}
+	Kinds       = []string{"gap", "continuity", "plot_idea", "pacing", "mechanics", "question", "other"}
+	Statuses    = []string{"open", "resolved", "dismissed"}
 )
 
 // -----------------------------------------------------------------------------
 // View model
 // -----------------------------------------------------------------------------
 
-// Note is a note as every surface shows it. The MCP tools return it as is,
-// the pages render it, and the API converts it with toAPI.
+// Note is a note as every surface shows it.
 type Note struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Body      string    `json:"body"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
-	URL       string    `json:"url"`
+	ID         string    `json:"id"`
+	TargetKind string    `json:"targetKind"`
+	TargetID   string    `json:"targetId"`
+	Kind       string    `json:"kind"`
+	Body       string    `json:"body"`
+	Status     string    `json:"status"`
+	ParentID   string    `json:"parentId"`
+	AuthorName string    `json:"authorName"`
+	ByHuman    bool      `json:"byHuman"`
+	CreatedAt  time.Time `json:"createdAt"`
+	UpdatedAt  time.Time `json:"updatedAt"`
+	URL        string    `json:"url"`
 }
 
-// ToViewModel is the view of a stored note.
-func ToViewModel(row dbgen.Note, links app.Links) Note {
+// ToViewModel is the view of a stored note and the name of its author's key.
+func ToViewModel(row dbgen.Note, authorName *string, links app.Links) Note {
 	return Note{
-		ID:        row.ID,
-		Title:     row.Title,
-		Body:      row.Body,
-		CreatedAt: row.CreatedAt.Time,
-		UpdatedAt: row.UpdatedAt.Time,
-		URL:       links.Note(row.ID),
+		ID:         row.ID,
+		TargetKind: row.TargetKind,
+		TargetID:   deref(row.TargetID),
+		Kind:       row.Kind,
+		Body:       row.Body,
+		Status:     row.Status,
+		ParentID:   deref(row.ParentID),
+		AuthorName: deref(authorName),
+		ByHuman:    row.ByHuman,
+		CreatedAt:  row.CreatedAt.Time,
+		UpdatedAt:  row.UpdatedAt.Time,
+		URL:        links.Target(row.TargetKind, deref(row.TargetID)),
 	}
 }
 
 func toAPI(n Note) apigen.Note {
 	return apigen.Note{
-		Id:        n.ID,
-		Title:     n.Title,
-		Body:      n.Body,
-		CreatedAt: n.CreatedAt,
-		UpdatedAt: n.UpdatedAt,
-		Url:       n.URL,
+		Id:         n.ID,
+		TargetKind: apigen.NoteTargetKind(n.TargetKind),
+		TargetId:   n.TargetID,
+		Kind:       apigen.NoteKind(n.Kind),
+		Body:       n.Body,
+		Status:     apigen.NoteStatus(n.Status),
+		ParentId:   n.ParentID,
+		AuthorName: n.AuthorName,
+		ByHuman:    n.ByHuman,
+		CreatedAt:  n.CreatedAt,
+		UpdatedAt:  n.UpdatedAt,
+		Url:        n.URL,
 	}
 }
 
-// -----------------------------------------------------------------------------
-// Validation
-// -----------------------------------------------------------------------------
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
 
-// cleanTitle trims a title and checks its bounds.
-func cleanTitle(s string) (string, error) {
-	s = strings.TrimSpace(s)
+// oneOf checks that v is one of allowed.
+func oneOf(field, v string, allowed []string) error {
+	if !slices.Contains(allowed, v) {
+		return fmt.Errorf("%w: %s %q is not one of %s", app.ErrBadInput, field, v, strings.Join(allowed, ", "))
+	}
+	return nil
+}
+
+func ptr(s string) *string {
 	if s == "" {
-		return "", fmt.Errorf("%w: title is required", app.ErrBadInput)
+		return nil
 	}
-	if n := utf8.RuneCountInString(s); n > MaxTitle {
-		return "", fmt.Errorf("%w: title is %d characters; the limit is %d", app.ErrBadInput, n, MaxTitle)
-	}
-	return s, nil
-}
-
-// cleanBody trims a body and checks its bounds.
-func cleanBody(s string) (string, error) {
-	s = strings.TrimSpace(s)
-	if n := utf8.RuneCountInString(s); n > MaxBody {
-		return "", fmt.Errorf("%w: body is %d characters; the limit is %d", app.ErrBadInput, n, MaxBody)
-	}
-	return s, nil
+	return &s
 }
 
 // -----------------------------------------------------------------------------
@@ -92,23 +113,38 @@ func cleanBody(s string) (string, error) {
 // -----------------------------------------------------------------------------
 
 type ListStore interface {
-	ListNotes(ctx context.Context) ([]dbgen.Note, error)
+	ListNotes(ctx context.Context, arg dbgen.ListNotesParams) ([]dbgen.ListNotesRow, error)
 }
 
-// ListEndpoint is every note, newest first. It is public.
+// ListEndpoint is the notes matching the filters, oldest first.
 type ListEndpoint struct {
 	Store ListStore
 	Links app.Links
 }
 
-func (e ListEndpoint) Interact(ctx context.Context, _ apigen.ListNotesRequestObject) ([]dbgen.Note, error) {
-	return e.Store.ListNotes(ctx)
+func (e ListEndpoint) Interact(ctx context.Context, req apigen.ListNotesRequestObject) ([]dbgen.ListNotesRow, error) {
+	p := req.Params
+	if p.Status != "" {
+		if err := oneOf("status", string(p.Status), Statuses); err != nil {
+			return nil, err
+		}
+	}
+	if p.TargetKind != "" {
+		if err := oneOf("targetKind", string(p.TargetKind), TargetKinds); err != nil {
+			return nil, err
+		}
+	}
+	return e.Store.ListNotes(ctx, dbgen.ListNotesParams{
+		Status:     ptr(string(p.Status)),
+		TargetKind: ptr(string(p.TargetKind)),
+		TargetID:   ptr(strings.TrimSpace(p.TargetId)),
+	})
 }
 
-func (e ListEndpoint) Build(rows []dbgen.Note) []Note {
+func (e ListEndpoint) Build(rows []dbgen.ListNotesRow) []Note {
 	out := make([]Note, len(rows))
 	for i, r := range rows {
-		out[i] = ToViewModel(r, e.Links)
+		out[i] = ToViewModel(r.Note, r.AuthorName, e.Links)
 	}
 	return out
 }
@@ -126,21 +162,23 @@ func (e ListEndpoint) Render(vms []Note) apigen.ListNotesResponseObject {
 // -----------------------------------------------------------------------------
 
 type GetStore interface {
-	GetNote(ctx context.Context, id string) (dbgen.Note, error)
+	GetNote(ctx context.Context, id string) (dbgen.GetNoteRow, error)
 }
 
-// GetEndpoint is one note. It is public.
+// GetEndpoint is one note.
 type GetEndpoint struct {
 	Store GetStore
 	Links app.Links
 }
 
-func (e GetEndpoint) Interact(ctx context.Context, req apigen.GetNoteRequestObject) (dbgen.Note, error) {
+func (e GetEndpoint) Interact(ctx context.Context, req apigen.GetNoteRequestObject) (dbgen.GetNoteRow, error) {
 	row, err := e.Store.GetNote(ctx, req.NoteId)
 	return row, app.NotFound(err, "note", req.NoteId)
 }
 
-func (e GetEndpoint) Build(row dbgen.Note) Note { return ToViewModel(row, e.Links) }
+func (e GetEndpoint) Build(row dbgen.GetNoteRow) Note {
+	return ToViewModel(row.Note, row.AuthorName, e.Links)
+}
 
 func (e GetEndpoint) Render(vm Note) apigen.GetNoteResponseObject {
 	return apigen.GetNote200JSONResponse(toAPI(vm))
@@ -151,33 +189,107 @@ func (e GetEndpoint) Render(vm Note) apigen.GetNoteResponseObject {
 // -----------------------------------------------------------------------------
 
 type CreateStore interface {
+	GetStore
 	CreateNote(ctx context.Context, arg dbgen.CreateNoteParams) (dbgen.Note, error)
+	GetCharacter(ctx context.Context, id string) (dbgen.Character, error)
+	GetConversation(ctx context.Context, id string) (dbgen.Conversation, error)
+	GetNode(ctx context.Context, id string) (dbgen.Node, error)
+	GetChoice(ctx context.Context, id string) (dbgen.Choice, error)
 }
 
-// CreateEndpoint saves a new note, recording the api key that made it.
+// CreateEndpoint leaves a note, or replies to one. Anyone may: it is how an
+// agent contributes without writing the game's text.
 type CreateEndpoint struct {
 	Store CreateStore
 	Links app.Links
 }
 
-func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateNoteRequestObject) (dbgen.Note, error) {
-	title, err := cleanTitle(req.Body.Title)
-	if err != nil {
-		return dbgen.Note{}, err
+func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateNoteRequestObject) (dbgen.GetNoteRow, error) {
+	b := req.Body
+	body := strings.TrimSpace(b.Body)
+	if body == "" {
+		return dbgen.GetNoteRow{}, fmt.Errorf("%w: body is required", app.ErrBadInput)
 	}
-	body, err := cleanBody(req.Body.Body)
-	if err != nil {
-		return dbgen.Note{}, err
+	if n := utf8.RuneCountInString(body); n > MaxBody {
+		return dbgen.GetNoteRow{}, fmt.Errorf("%w: body is %d characters; the limit is %d", app.ErrBadInput, n, MaxBody)
 	}
-	return e.Store.CreateNote(ctx, dbgen.CreateNoteParams{
-		ID:        xid.New().String(),
-		Title:     title,
-		Body:      body,
-		CreatedBy: auth.KeyIDPtr(ctx),
+	kind, targetKind, targetID := string(b.Kind), string(b.TargetKind), strings.TrimSpace(b.TargetId)
+	var parentID *string
+	if id := strings.TrimSpace(b.ParentId); id != "" {
+		parent, err := e.Store.GetNote(ctx, id)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return dbgen.GetNoteRow{}, fmt.Errorf("%w: no note %s to reply to", app.ErrBadInput, id)
+			}
+			return dbgen.GetNoteRow{}, err
+		}
+		// A reply joins its parent's thread: same target, and the same kind
+		// unless it says otherwise.
+		parentID = &parent.Note.ID
+		targetKind, targetID = parent.Note.TargetKind, deref(parent.Note.TargetID)
+		if kind == "" {
+			kind = parent.Note.Kind
+		}
+	}
+	if kind == "" {
+		kind = "other"
+	}
+	if err := oneOf("kind", kind, Kinds); err != nil {
+		return dbgen.GetNoteRow{}, err
+	}
+	if targetKind == "" {
+		targetKind = "game"
+	}
+	if err := oneOf("targetKind", targetKind, TargetKinds); err != nil {
+		return dbgen.GetNoteRow{}, err
+	}
+	if err := e.checkTarget(ctx, targetKind, targetID); err != nil {
+		return dbgen.GetNoteRow{}, err
+	}
+	row, err := e.Store.CreateNote(ctx, dbgen.CreateNoteParams{
+		ID:         xid.New().String(),
+		TargetKind: targetKind,
+		TargetID:   ptr(targetID),
+		Kind:       kind,
+		Body:       body,
+		ParentID:   parentID,
+		ByHuman:    auth.IsHuman(ctx),
+		CreatedBy:  auth.KeyIDPtr(ctx),
 	})
+	if err != nil {
+		return dbgen.GetNoteRow{}, err
+	}
+	return e.Store.GetNote(ctx, row.ID)
 }
 
-func (e CreateEndpoint) Build(row dbgen.Note) Note { return ToViewModel(row, e.Links) }
+// checkTarget makes sure a note is about something that exists.
+func (e CreateEndpoint) checkTarget(ctx context.Context, kind, id string) error {
+	if kind == "game" {
+		if id != "" {
+			return fmt.Errorf("%w: a note on the whole game takes no targetId", app.ErrBadInput)
+		}
+		return nil
+	}
+	if id == "" {
+		return fmt.Errorf("%w: targetId is required for a note on a %s", app.ErrBadInput, kind)
+	}
+	var err error
+	switch kind {
+	case "character":
+		_, err = e.Store.GetCharacter(ctx, id)
+	case "conversation":
+		_, err = e.Store.GetConversation(ctx, id)
+	case "node":
+		_, err = e.Store.GetNode(ctx, id)
+	case "choice":
+		_, err = e.Store.GetChoice(ctx, id)
+	}
+	return app.NotFound(err, kind, id)
+}
+
+func (e CreateEndpoint) Build(row dbgen.GetNoteRow) Note {
+	return ToViewModel(row.Note, row.AuthorName, e.Links)
+}
 
 func (e CreateEndpoint) Render(vm Note) apigen.CreateNoteResponseObject {
 	return apigen.CreateNote201JSONResponse(toAPI(vm))
@@ -188,37 +300,34 @@ func (e CreateEndpoint) Render(vm Note) apigen.CreateNoteResponseObject {
 // -----------------------------------------------------------------------------
 
 type UpdateStore interface {
-	UpdateNote(ctx context.Context, arg dbgen.UpdateNoteParams) (dbgen.Note, error)
+	GetStore
+	SetNoteStatus(ctx context.Context, arg dbgen.SetNoteStatusParams) (dbgen.Note, error)
 }
 
-// UpdateEndpoint changes a note's title, body, or both; a field left nil is
-// left alone.
+// UpdateEndpoint resolves, dismisses or reopens a note. People only: the
+// author decides what feedback to act on.
 type UpdateEndpoint struct {
 	Store UpdateStore
 	Links app.Links
 }
 
-func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateNoteRequestObject) (dbgen.Note, error) {
-	arg := dbgen.UpdateNoteParams{ID: req.NoteId}
-	if t := req.Body.Title; t != nil {
-		title, err := cleanTitle(*t)
-		if err != nil {
-			return dbgen.Note{}, err
-		}
-		arg.Title = &title
+func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateNoteRequestObject) (dbgen.GetNoteRow, error) {
+	if err := app.RequireHuman(ctx); err != nil {
+		return dbgen.GetNoteRow{}, err
 	}
-	if b := req.Body.Body; b != nil {
-		body, err := cleanBody(*b)
-		if err != nil {
-			return dbgen.Note{}, err
-		}
-		arg.Body = &body
+	if err := oneOf("status", string(req.Body.Status), Statuses); err != nil {
+		return dbgen.GetNoteRow{}, err
 	}
-	row, err := e.Store.UpdateNote(ctx, arg)
+	if _, err := e.Store.SetNoteStatus(ctx, dbgen.SetNoteStatusParams{ID: req.NoteId, Status: string(req.Body.Status)}); err != nil {
+		return dbgen.GetNoteRow{}, app.NotFound(err, "note", req.NoteId)
+	}
+	row, err := e.Store.GetNote(ctx, req.NoteId)
 	return row, app.NotFound(err, "note", req.NoteId)
 }
 
-func (e UpdateEndpoint) Build(row dbgen.Note) Note { return ToViewModel(row, e.Links) }
+func (e UpdateEndpoint) Build(row dbgen.GetNoteRow) Note {
+	return ToViewModel(row.Note, row.AuthorName, e.Links)
+}
 
 func (e UpdateEndpoint) Render(vm Note) apigen.UpdateNoteResponseObject {
 	return apigen.UpdateNote200JSONResponse(toAPI(vm))
@@ -232,10 +341,13 @@ type DeleteStore interface {
 	DeleteNote(ctx context.Context, id string) (int64, error)
 }
 
-// DeleteEndpoint soft-deletes a note. Its view model is just "it happened".
+// DeleteEndpoint soft-deletes a note. People only.
 type DeleteEndpoint struct{ Store DeleteStore }
 
 func (e DeleteEndpoint) Interact(ctx context.Context, req apigen.DeleteNoteRequestObject) (bool, error) {
+	if err := app.RequireHuman(ctx); err != nil {
+		return false, err
+	}
 	n, err := e.Store.DeleteNote(ctx, req.NoteId)
 	if err != nil {
 		return false, err

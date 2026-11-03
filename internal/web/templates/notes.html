@@ -1,0 +1,33 @@
+{{define "title"}}Notes · {{.AppName}}{{end}}
+{{define "content"}}
+<h1>Notes</h1>
+<p class="row">{{range .Statuses}}{{if eq . $.Status}}<strong>{{.}}</strong>{{else}}<a href="/notes?status={{.}}">{{.}}</a>{{end}} {{end}}</p>
+{{if not .Notes}}<div class="panel"><p class="muted">No {{if ne .Status "all"}}{{.Status}} {{end}}notes.</p></div>{{end}}
+<div class="list">
+{{range .Notes}}
+  <article class="card">
+    <div class="row muted" style="font-size:.8rem">
+      <strong>{{.AuthorName}}</strong>
+      {{if not .ByHuman}}<span class="badge agent">agent</span>{{end}}
+      <span class="badge">{{label .Kind}}</span>
+      {{if .ParentID}}<span class="badge">reply</span>{{end}}
+      {{if ne .Status "open"}}<span class="badge">{{.Status}}</span>{{end}}
+      <a href="{{.URL}}">on {{.TargetKind}}{{if .TargetID}} {{.TargetID}}{{end}}</a>
+      <span>{{.CreatedAt.Format "Jan 2 15:04"}}</span>
+    </div>
+    <div class="body">{{.Body}}</div>
+    {{if and $.Human (not .ParentID)}}
+    <div class="row">
+      {{if eq .Status "open"}}
+      <form class="inline" method="POST" action="/notes/{{.ID}}/status"><input type="hidden" name="back" value="/notes"><input type="hidden" name="status" value="resolved"><button class="ghost small" type="submit">Resolve</button></form>
+      <form class="inline" method="POST" action="/notes/{{.ID}}/status"><input type="hidden" name="back" value="/notes"><input type="hidden" name="status" value="dismissed"><button class="ghost small" type="submit">Dismiss</button></form>
+      {{else}}
+      <form class="inline" method="POST" action="/notes/{{.ID}}/status"><input type="hidden" name="back" value="/notes"><input type="hidden" name="status" value="open"><button class="ghost small" type="submit">Reopen</button></form>
+      {{end}}
+      <form class="inline" method="POST" action="/notes/{{.ID}}/delete"><input type="hidden" name="back" value="/notes"><button class="danger small" type="submit">Delete</button></form>
+    </div>
+    {{end}}
+  </article>
+{{end}}
+</div>
+{{end}}
