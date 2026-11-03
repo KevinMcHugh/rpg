@@ -136,3 +136,50 @@ ol.choices li.editing { list-style: none; }
 .note .text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .note.closed .text { color: var(--muted); }
 .notes textarea { font-size: .9rem; }
+
+/* Lines or graph. */
+.tabs { display: flex; gap: .25rem; margin-top: 1rem; border-bottom: 1px solid var(--line); }
+.tabs button { background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--muted); padding: .4rem .8rem; }
+.tabs button.on { color: var(--fg); border-bottom-color: var(--accent); }
+
+/* The graph view: the graph, and the selected line's editor beside it. */
+.graph-editor { display: grid; grid-template-columns: minmax(0, 1fr) 24rem; gap: 1rem; align-items: start; margin-top: 1rem; }
+@media (max-width: 1000px) { .graph-editor { grid-template-columns: 1fr; } }
+.graph-side { display: grid; gap: .8rem; position: sticky; top: 4rem; max-height: calc(100vh - 5rem); overflow: auto; }
+.graph { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.graph-tools { padding: .4rem .6rem; border-bottom: 1px solid var(--line); }
+.graph svg { display: block; width: 100%; cursor: grab; touch-action: none; user-select: none; }
+.graph svg:active { cursor: grabbing; }
+.legend { margin-left: auto; display: flex; gap: .35rem; align-items: center; flex-wrap: wrap; }
+.legend .k { display: inline-block; width: 1.6rem; border-top: 2px solid var(--muted); }
+.legend .k.cond { border-top-style: dotted; }
+.legend .k.fail { border-top: 2px dashed var(--err); }
+.legend .dot { display: inline-block; width: .5rem; height: .5rem; border-radius: 50%; background: var(--accent); }
+
+.box { cursor: pointer; }
+.box rect { fill: var(--panel); stroke: var(--line); stroke-width: 1.5; }
+.box:hover rect, .box:focus rect { stroke: var(--accent); }
+.box:focus { outline: none; }
+.box.start rect { stroke: var(--ok); stroke-width: 2; }
+.box.selected rect { stroke: var(--accent); stroke-width: 3; fill: var(--focus); }
+.box.unreachable rect { stroke: var(--err); stroke-dasharray: 5 4; }
+.box .who { font: 700 11px system-ui, sans-serif; letter-spacing: .06em; fill: var(--fg); }
+.box .who.narrator { font-style: italic; font-weight: 400; letter-spacing: 0; fill: var(--muted); }
+.box .said { font: 13px var(--serif); fill: var(--fg); }
+.box .tag { font: 10px system-ui, sans-serif; fill: var(--ok); }
+.box .tag.warn { fill: var(--err); }
+.box .fx { fill: var(--accent); }
+.notecount circle { fill: var(--note-line); }
+.notecount text { font: 700 10px system-ui, sans-serif; fill: var(--fg); }
+
+.edge { fill: none; stroke: var(--muted); stroke-width: 1.5; }
+.edge.cond { stroke-dasharray: 2 3; }
+.edge.fail { stroke: var(--err); stroke-dasharray: 6 4; }
+.edge.hot { stroke-width: 2.5; stroke: var(--accent); }
+.edge.fail.hot { stroke: var(--err); }
+.head.next { fill: var(--muted); }
+.head.fail { fill: var(--err); }
+.edge-label { font: 11px system-ui, sans-serif; fill: var(--muted); paint-order: stroke; stroke: var(--panel); stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
+.edge-label.fail { fill: var(--err); }
+.end circle { fill: var(--bg); stroke: var(--muted); stroke-width: 1.5; }
+.end text { font: 10px system-ui, sans-serif; fill: var(--muted); }
