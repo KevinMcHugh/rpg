@@ -22,6 +22,7 @@ import (
 	"github.com/KevinMcHugh/rpg/internal/server/characters"
 	"github.com/KevinMcHugh/rpg/internal/server/conversations"
 	"github.com/KevinMcHugh/rpg/internal/server/notes"
+	"github.com/KevinMcHugh/rpg/internal/server/world"
 )
 
 // The pages drive the same endpoints as the JSON API and MCP, through
@@ -36,12 +37,26 @@ type noteBox struct {
 	Back     string // where a form sends the browser afterwards
 }
 
+// checkBox is what the "check" template renders: a choice's skill-check
+// fields.
+type checkBox struct {
+	Skills     []world.Skill
+	Nodes      []conversations.Node
+	Labels     map[string]string
+	Skill      string
+	Difficulty int
+	Fail       string
+}
+
 var funcs = template.FuncMap{
 	"notebox": func(kind, id string, ns []notes.Note, human bool, back string) noteBox {
 		return noteBox{Kind: kind, ID: id, Notes: ns, Human: human, Back: back}
 	},
 	"noteKinds": func() []string { return notes.Kinds },
-	"label":     func(s string) string { return strings.ReplaceAll(s, "_", " ") },
+	"checkbox": func(skills []world.Skill, nodes []conversations.Node, labels map[string]string, skill string, difficulty int, fail string) checkBox {
+		return checkBox{Skills: skills, Nodes: nodes, Labels: labels, Skill: skill, Difficulty: difficulty, Fail: fail}
+	},
+	"label": func(s string) string { return strings.ReplaceAll(s, "_", " ") },
 }
 
 // excerpt shortens s to n characters, on one line, for a menu or a link.
@@ -55,7 +70,7 @@ func excerpt(s string, n int) string {
 
 func parsePages() map[string]*template.Template {
 	pages := map[string]*template.Template{}
-	for _, name := range []string{"login", "index", "character", "conversation", "notes", "build"} {
+	for _, name := range []string{"login", "index", "character", "conversation", "notes", "build", "world", "quest"} {
 		pages[name] = template.Must(template.New("layout.html").Funcs(funcs).
 			ParseFS(templateFS, "templates/layout.html", "templates/"+name+".html"))
 	}
@@ -221,7 +236,7 @@ func (s *Server) characterPage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) createCharacter(w http.ResponseWriter, r *http.Request) {
 	c, err := server.BuildViewModel(r.Context(), characters.CreateEndpoint{Store: s.Store, Links: s.Links}, apigen.CreateCharacterRequestObject{
-		Body: &apigen.CharacterCreate{Name: r.FormValue("name"), Bible: r.FormValue("bible")},
+		Body: &apigen.CharacterCreate{Name: r.FormValue("name"), Key: r.FormValue("key"), Bible: r.FormValue("bible"), Companion: r.FormValue("companion") != ""},
 	})
 	if err != nil {
 		s.after(w, r, err, "/", "")
@@ -235,7 +250,9 @@ func (s *Server) updateCharacter(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
 	_, err := server.BuildViewModel(r.Context(), characters.UpdateEndpoint{Store: s.Store, Links: s.Links}, apigen.UpdateCharacterRequestObject{
 		CharacterId: id,
-		Body:        &apigen.CharacterUpdate{Name: formPtr(r, "name"), Bible: formPtr(r, "bible")},
+		Body: &apigen.CharacterUpdate{
+			Name: formPtr(r, "name"), Key: formPtr(r, "key"), Bible: formPtr(r, "bible"), Companion: formBoolPtr(r, "companion"),
+		},
 	})
 	s.after(w, r, err, "/characters/"+url.PathEscape(id), "Saved.")
 }
@@ -264,6 +281,11 @@ func (s *Server) conversationPage(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	skills, err := server.BuildViewModel(ctx, world.ListSkillsEndpoint{Store: s.Store, Links: s.Links}, apigen.ListSkillsRequestObject{})
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	byTarget, err := s.allNotes(r)
 	if err != nil {
 		s.fail(w, r, err)
@@ -280,13 +302,13 @@ func (s *Server) conversationPage(w http.ResponseWriter, r *http.Request) {
 		labels[n.ID] = fmt.Sprintf("%d. %s: %s", i+1, speaker, excerpt(n.Text, 50))
 	}
 	s.render(w, r, http.StatusOK, "conversation", map[string]any{
-		"Graph": g, "Characters": chars, "Notes": byTarget, "Numbers": numbers, "Labels": labels,
+		"Graph": g, "Characters": chars, "Skills": skills, "Notes": byTarget, "Numbers": numbers, "Labels": labels,
 	})
 }
 
 func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) {
 	g, err := server.BuildViewModel(r.Context(), conversations.CreateEndpoint{Store: s.Store, Links: s.Links}, apigen.CreateConversationRequestObject{
-		Body: &apigen.ConversationCreate{Title: r.FormValue("title"), Summary: r.FormValue("summary")},
+		Body: &apigen.ConversationCreate{Title: r.FormValue("title"), Key: r.FormValue("key"), Summary: r.FormValue("summary")},
 	})
 	if err != nil {
 		s.after(w, r, err, "/", "")
@@ -304,6 +326,11 @@ func (s *Server) updateConversation(w http.ResponseWriter, r *http.Request) {
 			Title:       formPtr(r, "title"),
 			Summary:     formPtr(r, "summary"),
 			StartNodeId: formPtr(r, "start_node_id"),
+			Key:         formPtr(r, "key"),
+			Label:       formPtr(r, "label"),
+			Condition:   formPtr(r, "condition"),
+			Repeatable:  formBoolPtr(r, "repeatable"),
+			Opening:     formBoolPtr(r, "opening"),
 		},
 	})
 	s.after(w, r, err, "/conversations/"+url.PathEscape(id), "Saved.")
@@ -358,7 +385,7 @@ func (s *Server) createNode(w http.ResponseWriter, r *http.Request) {
 	conv := "/conversations/" + url.PathEscape(chi.URLParam(r, "id"))
 	n, err := server.BuildViewModel(r.Context(), conversations.CreateNodeEndpoint{Store: s.Store, Links: s.Links}, apigen.CreateNodeRequestObject{
 		ConversationId: chi.URLParam(r, "id"),
-		Body:           &apigen.NodeCreate{SpeakerId: r.FormValue("speaker_id"), Text: r.FormValue("text")},
+		Body:           &apigen.NodeCreate{SpeakerId: r.FormValue("speaker_id"), Text: r.FormValue("text"), Effects: r.FormValue("effects")},
 	})
 	if err != nil {
 		s.after(w, r, err, conv+"#new-node", "")
@@ -377,7 +404,7 @@ func (s *Server) updateNode(w http.ResponseWriter, r *http.Request) {
 	}
 	_, err = server.BuildViewModel(r.Context(), conversations.UpdateNodeEndpoint{Store: s.Store, Links: s.Links}, apigen.UpdateNodeRequestObject{
 		NodeId: id,
-		Body:   &apigen.NodeUpdate{SpeakerId: formPtr(r, "speaker_id"), Text: formPtr(r, "text")},
+		Body:   &apigen.NodeUpdate{SpeakerId: formPtr(r, "speaker_id"), Text: formPtr(r, "text"), Effects: formPtr(r, "effects")},
 	})
 	s.after(w, r, err, back, "Saved.")
 }
@@ -403,9 +430,14 @@ func (s *Server) createChoice(w http.ResponseWriter, r *http.Request) {
 	_, err = server.BuildViewModel(r.Context(), conversations.CreateChoiceEndpoint{Store: s.Store}, apigen.CreateChoiceRequestObject{
 		NodeId: id,
 		Body: &apigen.ChoiceCreate{
-			Text:      r.FormValue("text"),
-			ToNodeId:  r.FormValue("to_node_id"),
-			SortOrder: formInt(r, "sort_order"),
+			Text:            r.FormValue("text"),
+			ToNodeId:        r.FormValue("to_node_id"),
+			SortOrder:       formInt(r, "sort_order"),
+			Condition:       r.FormValue("condition"),
+			Effects:         r.FormValue("effects"),
+			CheckSkillId:    r.FormValue("check_skill_id"),
+			CheckDifficulty: formInt(r, "check_difficulty"),
+			FailNodeId:      r.FormValue("fail_node_id"),
 		},
 	})
 	s.after(w, r, err, back, "Saved.")
@@ -424,14 +456,13 @@ func (s *Server) updateChoice(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	var order *int
-	if _, ok := r.PostForm["sort_order"]; ok {
-		n := formInt(r, "sort_order")
-		order = &n
-	}
 	_, err = server.BuildViewModel(r.Context(), conversations.UpdateChoiceEndpoint{Store: s.Store}, apigen.UpdateChoiceRequestObject{
 		ChoiceId: id,
-		Body:     &apigen.ChoiceUpdate{Text: formPtr(r, "text"), ToNodeId: formPtr(r, "to_node_id"), SortOrder: order},
+		Body: &apigen.ChoiceUpdate{
+			Text: formPtr(r, "text"), ToNodeId: formPtr(r, "to_node_id"), SortOrder: formIntPtr(r, "sort_order"),
+			Condition: formPtr(r, "condition"), Effects: formPtr(r, "effects"),
+			CheckSkillId: formPtr(r, "check_skill_id"), CheckDifficulty: formIntPtr(r, "check_difficulty"), FailNodeId: formPtr(r, "fail_node_id"),
+		},
 	})
 	s.after(w, r, err, back, "Saved.")
 }

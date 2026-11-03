@@ -91,7 +91,7 @@ func (PathEndpoint) Build(m pathModel) Path {
 		n := nodes[id]
 		rev = append(rev, PathStep{
 			NodeID:      n.ID,
-			SpeakerName: speakerName(m.Graph.Speakers, n.SpeakerID),
+			SpeakerName: speakerName(m.Graph.World.Speakers, n.SpeakerID),
 			Text:        n.Text,
 			ChoiceID:    choice.ID,
 			ChoiceText:  choice.Text,

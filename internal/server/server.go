@@ -20,6 +20,7 @@ import (
 	"github.com/KevinMcHugh/rpg/internal/server/conversations"
 	"github.com/KevinMcHugh/rpg/internal/server/me"
 	"github.com/KevinMcHugh/rpg/internal/server/notes"
+	"github.com/KevinMcHugh/rpg/internal/server/world"
 )
 
 // BaseURL is where the API is mounted: the spec's servers entry.
@@ -415,6 +416,196 @@ func (s *Server) DeleteChoice(ctx context.Context, req apigen.DeleteChoiceReques
 		return apigen.DeleteChoice403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
 	case isNotFound(err):
 		return apigen.DeleteChoice404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	}
+	return resp, err
+}
+
+// -----------------------------------------------------------------------------
+// World: flags, skills and quests
+// -----------------------------------------------------------------------------
+
+func (s *Server) ListFlags(ctx context.Context, req apigen.ListFlagsRequestObject) (apigen.ListFlagsResponseObject, error) {
+	return Run(ctx, world.ListFlagsEndpoint{Store: s.store, Links: s.links}, req)
+}
+
+func (s *Server) CreateFlag(ctx context.Context, req apigen.CreateFlagRequestObject) (apigen.CreateFlagResponseObject, error) {
+	if req.Body == nil {
+		return apigen.CreateFlag400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
+	}
+	resp, err := Run(ctx, world.CreateFlagEndpoint{Store: s.store, Links: s.links}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.CreateFlag403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isUnprocessable(err):
+		return apigen.CreateFlag422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) UpdateFlag(ctx context.Context, req apigen.UpdateFlagRequestObject) (apigen.UpdateFlagResponseObject, error) {
+	if req.Body == nil {
+		return apigen.UpdateFlag400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
+	}
+	resp, err := Run(ctx, world.UpdateFlagEndpoint{Store: s.store, Links: s.links}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.UpdateFlag403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.UpdateFlag404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	case isUnprocessable(err):
+		return apigen.UpdateFlag422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) DeleteFlag(ctx context.Context, req apigen.DeleteFlagRequestObject) (apigen.DeleteFlagResponseObject, error) {
+	resp, err := Run(ctx, world.DeleteFlagEndpoint{Store: s.store}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.DeleteFlag403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.DeleteFlag404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) ListSkills(ctx context.Context, req apigen.ListSkillsRequestObject) (apigen.ListSkillsResponseObject, error) {
+	return Run(ctx, world.ListSkillsEndpoint{Store: s.store, Links: s.links}, req)
+}
+
+func (s *Server) CreateSkill(ctx context.Context, req apigen.CreateSkillRequestObject) (apigen.CreateSkillResponseObject, error) {
+	if req.Body == nil {
+		return apigen.CreateSkill400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
+	}
+	resp, err := Run(ctx, world.CreateSkillEndpoint{Store: s.store, Links: s.links}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.CreateSkill403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isUnprocessable(err):
+		return apigen.CreateSkill422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) UpdateSkill(ctx context.Context, req apigen.UpdateSkillRequestObject) (apigen.UpdateSkillResponseObject, error) {
+	if req.Body == nil {
+		return apigen.UpdateSkill400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
+	}
+	resp, err := Run(ctx, world.UpdateSkillEndpoint{Store: s.store, Links: s.links}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.UpdateSkill403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.UpdateSkill404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	case isUnprocessable(err):
+		return apigen.UpdateSkill422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) DeleteSkill(ctx context.Context, req apigen.DeleteSkillRequestObject) (apigen.DeleteSkillResponseObject, error) {
+	resp, err := Run(ctx, world.DeleteSkillEndpoint{Store: s.store}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.DeleteSkill403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.DeleteSkill404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) ListQuests(ctx context.Context, req apigen.ListQuestsRequestObject) (apigen.ListQuestsResponseObject, error) {
+	return Run(ctx, world.ListQuestsEndpoint{Store: s.store, Links: s.links}, req)
+}
+
+func (s *Server) GetQuest(ctx context.Context, req apigen.GetQuestRequestObject) (apigen.GetQuestResponseObject, error) {
+	resp, err := Run(ctx, world.GetQuestEndpoint{Store: s.store, Links: s.links}, req)
+	if isNotFound(err) {
+		return apigen.GetQuest404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) CreateQuest(ctx context.Context, req apigen.CreateQuestRequestObject) (apigen.CreateQuestResponseObject, error) {
+	if req.Body == nil {
+		return apigen.CreateQuest400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
+	}
+	resp, err := Run(ctx, world.CreateQuestEndpoint{Store: s.store, Links: s.links}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.CreateQuest403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isUnprocessable(err):
+		return apigen.CreateQuest422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) UpdateQuest(ctx context.Context, req apigen.UpdateQuestRequestObject) (apigen.UpdateQuestResponseObject, error) {
+	if req.Body == nil {
+		return apigen.UpdateQuest400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
+	}
+	resp, err := Run(ctx, world.UpdateQuestEndpoint{Store: s.store, Links: s.links}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.UpdateQuest403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.UpdateQuest404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	case isUnprocessable(err):
+		return apigen.UpdateQuest422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) DeleteQuest(ctx context.Context, req apigen.DeleteQuestRequestObject) (apigen.DeleteQuestResponseObject, error) {
+	resp, err := Run(ctx, world.DeleteQuestEndpoint{Store: s.store}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.DeleteQuest403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.DeleteQuest404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) CreateQuestStage(ctx context.Context, req apigen.CreateQuestStageRequestObject) (apigen.CreateQuestStageResponseObject, error) {
+	if req.Body == nil {
+		return apigen.CreateQuestStage400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
+	}
+	resp, err := Run(ctx, world.CreateStageEndpoint{Store: s.store, Links: s.links}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.CreateQuestStage403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.CreateQuestStage404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	case isUnprocessable(err):
+		return apigen.CreateQuestStage422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) UpdateQuestStage(ctx context.Context, req apigen.UpdateQuestStageRequestObject) (apigen.UpdateQuestStageResponseObject, error) {
+	if req.Body == nil {
+		return apigen.UpdateQuestStage400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
+	}
+	resp, err := Run(ctx, world.UpdateStageEndpoint{Store: s.store, Links: s.links}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.UpdateQuestStage403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.UpdateQuestStage404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	case isUnprocessable(err):
+		return apigen.UpdateQuestStage422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) DeleteQuestStage(ctx context.Context, req apigen.DeleteQuestStageRequestObject) (apigen.DeleteQuestStageResponseObject, error) {
+	resp, err := Run(ctx, world.DeleteStageEndpoint{Store: s.store}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.DeleteQuestStage403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.DeleteQuestStage404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
 	}
 	return resp, err
 }

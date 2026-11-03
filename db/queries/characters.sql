@@ -1,6 +1,6 @@
 -- name: CreateCharacter :one
-INSERT INTO characters (id, name, name_revision_id, bible, created_by)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO characters (id, key, name, name_revision_id, bible, companion, created_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING *;
 
 -- name: GetCharacter :one
@@ -18,6 +18,8 @@ UPDATE characters SET
     name = COALESCE(sqlc.narg(name), name),
     name_revision_id = COALESCE(sqlc.narg(name_revision_id), name_revision_id),
     bible = COALESCE(sqlc.narg(bible), bible),
+    key = COALESCE(sqlc.narg(key), key),
+    companion = COALESCE(sqlc.narg(companion), companion),
     updated_at = NOW()
 WHERE id = $1 AND deleted_at IS NULL
 RETURNING *;

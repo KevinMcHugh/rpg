@@ -71,12 +71,21 @@ ol.choices li:target { outline: 2px solid var(--accent); }
 .note.closed .text { color: var(--muted); }
 .notes form.stack textarea { min-height: 4rem; }
 button.small { padding: .15rem .5rem; font-size: .78rem; }
+/* Scripts: conditions and effects, as authors type them. */
+.script, textarea.script, input.script { font-family: ui-monospace, Menlo, monospace; font-size: .85rem; }
+textarea.script { min-height: 3.2rem; }
+.rule { font-family: ui-monospace, Menlo, monospace; font-size: .8rem; color: var(--muted); white-space: pre-wrap; }
+.rule b { font-family: system-ui, sans-serif; font-weight: 600; color: var(--fg); margin-right: .3rem; }
+table.plain { border-collapse: collapse; width: 100%; font-size: .9rem; }
+table.plain td, table.plain th { text-align: left; padding: .35rem .5rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+label.check { display: inline-flex; gap: .35rem; align-items: center; }
+label.check input { width: auto; }
 </style>
 </head>
 <body>
 <header class="top">
   <a class="brand" href="/">{{.AppName}}</a>
-  <nav>{{if .SignedIn}}<a href="/">Content</a><a href="/notes">Notes</a><a href="/build">Build</a>{{end}}</nav>
+  <nav>{{if .SignedIn}}<a href="/">Content</a><a href="/world">World</a><a href="/notes">Notes</a><a href="/build">Build</a><a href="/play">Playtest</a>{{end}}</nav>
   {{block "account" .}}{{if .SignedIn}}<form class="inline" method="POST" action="/logout"><button class="ghost" type="submit">Sign out</button></form>{{else}}<a class="btn ghost" href="/login?next={{.Path}}">Sign in</a>{{end}}{{end}}
 </header>
 <main>

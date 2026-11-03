@@ -12,3 +12,6 @@ sql:
         emit_interface: true
         emit_empty_slices: true
         emit_pointers_for_null_types: true
+        # sqlc singularizes "saves" as "safe".
+        rename:
+          safe: Save

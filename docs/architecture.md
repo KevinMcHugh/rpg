@@ -19,6 +19,10 @@ Every surface ends in the same `Endpoint`. REST runs all three steps (`server.Ru
 | package | holds |
 | --- | --- |
 | `cmd/server` | `main`: `serve`, `build` (writes the game's bundle), and the `keys` and `invites` admin commands |
+| `cmd/game` | the game: plays `content.json`, with saves in its own database |
+| `internal/script` | the condition and effect language: parse, format, evaluate |
+| `internal/game` | the engine: a state and a choice in, a state out; skill checks seeded from the save |
+| `internal/game/play` | the game's pages, shared by the playtest (`/play`) and `cmd/game` |
 | `internal/app` | `Store` (every sqlc query plus `InTx`), `Revise` (records who wrote a player-facing string), `RequireHuman`, `Links` (absolute URLs for view models), `ErrNotFound`/`ErrBadInput`/`ErrForbidden`, `Name` |
 | `internal/content` | the build: `Load` the content, `Compile` it into the game's bundle, and check it on the way (provenance, start nodes, dangling choices, unreachable nodes) |
 | `internal/server` | `Endpoint`, `Run`, `BuildViewModel`; `Server`, which implements the generated `StrictServerInterface`, maps errors to typed responses, and mounts the API with the spec-driven auth guard |

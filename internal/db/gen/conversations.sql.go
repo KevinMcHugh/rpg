@@ -9,22 +9,38 @@ import (
 	"context"
 )
 
+const clearOpening = `-- name: ClearOpening :exec
+UPDATE conversations SET opening = FALSE, updated_at = NOW()
+WHERE opening AND id <> $1 AND deleted_at IS NULL
+`
+
+// Only one conversation opens the game.
+func (q *Queries) ClearOpening(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, clearOpening, id)
+	return err
+}
+
 const createConversation = `-- name: CreateConversation :one
-INSERT INTO conversations (id, title, summary, created_by)
-VALUES ($1, $2, $3, $4)
-RETURNING id, title, summary, start_node_id, created_by, created_at, updated_at, deleted_at
+INSERT INTO conversations (id, key, title, summary, opening, created_by)
+VALUES ($1, $2, $3, $4,
+    NOT EXISTS (SELECT 1 FROM conversations WHERE opening AND deleted_at IS NULL), $5)
+RETURNING id, title, summary, start_node_id, created_by, created_at, updated_at, deleted_at, key, label, label_revision_id, condition, repeatable, opening
 `
 
 type CreateConversationParams struct {
 	ID        string  `json:"id"`
+	Key       string  `json:"key"`
 	Title     string  `json:"title"`
 	Summary   string  `json:"summary"`
 	CreatedBy *string `json:"created_by"`
 }
 
+// The first conversation opens the game, as the first line of a
+// conversation becomes its start.
 func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversationParams) (Conversation, error) {
 	row := q.db.QueryRow(ctx, createConversation,
 		arg.ID,
+		arg.Key,
 		arg.Title,
 		arg.Summary,
 		arg.CreatedBy,
@@ -39,6 +55,12 @@ func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversation
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.Key,
+		&i.Label,
+		&i.LabelRevisionID,
+		&i.Condition,
+		&i.Repeatable,
+		&i.Opening,
 	)
 	return i, err
 }
@@ -59,7 +81,7 @@ func (q *Queries) DeleteConversation(ctx context.Context, id string) (int64, err
 }
 
 const getConversation = `-- name: GetConversation :one
-SELECT id, title, summary, start_node_id, created_by, created_at, updated_at, deleted_at FROM conversations
+SELECT id, title, summary, start_node_id, created_by, created_at, updated_at, deleted_at, key, label, label_revision_id, condition, repeatable, opening FROM conversations
 WHERE id = $1 AND deleted_at IS NULL
 `
 
@@ -75,12 +97,18 @@ func (q *Queries) GetConversation(ctx context.Context, id string) (Conversation,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.Key,
+		&i.Label,
+		&i.LabelRevisionID,
+		&i.Condition,
+		&i.Repeatable,
+		&i.Opening,
 	)
 	return i, err
 }
 
 const listConversations = `-- name: ListConversations :many
-SELECT id, title, summary, start_node_id, created_by, created_at, updated_at, deleted_at FROM conversations
+SELECT id, title, summary, start_node_id, created_by, created_at, updated_at, deleted_at, key, label, label_revision_id, condition, repeatable, opening FROM conversations
 WHERE deleted_at IS NULL
 ORDER BY created_at DESC
 `
@@ -103,6 +131,12 @@ func (q *Queries) ListConversations(ctx context.Context) ([]Conversation, error)
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.Key,
+			&i.Label,
+			&i.LabelRevisionID,
+			&i.Condition,
+			&i.Repeatable,
+			&i.Opening,
 		); err != nil {
 			return nil, err
 		}
@@ -119,20 +153,34 @@ UPDATE conversations SET
     title = COALESCE($2, title),
     summary = COALESCE($3, summary),
     start_node_id = CASE WHEN $4::bool THEN $5 ELSE start_node_id END,
+    key = COALESCE($6, key),
+    label = COALESCE($7, label),
+    label_revision_id = CASE WHEN $7::text IS NULL THEN label_revision_id ELSE $8 END,
+    condition = CASE WHEN $9::bool THEN $10::jsonb ELSE condition END,
+    repeatable = COALESCE($11, repeatable),
+    opening = COALESCE($12, opening),
     updated_at = NOW()
 WHERE id = $1 AND deleted_at IS NULL
-RETURNING id, title, summary, start_node_id, created_by, created_at, updated_at, deleted_at
+RETURNING id, title, summary, start_node_id, created_by, created_at, updated_at, deleted_at, key, label, label_revision_id, condition, repeatable, opening
 `
 
 type UpdateConversationParams struct {
-	ID          string  `json:"id"`
-	Title       *string `json:"title"`
-	Summary     *string `json:"summary"`
-	SetStart    bool    `json:"set_start"`
-	StartNodeID *string `json:"start_node_id"`
+	ID              string  `json:"id"`
+	Title           *string `json:"title"`
+	Summary         *string `json:"summary"`
+	SetStart        bool    `json:"set_start"`
+	StartNodeID     *string `json:"start_node_id"`
+	Key             *string `json:"key"`
+	Label           *string `json:"label"`
+	LabelRevisionID *string `json:"label_revision_id"`
+	SetCondition    bool    `json:"set_condition"`
+	Condition       []byte  `json:"condition"`
+	Repeatable      *bool   `json:"repeatable"`
+	Opening         *bool   `json:"opening"`
 }
 
-// set_start says whether to change start_node_id, so a PATCH can clear it.
+// set_start and set_condition say whether to change those columns, so a
+// PATCH can clear them. A new label comes with its new revision.
 func (q *Queries) UpdateConversation(ctx context.Context, arg UpdateConversationParams) (Conversation, error) {
 	row := q.db.QueryRow(ctx, updateConversation,
 		arg.ID,
@@ -140,6 +188,13 @@ func (q *Queries) UpdateConversation(ctx context.Context, arg UpdateConversation
 		arg.Summary,
 		arg.SetStart,
 		arg.StartNodeID,
+		arg.Key,
+		arg.Label,
+		arg.LabelRevisionID,
+		arg.SetCondition,
+		arg.Condition,
+		arg.Repeatable,
+		arg.Opening,
 	)
 	var i Conversation
 	err := row.Scan(
@@ -151,6 +206,12 @@ func (q *Queries) UpdateConversation(ctx context.Context, arg UpdateConversation
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.Key,
+		&i.Label,
+		&i.LabelRevisionID,
+		&i.Condition,
+		&i.Repeatable,
+		&i.Opening,
 	)
 	return i, err
 }

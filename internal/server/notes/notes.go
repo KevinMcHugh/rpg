@@ -26,7 +26,7 @@ const MaxBody = 10000
 
 // The values the spec's enums allow, in the order the pages offer them.
 var (
-	TargetKinds = []string{"game", "character", "conversation", "node", "choice"}
+	TargetKinds = []string{"game", "character", "conversation", "node", "choice", "flag", "skill", "quest"}
 	Kinds       = []string{"gap", "continuity", "plot_idea", "pacing", "mechanics", "question", "other"}
 	Statuses    = []string{"open", "resolved", "dismissed"}
 )
@@ -195,6 +195,9 @@ type CreateStore interface {
 	GetConversation(ctx context.Context, id string) (dbgen.Conversation, error)
 	GetNode(ctx context.Context, id string) (dbgen.Node, error)
 	GetChoice(ctx context.Context, id string) (dbgen.Choice, error)
+	GetFlag(ctx context.Context, id string) (dbgen.Flag, error)
+	GetSkill(ctx context.Context, id string) (dbgen.Skill, error)
+	GetQuest(ctx context.Context, id string) (dbgen.Quest, error)
 }
 
 // CreateEndpoint leaves a note, or replies to one. Anyone may: it is how an
@@ -283,6 +286,12 @@ func (e CreateEndpoint) checkTarget(ctx context.Context, kind, id string) error 
 		_, err = e.Store.GetNode(ctx, id)
 	case "choice":
 		_, err = e.Store.GetChoice(ctx, id)
+	case "flag":
+		_, err = e.Store.GetFlag(ctx, id)
+	case "skill":
+		_, err = e.Store.GetSkill(ctx, id)
+	case "quest":
+		_, err = e.Store.GetQuest(ctx, id)
 	}
 	return app.NotFound(err, kind, id)
 }

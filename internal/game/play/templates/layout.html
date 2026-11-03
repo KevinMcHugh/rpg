@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{block "title" .}}{{.Title}}{{end}}</title>
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #12100e; --panel: #1b1815; --fg: #e9e2d6; --muted: #9b9184; --line: #34302a;
+  --accent: #d9a35b; --you: #9cc3d5; --ok: #9fcf8a; --bad: #e08a7a; --journal: #c9b3e6;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 17px/1.6 Georgia, "Iowan Old Style", "Palatino Linotype", serif; }
+a { color: var(--accent); }
+header.top { display: flex; gap: 1rem; align-items: baseline; padding: .7rem 1rem; border-bottom: 1px solid var(--line); font: 14px/1.4 system-ui, sans-serif; flex-wrap: wrap; }
+header.top .brand { font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--fg); text-decoration: none; }
+header.top .spacer { flex: 1; }
+main { max-width: 64rem; margin: 0 auto; padding: 1.25rem 1rem 4rem; }
+.notice { font: 14px/1.4 system-ui, sans-serif; border: 1px solid var(--bad); color: var(--bad); padding: .5rem .75rem; border-radius: 6px; margin-bottom: 1rem; }
+.flash { font: 14px/1.4 system-ui, sans-serif; border: 1px solid var(--accent); color: var(--accent); padding: .5rem .75rem; border-radius: 6px; margin-bottom: 1rem; }
+button { font: inherit; cursor: pointer; }
+.ui { font: 14px/1.4 system-ui, sans-serif; }
+input, textarea { font: 14px/1.4 ui-monospace, Menlo, monospace; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: .45rem .6rem; width: 100%; }
+.btn { font: 14px/1.4 system-ui, sans-serif; background: var(--accent); color: #1a140c; border: 0; border-radius: 6px; padding: .5rem 1rem; }
+.btn.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+.muted { color: var(--muted); }
+</style>
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="{{.Base}}/">{{.Title}}</a>
+  <span class="spacer"></span>
+  {{if .Back}}<a href="{{.Back}}">← Authoring</a>{{end}}
+</header>
+<main>
+{{if .Flash}}<p class="flash">{{.Flash}}</p>{{end}}
+{{template "content" .}}
+</main>
+</body>
+</html>

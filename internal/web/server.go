@@ -95,6 +95,9 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/choices/{id}", s.choiceRedirect)
 		r.Get("/notes", s.notesPage)
 		r.Get("/build", s.buildPage)
+		r.Get("/world", s.worldPage)
+		r.Get("/quests/{id}", s.questPage)
+		r.Get("/stages/{id}", s.stageRedirect)
 	})
 
 	// Everything that changes something needs a session too, and a
@@ -119,6 +122,28 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/notes", s.createNote)
 		r.Post("/notes/{id}/status", s.setNoteStatus)
 		r.Post("/notes/{id}/delete", s.deleteNote)
+		r.Post("/flags", s.createFlag)
+		r.Post("/flags/{id}", s.updateFlag)
+		r.Post("/flags/{id}/delete", s.deleteFlag)
+		r.Post("/skills", s.createSkill)
+		r.Post("/skills/{id}", s.updateSkill)
+		r.Post("/skills/{id}/delete", s.deleteSkill)
+		r.Post("/quests", s.createQuest)
+		r.Post("/quests/{id}", s.updateQuest)
+		r.Post("/quests/{id}/delete", s.deleteQuest)
+		r.Post("/quests/{id}/stages", s.createStage)
+		r.Post("/stages/{id}", s.updateStage)
+		r.Post("/stages/{id}/delete", s.deleteStage)
+	})
+
+	// Playtests: the game itself, playing the content as it stands, with
+	// saves kept per api key. An agent may play too; playing writes only
+	// its own saves.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.Require(q, s.toLogin))
+		r.Use(s.sameOrigin)
+		r.Use(pageHeaders)
+		s.playtest().Routes(r)
 	})
 	return r
 }

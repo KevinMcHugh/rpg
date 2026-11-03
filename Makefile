@@ -1,6 +1,6 @@
 # See README.md. Code generators and dbmate run with `go run …@version`, so
 # their dependency trees stay out of go.mod.
-.PHONY: dev generate migrate rollback new-migration key agent-key invite build bundle test check help
+.PHONY: dev generate migrate rollback new-migration key agent-key invite build bundle play test check help
 
 # Generators run on the toolchain go.mod names, never whichever one go run
 # picks: oapi-codegen embeds the spec gzipped, and gzip output differs
@@ -45,8 +45,14 @@ invite: ## Mint a single-use invite for a newcomer (usage: make invite NOTE=ana)
 bundle: ## Check the content and write the game's bundle to content.json (needs DATABASE_URL)
 	go run ./cmd/server build --out content.json
 
-build: ## Build the binary to bin/server
+play: ## Play content.json in the game binary on :8090 (GAME_DATABASE_URL: its own database, migrated like the authoring one)
+	@if [ -z "$(GAME_DATABASE_URL)" ]; then echo "set GAME_DATABASE_URL to the game's own database"; exit 1; fi
+	DATABASE_URL="$(GAME_DATABASE_URL)" $(DBMATE) up
+	DATABASE_URL="$(GAME_DATABASE_URL)" go run ./cmd/game serve
+
+build: ## Build the binaries to bin/
 	go build -o bin/server ./cmd/server
+	go build -o bin/game ./cmd/game
 
 test: ## Run the tests; set TEST_DATABASE_URL to include the Postgres ones
 	go test -count=1 ./...

@@ -28,30 +28,54 @@ type Character struct {
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 	DeletedAt      pgtype.Timestamptz `json:"deleted_at"`
+	Key            string             `json:"key"`
+	Companion      bool               `json:"companion"`
 }
 
 type Choice struct {
-	ID             string             `json:"id"`
-	FromNodeID     string             `json:"from_node_id"`
-	ToNodeID       *string            `json:"to_node_id"`
-	Text           string             `json:"text"`
-	TextRevisionID string             `json:"text_revision_id"`
-	SortOrder      int32              `json:"sort_order"`
-	CreatedBy      *string            `json:"created_by"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
-	DeletedAt      pgtype.Timestamptz `json:"deleted_at"`
+	ID              string             `json:"id"`
+	FromNodeID      string             `json:"from_node_id"`
+	ToNodeID        *string            `json:"to_node_id"`
+	Text            string             `json:"text"`
+	TextRevisionID  string             `json:"text_revision_id"`
+	SortOrder       int32              `json:"sort_order"`
+	CreatedBy       *string            `json:"created_by"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt       pgtype.Timestamptz `json:"deleted_at"`
+	Condition       []byte             `json:"condition"`
+	Effects         []byte             `json:"effects"`
+	CheckSkillID    *string            `json:"check_skill_id"`
+	CheckDifficulty int32              `json:"check_difficulty"`
+	FailNodeID      *string            `json:"fail_node_id"`
 }
 
 type Conversation struct {
-	ID          string             `json:"id"`
-	Title       string             `json:"title"`
-	Summary     string             `json:"summary"`
-	StartNodeID *string            `json:"start_node_id"`
-	CreatedBy   *string            `json:"created_by"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-	DeletedAt   pgtype.Timestamptz `json:"deleted_at"`
+	ID              string             `json:"id"`
+	Title           string             `json:"title"`
+	Summary         string             `json:"summary"`
+	StartNodeID     *string            `json:"start_node_id"`
+	CreatedBy       *string            `json:"created_by"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt       pgtype.Timestamptz `json:"deleted_at"`
+	Key             string             `json:"key"`
+	Label           string             `json:"label"`
+	LabelRevisionID *string            `json:"label_revision_id"`
+	Condition       []byte             `json:"condition"`
+	Repeatable      bool               `json:"repeatable"`
+	Opening         bool               `json:"opening"`
+}
+
+type Flag struct {
+	ID           string             `json:"id"`
+	Key          string             `json:"key"`
+	Description  string             `json:"description"`
+	InitialValue int32              `json:"initial_value"`
+	CreatedBy    *string            `json:"created_by"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt    pgtype.Timestamptz `json:"deleted_at"`
 }
 
 type Invite struct {
@@ -76,6 +100,7 @@ type Node struct {
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 	DeletedAt      pgtype.Timestamptz `json:"deleted_at"`
+	Effects        []byte             `json:"effects"`
 }
 
 type Note struct {
@@ -125,6 +150,53 @@ type OauthToken struct {
 	RefreshExpiresAt pgtype.Timestamptz `json:"refresh_expires_at"`
 	RevokedAt        pgtype.Timestamptz `json:"revoked_at"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+}
+
+type Quest struct {
+	ID             string             `json:"id"`
+	Key            string             `json:"key"`
+	Name           string             `json:"name"`
+	NameRevisionID string             `json:"name_revision_id"`
+	Summary        string             `json:"summary"`
+	CreatedBy      *string            `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt      pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type QuestStage struct {
+	ID                string             `json:"id"`
+	QuestID           string             `json:"quest_id"`
+	Number            int32              `json:"number"`
+	Journal           string             `json:"journal"`
+	JournalRevisionID string             `json:"journal_revision_id"`
+	Completes         bool               `json:"completes"`
+	CreatedBy         *string            `json:"created_by"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt         pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type Save struct {
+	ID        string             `json:"id"`
+	Name      string             `json:"name"`
+	State     []byte             `json:"state"`
+	CreatedBy *string            `json:"created_by"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type Skill struct {
+	ID             string             `json:"id"`
+	Key            string             `json:"key"`
+	Name           string             `json:"name"`
+	NameRevisionID string             `json:"name_revision_id"`
+	InitialLevel   int32              `json:"initial_level"`
+	CreatedBy      *string            `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt      pgtype.Timestamptz `json:"deleted_at"`
 }
 
 type TextRevision struct {

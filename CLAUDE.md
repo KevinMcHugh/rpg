@@ -11,7 +11,7 @@ To change something in a generated file, edit its source (the spec, a query or a
 
 ## Core invariants
 
-- **People write the game; you do not.** Every word a player sees (a character's name, a line, a choice) is written by a person. Never write, draft or suggest that text, in code, a note, a test fixture that ships, or chat. Leave notes about intent instead. In code: a write is human-only unless the spec says `x-agent-writable: true` (only `POST /notes` does); every content endpoint calls `app.RequireHuman` first; every player-facing string goes through `app.Revise`. See @docs/authorship.md.
+- **People write the game; you do not.** Every word a player sees (a character's name, a line, a choice, a conversation's label, a skill's or quest's name, a journal entry) is written by a person. Never write, draft or suggest that text, in code, a note, a test fixture that ships, or chat. Leave notes about intent instead. In code: a write is human-only unless the spec says `x-agent-writable: true` (only `POST /notes` does); every content endpoint calls `app.RequireHuman` first; every player-facing string goes through `app.Revise`. See @docs/authorship.md.
 - **IDs are xids.** Stored as `CHAR(20)`, created with `xid.New().String()`.
 - **Soft delete.** Every live table has `created_at`, `updated_at`, `deleted_at`. Every query filters `deleted_at IS NULL`. Deletes set `deleted_at = NOW()`.
 - **The spec decides who may call what.** An operation is private unless its spec entry says `security: []`. Never make a route public in the router. `TestPublicOperations` pins the public set, so update it when you deliberately change the set.

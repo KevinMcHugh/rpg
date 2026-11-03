@@ -1,6 +1,9 @@
+-- The first conversation opens the game, as the first line of a
+-- conversation becomes its start.
 -- name: CreateConversation :one
-INSERT INTO conversations (id, title, summary, created_by)
-VALUES ($1, $2, $3, $4)
+INSERT INTO conversations (id, key, title, summary, opening, created_by)
+VALUES ($1, $2, $3, $4,
+    NOT EXISTS (SELECT 1 FROM conversations WHERE opening AND deleted_at IS NULL), $5)
 RETURNING *;
 
 -- name: GetConversation :one
@@ -12,12 +15,19 @@ SELECT * FROM conversations
 WHERE deleted_at IS NULL
 ORDER BY created_at DESC;
 
--- set_start says whether to change start_node_id, so a PATCH can clear it.
+-- set_start and set_condition say whether to change those columns, so a
+-- PATCH can clear them. A new label comes with its new revision.
 -- name: UpdateConversation :one
 UPDATE conversations SET
     title = COALESCE(sqlc.narg(title), title),
     summary = COALESCE(sqlc.narg(summary), summary),
     start_node_id = CASE WHEN sqlc.arg(set_start)::bool THEN sqlc.narg(start_node_id) ELSE start_node_id END,
+    key = COALESCE(sqlc.narg(key), key),
+    label = COALESCE(sqlc.narg(label), label),
+    label_revision_id = CASE WHEN sqlc.narg(label)::text IS NULL THEN label_revision_id ELSE sqlc.narg(label_revision_id) END,
+    condition = CASE WHEN sqlc.arg(set_condition)::bool THEN sqlc.narg(condition)::jsonb ELSE condition END,
+    repeatable = COALESCE(sqlc.narg(repeatable), repeatable),
+    opening = COALESCE(sqlc.narg(opening), opening),
     updated_at = NOW()
 WHERE id = $1 AND deleted_at IS NULL
 RETURNING *;
@@ -27,3 +37,8 @@ RETURNING *;
 -- name: DeleteConversation :execrows
 UPDATE conversations SET deleted_at = NOW(), updated_at = NOW()
 WHERE id = $1 AND deleted_at IS NULL;
+
+-- Only one conversation opens the game.
+-- name: ClearOpening :exec
+UPDATE conversations SET opening = FALSE, updated_at = NOW()
+WHERE opening AND id <> $1 AND deleted_at IS NULL;

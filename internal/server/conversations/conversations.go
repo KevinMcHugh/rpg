@@ -1,8 +1,10 @@
 // Package conversations holds the endpoints for the dialogue graph: a
 // conversation, its nodes (lines of dialogue) and the choices between them.
-// A node's line and a choice's text are player-facing, so only a person may
-// write them (app.Revise); a conversation's title and summary are
-// authoring labels that never ship.
+// A node's line, a choice's text and a conversation's label are
+// player-facing, so only a person may write them (app.Revise); a
+// conversation's title and summary are authoring labels that never ship.
+// Conditions and effects are scripts (package script): authors send text,
+// it is stored by id, and it comes back formatted with today's keys.
 package conversations
 
 import (
@@ -20,6 +22,7 @@ import (
 	"github.com/KevinMcHugh/rpg/internal/app"
 	"github.com/KevinMcHugh/rpg/internal/auth"
 	dbgen "github.com/KevinMcHugh/rpg/internal/db/gen"
+	"github.com/KevinMcHugh/rpg/internal/script"
 )
 
 // Limits, in characters.
@@ -37,9 +40,14 @@ const (
 // Conversation is a conversation without its nodes.
 type Conversation struct {
 	ID          string    `json:"id"`
+	Key         string    `json:"key"`
 	Title       string    `json:"title"`
 	Summary     string    `json:"summary"`
 	StartNodeID string    `json:"startNodeId"`
+	Label       string    `json:"label"`
+	Condition   string    `json:"condition"`
+	Repeatable  bool      `json:"repeatable"`
+	Opening     bool      `json:"opening"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 	URL         string    `json:"url"`
@@ -52,17 +60,24 @@ type Node struct {
 	SpeakerID      string   `json:"speakerId"`
 	SpeakerName    string   `json:"speakerName"`
 	Text           string   `json:"text"`
+	Effects        string   `json:"effects"`
 	Choices        []Choice `json:"choices"`
 	URL            string   `json:"url"`
 }
 
 // Choice is something the player can say at a node.
 type Choice struct {
-	ID         string `json:"id"`
-	FromNodeID string `json:"fromNodeId"`
-	ToNodeID   string `json:"toNodeId"`
-	Text       string `json:"text"`
-	SortOrder  int    `json:"sortOrder"`
+	ID              string `json:"id"`
+	FromNodeID      string `json:"fromNodeId"`
+	ToNodeID        string `json:"toNodeId"`
+	Text            string `json:"text"`
+	SortOrder       int    `json:"sortOrder"`
+	Condition       string `json:"condition"`
+	Effects         string `json:"effects"`
+	CheckSkillID    string `json:"checkSkillId"`
+	CheckSkillName  string `json:"checkSkillName"`
+	CheckDifficulty int    `json:"checkDifficulty"`
+	FailNodeID      string `json:"failNodeId"`
 }
 
 // Graph is a conversation with every node, in the order they were written.
@@ -72,47 +87,100 @@ type Graph struct {
 }
 
 // ToViewModel is the view of a stored conversation.
-func ToViewModel(row dbgen.Conversation, links app.Links) Conversation {
+func ToViewModel(row dbgen.Conversation, w world, links app.Links) Conversation {
 	return Conversation{
 		ID:          row.ID,
+		Key:         row.Key,
 		Title:       row.Title,
 		Summary:     row.Summary,
 		StartNodeID: deref(row.StartNodeID),
+		Label:       row.Label,
+		Condition:   app.FormatCond(row.Condition, w.Names),
+		Repeatable:  row.Repeatable,
+		Opening:     row.Opening,
 		CreatedAt:   row.CreatedAt.Time,
 		UpdatedAt:   row.UpdatedAt.Time,
 		URL:         links.Conversation(row.ID),
 	}
 }
 
-func choiceView(row dbgen.Choice) Choice {
-	return Choice{
-		ID:         row.ID,
-		FromNodeID: row.FromNodeID,
-		ToNodeID:   deref(row.ToNodeID),
-		Text:       row.Text,
-		SortOrder:  int(row.SortOrder),
+func choiceView(row dbgen.Choice, w world) Choice {
+	c := Choice{
+		ID:              row.ID,
+		FromNodeID:      row.FromNodeID,
+		ToNodeID:        deref(row.ToNodeID),
+		Text:            row.Text,
+		SortOrder:       int(row.SortOrder),
+		Condition:       app.FormatCond(row.Condition, w.Names),
+		Effects:         app.FormatEffects(row.Effects, w.Names),
+		CheckSkillID:    deref(row.CheckSkillID),
+		CheckDifficulty: int(row.CheckDifficulty),
+		FailNodeID:      deref(row.FailNodeID),
 	}
+	if c.CheckSkillID != "" {
+		c.CheckSkillName = w.Skills[c.CheckSkillID]
+		if c.CheckSkillName == "" {
+			c.CheckSkillName = "(deleted skill)"
+		}
+	}
+	return c
 }
 
-// nodeModel is a stored node with what its view needs: its choices and its
-// speaker's name.
+// world is what views need to show scripts and names: every key, and the
+// names of characters (speakers) and skills (checks).
+type world struct {
+	Names    *script.Names
+	Speakers map[string]string // character id → name
+	Skills   map[string]string // skill id → name
+}
+
+// WorldStore is what loading a world reads.
+type WorldStore interface {
+	app.NamesStore
+}
+
+func loadWorld(ctx context.Context, s WorldStore) (world, error) {
+	names, err := app.LoadNames(ctx, s)
+	if err != nil {
+		return world{}, err
+	}
+	chars, err := s.ListCharacters(ctx)
+	if err != nil {
+		return world{}, err
+	}
+	skills, err := s.ListSkills(ctx)
+	if err != nil {
+		return world{}, err
+	}
+	w := world{Names: names, Speakers: map[string]string{}, Skills: map[string]string{}}
+	for _, c := range chars {
+		w.Speakers[c.ID] = c.Name
+	}
+	for _, sk := range skills {
+		w.Skills[sk.ID] = sk.Name
+	}
+	return w, nil
+}
+
+// nodeModel is a stored node with what its view needs.
 type nodeModel struct {
-	Node        dbgen.Node
-	Choices     []dbgen.Choice
-	SpeakerName string
+	Node    dbgen.Node
+	Choices []dbgen.Choice
+	World   world
 }
 
 func nodeView(m nodeModel, links app.Links) Node {
 	choices := make([]Choice, len(m.Choices))
 	for i, c := range m.Choices {
-		choices[i] = choiceView(c)
+		choices[i] = choiceView(c, m.World)
 	}
 	return Node{
 		ID:             m.Node.ID,
 		ConversationID: m.Node.ConversationID,
 		SpeakerID:      deref(m.Node.SpeakerID),
-		SpeakerName:    m.SpeakerName,
+		SpeakerName:    speakerName(m.World.Speakers, m.Node.SpeakerID),
 		Text:           m.Node.Text,
+		Effects:        app.FormatEffects(m.Node.Effects, m.World.Names),
 		Choices:        choices,
 		URL:            links.Node(m.Node.ConversationID, m.Node.ID),
 	}
@@ -123,7 +191,7 @@ type graphModel struct {
 	Conversation dbgen.Conversation
 	Nodes        []dbgen.Node
 	Choices      []dbgen.Choice
-	Speakers     map[string]string // character id → name
+	World        world
 }
 
 func graphView(m graphModel, links app.Links) Graph {
@@ -133,9 +201,9 @@ func graphView(m graphModel, links app.Links) Graph {
 	}
 	nodes := make([]Node, len(m.Nodes))
 	for i, n := range m.Nodes {
-		nodes[i] = nodeView(nodeModel{Node: n, Choices: byNode[n.ID], SpeakerName: speakerName(m.Speakers, n.SpeakerID)}, links)
+		nodes[i] = nodeView(nodeModel{Node: n, Choices: byNode[n.ID], World: m.World}, links)
 	}
-	return Graph{Conversation: ToViewModel(m.Conversation, links), Nodes: nodes}
+	return Graph{Conversation: ToViewModel(m.Conversation, m.World, links), Nodes: nodes}
 }
 
 func speakerName(speakers map[string]string, id *string) string {
@@ -151,9 +219,14 @@ func speakerName(speakers map[string]string, id *string) string {
 func toAPIConversation(c Conversation) apigen.Conversation {
 	return apigen.Conversation{
 		Id:          c.ID,
+		Key:         c.Key,
 		Title:       c.Title,
 		Summary:     c.Summary,
 		StartNodeId: c.StartNodeID,
+		Label:       c.Label,
+		Condition:   c.Condition,
+		Repeatable:  c.Repeatable,
+		Opening:     c.Opening,
 		CreatedAt:   c.CreatedAt,
 		UpdatedAt:   c.UpdatedAt,
 		Url:         c.URL,
@@ -161,7 +234,11 @@ func toAPIConversation(c Conversation) apigen.Conversation {
 }
 
 func toAPIChoice(c Choice) apigen.Choice {
-	return apigen.Choice{Id: c.ID, FromNodeId: c.FromNodeID, ToNodeId: c.ToNodeID, Text: c.Text, SortOrder: c.SortOrder}
+	return apigen.Choice{
+		Id: c.ID, FromNodeId: c.FromNodeID, ToNodeId: c.ToNodeID, Text: c.Text, SortOrder: c.SortOrder,
+		Condition: c.Condition, Effects: c.Effects,
+		CheckSkillId: c.CheckSkillID, CheckSkillName: c.CheckSkillName, CheckDifficulty: c.CheckDifficulty, FailNodeId: c.FailNodeID,
+	}
 }
 
 func toAPINode(n Node) apigen.Node {
@@ -175,6 +252,7 @@ func toAPINode(n Node) apigen.Node {
 		SpeakerId:      n.SpeakerID,
 		SpeakerName:    n.SpeakerName,
 		Text:           n.Text,
+		Effects:        n.Effects,
 		Choices:        choices,
 		Url:            n.URL,
 	}
@@ -218,10 +296,10 @@ func clean(field, s string, limit int, required bool) (string, error) {
 
 // GraphStore is what loading a whole conversation reads.
 type GraphStore interface {
+	WorldStore
 	GetConversation(ctx context.Context, id string) (dbgen.Conversation, error)
 	ListNodesByConversation(ctx context.Context, conversationID string) ([]dbgen.Node, error)
 	ListChoicesByConversation(ctx context.Context, conversationID string) ([]dbgen.Choice, error)
-	ListCharacters(ctx context.Context) ([]dbgen.Character, error)
 }
 
 func loadGraph(ctx context.Context, s GraphStore, id string) (graphModel, error) {
@@ -237,25 +315,11 @@ func loadGraph(ctx context.Context, s GraphStore, id string) (graphModel, error)
 	if err != nil {
 		return graphModel{}, err
 	}
-	speakers, err := speakerNames(ctx, s)
+	w, err := loadWorld(ctx, s)
 	if err != nil {
 		return graphModel{}, err
 	}
-	return graphModel{Conversation: conv, Nodes: nodes, Choices: choices, Speakers: speakers}, nil
-}
-
-func speakerNames(ctx context.Context, s interface {
-	ListCharacters(ctx context.Context) ([]dbgen.Character, error)
-}) (map[string]string, error) {
-	chars, err := s.ListCharacters(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := make(map[string]string, len(chars))
-	for _, c := range chars {
-		out[c.ID] = c.Name
-	}
-	return out, nil
+	return graphModel{Conversation: conv, Nodes: nodes, Choices: choices, World: w}, nil
 }
 
 // -----------------------------------------------------------------------------
@@ -263,7 +327,7 @@ func speakerNames(ctx context.Context, s interface {
 // -----------------------------------------------------------------------------
 
 type ListStore interface {
-	ListConversations(ctx context.Context) ([]dbgen.Conversation, error)
+	WorldStore
 }
 
 // ListEndpoint is every conversation, newest first, without nodes.
@@ -272,14 +336,24 @@ type ListEndpoint struct {
 	Links app.Links
 }
 
-func (e ListEndpoint) Interact(ctx context.Context, _ apigen.ListConversationsRequestObject) ([]dbgen.Conversation, error) {
-	return e.Store.ListConversations(ctx)
+type listModel struct {
+	Rows  []dbgen.Conversation
+	World world
 }
 
-func (e ListEndpoint) Build(rows []dbgen.Conversation) []Conversation {
-	out := make([]Conversation, len(rows))
-	for i, r := range rows {
-		out[i] = ToViewModel(r, e.Links)
+func (e ListEndpoint) Interact(ctx context.Context, _ apigen.ListConversationsRequestObject) (listModel, error) {
+	rows, err := e.Store.ListConversations(ctx)
+	if err != nil {
+		return listModel{}, err
+	}
+	w, err := loadWorld(ctx, e.Store)
+	return listModel{Rows: rows, World: w}, err
+}
+
+func (e ListEndpoint) Build(m listModel) []Conversation {
+	out := make([]Conversation, len(m.Rows))
+	for i, r := range m.Rows {
+		out[i] = ToViewModel(r, m.World, e.Links)
 	}
 	return out
 }
@@ -317,11 +391,12 @@ func (e GetEndpoint) Render(vm Graph) apigen.GetConversationResponseObject {
 // -----------------------------------------------------------------------------
 
 type CreateStore interface {
+	WorldStore
 	CreateConversation(ctx context.Context, arg dbgen.CreateConversationParams) (dbgen.Conversation, error)
 }
 
-// CreateEndpoint saves a new, empty conversation. People only: an agent
-// suggests a conversation in a note.
+// CreateEndpoint saves a new, empty conversation; the first one opens the
+// game. People only: an agent suggests a conversation in a note.
 type CreateEndpoint struct {
 	Store CreateStore
 	Links app.Links
@@ -339,13 +414,22 @@ func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateConversat
 	if err != nil {
 		return graphModel{}, err
 	}
+	key, err := app.CleanKey(req.Body.Key, title)
+	if err != nil {
+		return graphModel{}, err
+	}
 	row, err := e.Store.CreateConversation(ctx, dbgen.CreateConversationParams{
 		ID:        xid.New().String(),
+		Key:       key,
 		Title:     title,
 		Summary:   summary,
 		CreatedBy: auth.KeyIDPtr(ctx),
 	})
-	return graphModel{Conversation: row}, err
+	if err != nil {
+		return graphModel{}, app.KeyTaken(err, "conversation", key)
+	}
+	w, err := loadWorld(ctx, e.Store)
+	return graphModel{Conversation: row, World: w}, err
 }
 
 func (e CreateEndpoint) Build(m graphModel) Graph { return graphView(m, e.Links) }
@@ -360,12 +444,11 @@ func (e CreateEndpoint) Render(vm Graph) apigen.CreateConversationResponseObject
 
 type UpdateStore interface {
 	GraphStore
-	GetNode(ctx context.Context, id string) (dbgen.Node, error)
-	UpdateConversation(ctx context.Context, arg dbgen.UpdateConversationParams) (dbgen.Conversation, error)
+	TxStore
 }
 
-// UpdateEndpoint changes a conversation's title, summary or start node.
-// People only.
+// UpdateEndpoint changes a conversation's title, summary, start node, key,
+// label, condition, or whether it repeats or opens the game. People only.
 type UpdateEndpoint struct {
 	Store UpdateStore
 	Links app.Links
@@ -375,32 +458,84 @@ func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateConversat
 	if err := app.RequireHuman(ctx); err != nil {
 		return graphModel{}, err
 	}
-	arg := dbgen.UpdateConversationParams{ID: req.ConversationId}
-	if t := req.Body.Title; t != nil {
+	b := req.Body
+	arg := dbgen.UpdateConversationParams{ID: req.ConversationId, Repeatable: b.Repeatable, Opening: b.Opening}
+	if t := b.Title; t != nil {
 		title, err := clean("title", *t, MaxTitle, true)
 		if err != nil {
 			return graphModel{}, err
 		}
 		arg.Title = &title
 	}
-	if s := req.Body.Summary; s != nil {
+	if s := b.Summary; s != nil {
 		summary, err := clean("summary", *s, MaxSummary, false)
 		if err != nil {
 			return graphModel{}, err
 		}
 		arg.Summary = &summary
 	}
-	if s := req.Body.StartNodeId; s != nil {
-		arg.SetStart = true
-		if id := strings.TrimSpace(*s); id != "" {
-			if err := inConversation(ctx, e.Store, id, req.ConversationId); err != nil {
-				return graphModel{}, err
-			}
-			arg.StartNodeID = &id
+	if k := b.Key; k != nil {
+		key, err := app.CleanKey(*k, "")
+		if err != nil {
+			return graphModel{}, err
+		}
+		arg.Key = &key
+	}
+	var label string
+	if l := b.Label; l != nil {
+		var err error
+		if label, err = clean("label", *l, MaxChoice, false); err != nil {
+			return graphModel{}, err
 		}
 	}
-	if _, err := e.Store.UpdateConversation(ctx, arg); err != nil {
-		return graphModel{}, app.NotFound(err, "conversation", req.ConversationId)
+	err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+		cur, err := q.GetConversation(ctx, req.ConversationId)
+		if err != nil {
+			return app.NotFound(err, "conversation", req.ConversationId)
+		}
+		if s := b.StartNodeId; s != nil {
+			arg.SetStart = true
+			if id := strings.TrimSpace(*s); id != "" {
+				if err := inConversation(ctx, q, id, cur.ID); err != nil {
+					return err
+				}
+				arg.StartNodeID = &id
+			}
+		}
+		if c := b.Condition; c != nil {
+			names, err := app.LoadNames(ctx, q)
+			if err != nil {
+				return err
+			}
+			if arg.Condition, err = app.ParseCond("condition", *c, names); err != nil {
+				return err
+			}
+			arg.SetCondition = true
+		}
+		// A changed label needs a new revision; an empty one needs none.
+		if b.Label != nil && label != cur.Label {
+			arg.Label = &label
+			if label != "" {
+				rev, err := app.Revise(ctx, q, "conversation", cur.ID, "label", label)
+				if err != nil {
+					return err
+				}
+				arg.LabelRevisionID = &rev
+			}
+		}
+		if b.Opening != nil && *b.Opening {
+			if err := q.ClearOpening(ctx, cur.ID); err != nil {
+				return err
+			}
+		}
+		_, err = q.UpdateConversation(ctx, arg)
+		if arg.Key != nil {
+			err = app.KeyTaken(err, "conversation", *arg.Key)
+		}
+		return err
+	})
+	if err != nil {
+		return graphModel{}, err
 	}
 	return loadGraph(ctx, e.Store, req.ConversationId)
 }

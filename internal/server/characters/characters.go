@@ -31,6 +31,8 @@ const (
 // Character is a character as every surface shows it.
 type Character struct {
 	ID        string    `json:"id"`
+	Key       string    `json:"key"`
+	Companion bool      `json:"companion"`
 	Name      string    `json:"name"`
 	Bible     string    `json:"bible"`
 	CreatedAt time.Time `json:"createdAt"`
@@ -42,6 +44,8 @@ type Character struct {
 func ToViewModel(row dbgen.Character, links app.Links) Character {
 	return Character{
 		ID:        row.ID,
+		Key:       row.Key,
+		Companion: row.Companion,
 		Name:      row.Name,
 		Bible:     row.Bible,
 		CreatedAt: row.CreatedAt.Time,
@@ -53,6 +57,8 @@ func ToViewModel(row dbgen.Character, links app.Links) Character {
 func toAPI(c Character) apigen.Character {
 	return apigen.Character{
 		Id:        c.ID,
+		Key:       c.Key,
+		Companion: c.Companion,
 		Name:      c.Name,
 		Bible:     c.Bible,
 		CreatedAt: c.CreatedAt,
@@ -170,6 +176,10 @@ func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateCharacter
 	if err != nil {
 		return dbgen.Character{}, err
 	}
+	key, err := app.CleanKey(req.Body.Key, name)
+	if err != nil {
+		return dbgen.Character{}, err
+	}
 	var row dbgen.Character
 	err = e.Store.InTx(ctx, func(q *dbgen.Queries) error {
 		id := xid.New().String()
@@ -179,12 +189,14 @@ func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateCharacter
 		}
 		row, err = q.CreateCharacter(ctx, dbgen.CreateCharacterParams{
 			ID:             id,
+			Key:            key,
 			Name:           name,
 			NameRevisionID: rev,
 			Bible:          bible,
+			Companion:      req.Body.Companion,
 			CreatedBy:      auth.KeyIDPtr(ctx),
 		})
-		return err
+		return app.KeyTaken(err, "character", key)
 	})
 	return row, err
 }
@@ -209,7 +221,14 @@ func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateCharacter
 	if err := app.RequireHuman(ctx); err != nil {
 		return dbgen.Character{}, err
 	}
-	arg := dbgen.UpdateCharacterParams{ID: req.CharacterId}
+	arg := dbgen.UpdateCharacterParams{ID: req.CharacterId, Companion: req.Body.Companion}
+	if k := req.Body.Key; k != nil {
+		key, err := app.CleanKey(*k, "")
+		if err != nil {
+			return dbgen.Character{}, err
+		}
+		arg.Key = &key
+	}
 	if b := req.Body.Bible; b != nil {
 		bible, err := cleanBible(*b)
 		if err != nil {
@@ -239,6 +258,9 @@ func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateCharacter
 			arg.Name, arg.NameRevisionID = &name, &rev
 		}
 		row, err = q.UpdateCharacter(ctx, arg)
+		if arg.Key != nil {
+			err = app.KeyTaken(err, "character", *arg.Key)
+		}
 		return app.NotFound(err, "character", req.CharacterId)
 	})
 	return row, err

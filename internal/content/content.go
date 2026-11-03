@@ -14,7 +14,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/KevinMcHugh/rpg/internal/app"
 	dbgen "github.com/KevinMcHugh/rpg/internal/db/gen"
+	"github.com/KevinMcHugh/rpg/internal/script"
 )
 
 // Content is everything the build reads: every live row, and the revisions
@@ -24,6 +26,10 @@ type Content struct {
 	Conversations []dbgen.Conversation
 	Nodes         []dbgen.Node
 	Choices       []dbgen.Choice
+	Flags         []dbgen.Flag
+	Skills        []dbgen.Skill
+	Quests        []dbgen.Quest
+	Stages        []dbgen.QuestStage
 	Revisions     map[string]dbgen.ListTextRevisionsByIDsRow
 	OpenNotes     int
 }
@@ -42,6 +48,9 @@ type Stats struct {
 	Conversations int `json:"conversations"`
 	Nodes         int `json:"nodes"`
 	Choices       int `json:"choices"`
+	Flags         int `json:"flags"`
+	Skills        int `json:"skills"`
+	Quests        int `json:"quests"`
 	Words         int `json:"words"`
 	OpenNotes     int `json:"openNotes"`
 }
@@ -64,38 +73,89 @@ const (
 	CodeMissingSpeaker = "missing_speaker" // a line whose speaker was deleted
 	CodeDanglingChoice = "dangling_choice" // a choice leading to a deleted node or another conversation
 	CodeUnreachable    = "unreachable"     // a node no route from the start reaches
+	CodeBadReference   = "bad_reference"   // a script naming something deleted, or a quest stage that does not exist
+	CodeBadCheck       = "bad_check"       // a skill check on a deleted skill, or failing to a node elsewhere
+	CodeNoOpening      = "no_opening"      // conversations, but none opens the game
+	CodeNeverSet       = "flag_never_set"  // a flag read, starting at 0, that nothing sets: the check is always false
+	CodeNeverRead      = "flag_never_read" // a flag set that nothing reads
+	CodeNoStages       = "no_stages"       // a quest with no stages
+	CodeOrphan         = "orphan"          // a conversation with no label that does not open the game: nothing starts it
 )
 
 // Bundle is what the game runs on: player-facing text and the shape of the
 // graph, and nothing authoring-only (no bibles, titles, summaries or
 // notes).
 type Bundle struct {
+	Opening       string         `json:"opening"` // the conversation the game opens with
 	Characters    []Character    `json:"characters"`
 	Conversations []Conversation `json:"conversations"`
+	Flags         []Flag         `json:"flags"`
+	Skills        []Skill        `json:"skills"`
+	Quests        []Quest        `json:"quests"`
 }
 
 type Character struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Companion bool   `json:"companion,omitempty"`
 }
 
 type Conversation struct {
-	ID    string `json:"id"`
-	Start string `json:"start"`
-	Nodes []Node `json:"nodes"`
+	ID         string       `json:"id"`
+	Label      string       `json:"label,omitempty"` // what the player picks to start it; empty when nothing lists it
+	Condition  *script.Cond `json:"condition,omitempty"`
+	Repeatable bool         `json:"repeatable,omitempty"`
+	Start      string       `json:"start"`
+	Nodes      []Node       `json:"nodes"`
 }
 
 type Node struct {
-	ID      string   `json:"id"`
-	Speaker string   `json:"speaker,omitempty"` // a character id; empty for the narrator
-	Text    string   `json:"text"`
-	Choices []Choice `json:"choices"`
+	ID      string          `json:"id"`
+	Speaker string          `json:"speaker,omitempty"` // a character id; empty for the narrator
+	Text    string          `json:"text"`
+	Effects []script.Effect `json:"effects,omitempty"`
+	Choices []Choice        `json:"choices"`
 }
 
 type Choice struct {
-	ID   string `json:"id"`
-	Text string `json:"text"`
-	To   string `json:"to,omitempty"` // empty ends the conversation
+	ID        string          `json:"id"`
+	Text      string          `json:"text"`
+	To        string          `json:"to,omitempty"` // empty ends the conversation
+	Condition *script.Cond    `json:"condition,omitempty"`
+	Effects   []script.Effect `json:"effects,omitempty"`
+	Check     *Check          `json:"check,omitempty"`
+}
+
+// Check is a skill check: 2d6 plus the skill against Difficulty. Success
+// goes to the choice's To, failure to Fail (empty ends the conversation).
+type Check struct {
+	Skill      string `json:"skill"`
+	Difficulty int    `json:"difficulty"`
+	Fail       string `json:"fail,omitempty"`
+}
+
+// Flag is a number in the world state; 0 is false.
+type Flag struct {
+	ID      string `json:"id"`
+	Initial int    `json:"initial,omitempty"`
+}
+
+type Skill struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Initial int    `json:"initial,omitempty"`
+}
+
+type Quest struct {
+	ID     string  `json:"id"`
+	Name   string  `json:"name"`
+	Stages []Stage `json:"stages"`
+}
+
+type Stage struct {
+	Number    int    `json:"number"`
+	Journal   string `json:"journal"`
+	Completes bool   `json:"completes,omitempty"`
 }
 
 // Compile checks c and builds its bundle. The bundle is only fit to ship
@@ -125,13 +185,94 @@ func Compile(c Content) (Bundle, Report) {
 		}
 	}
 
-	var b Bundle
+	b := Bundle{Characters: []Character{}, Conversations: []Conversation{}, Flags: []Flag{}, Skills: []Skill{}, Quests: []Quest{}}
 	speakers := map[string]bool{}
 	for _, ch := range c.Characters {
 		attest("character", ch.ID, "name", ch.Name, ch.NameRevisionID)
 		speakers[ch.ID] = true
-		b.Characters = append(b.Characters, Character{ID: ch.ID, Name: ch.Name})
+		b.Characters = append(b.Characters, Character{ID: ch.ID, Name: ch.Name, Companion: ch.Companion})
 	}
+
+	// The world: what scripts may name.
+	live := map[string]map[string]bool{
+		script.KindFlag: {}, script.KindSkill: {}, script.KindCharacter: speakers,
+		script.KindQuest: {}, script.KindConversation: {},
+	}
+	flagInitial := map[string]int{}
+	for _, f := range c.Flags {
+		live[script.KindFlag][f.ID] = true
+		flagInitial[f.ID] = int(f.InitialValue)
+		b.Flags = append(b.Flags, Flag{ID: f.ID, Initial: int(f.InitialValue)})
+	}
+	for _, sk := range c.Skills {
+		attest("skill", sk.ID, "name", sk.Name, sk.NameRevisionID)
+		live[script.KindSkill][sk.ID] = true
+		b.Skills = append(b.Skills, Skill{ID: sk.ID, Name: sk.Name, Initial: int(sk.InitialLevel)})
+	}
+	stagesByQuest := map[string][]dbgen.QuestStage{}
+	for _, st := range c.Stages {
+		stagesByQuest[st.QuestID] = append(stagesByQuest[st.QuestID], st)
+	}
+	hasStage := map[script.QuestStage]bool{}
+	for _, q := range c.Quests {
+		attest("quest", q.ID, "name", q.Name, q.NameRevisionID)
+		live[script.KindQuest][q.ID] = true
+		quest := Quest{ID: q.ID, Name: q.Name, Stages: []Stage{}}
+		for _, st := range stagesByQuest[q.ID] {
+			attest("quest_stage", st.ID, "journal", st.Journal, st.JournalRevisionID)
+			hasStage[script.QuestStage{Quest: q.ID, Stage: int(st.Number)}] = true
+			quest.Stages = append(quest.Stages, Stage{Number: int(st.Number), Journal: st.Journal, Completes: st.Completes})
+		}
+		if len(quest.Stages) == 0 {
+			warnf(CodeNoStages, "quest", q.ID, "quest %q has no stages", q.Name)
+		}
+		b.Quests = append(b.Quests, quest)
+	}
+	for _, conv := range c.Conversations {
+		live[script.KindConversation][conv.ID] = true
+	}
+
+	// Scripts: every name must be live, and every stage must exist. Flags
+	// read and set are tallied for the warnings below.
+	read, set := map[string]bool{}, map[string]bool{}
+	cond := func(kind, id, what string, raw []byte) *script.Cond {
+		cd := app.DecodeCond(raw)
+		if cd == nil {
+			return nil
+		}
+		for _, ref := range cd.Refs() {
+			if !live[ref.Kind][ref.ID] {
+				errorf(CodeBadReference, kind, id, "%s %s's %s names a %s that was deleted (%s)", kind, id, what, ref.Kind, ref.ID)
+			}
+			if ref.Kind == script.KindFlag {
+				read[ref.ID] = true
+			}
+		}
+		for _, qs := range cd.QuestStages() {
+			if live[script.KindQuest][qs.Quest] && !hasStage[qs] {
+				errorf(CodeBadReference, kind, id, "%s %s's %s compares a quest with stage %d, which it does not have", kind, id, what, qs.Stage)
+			}
+		}
+		return cd
+	}
+	effects := func(kind, id string, raw []byte) []script.Effect {
+		es := app.DecodeEffects(raw)
+		for _, e := range es {
+			ref := e.Ref()
+			if !live[ref.Kind][ref.ID] {
+				errorf(CodeBadReference, kind, id, "%s %s's effects change a %s that was deleted (%s)", kind, id, ref.Kind, ref.ID)
+				continue
+			}
+			if ref.Kind == script.KindFlag {
+				set[ref.ID] = true
+			}
+			if ref.Kind == script.KindQuest && e.Value > 0 && !hasStage[script.QuestStage{Quest: e.Quest, Stage: e.Value}] {
+				errorf(CodeBadReference, kind, id, "%s %s's effects move a quest to stage %d, which it does not have", kind, id, e.Value)
+			}
+		}
+		return es
+	}
+	openings := 0
 
 	nodesByConv := map[string][]dbgen.Node{}
 	nodeConv := map[string]string{}
@@ -145,7 +286,17 @@ func Compile(c Content) (Bundle, Report) {
 	}
 
 	for _, conv := range c.Conversations {
-		out := Conversation{ID: conv.ID, Nodes: []Node{}}
+		out := Conversation{ID: conv.ID, Label: conv.Label, Repeatable: conv.Repeatable, Nodes: []Node{}}
+		out.Condition = cond("conversation", conv.ID, "condition", conv.Condition)
+		if conv.Label != "" {
+			attest("conversation", conv.ID, "label", conv.Label, deref(conv.LabelRevisionID))
+		}
+		if conv.Opening {
+			openings++
+			b.Opening = conv.ID
+		} else if conv.Label == "" {
+			warnf(CodeOrphan, "conversation", conv.ID, "conversation %q has no label and does not open the game, so nothing starts it", conv.Title)
+		}
 		start := deref(conv.StartNodeID)
 		switch {
 		case start == "":
@@ -162,15 +313,30 @@ func Compile(c Content) (Bundle, Report) {
 				errorf(CodeMissingSpeaker, "node", n.ID, "node %s is spoken by character %s, who was deleted", n.ID, id)
 			}
 			r.Stats.Words += len(strings.Fields(n.Text))
-			node := Node{ID: n.ID, Speaker: deref(n.SpeakerID), Text: n.Text, Choices: []Choice{}}
+			node := Node{ID: n.ID, Speaker: deref(n.SpeakerID), Text: n.Text, Effects: effects("node", n.ID, n.Effects), Choices: []Choice{}}
 			for _, ch := range choicesByNode[n.ID] {
 				attest("choice", ch.ID, "text", ch.Text, ch.TextRevisionID)
 				if to := deref(ch.ToNodeID); to != "" && nodeConv[to] != conv.ID {
 					errorf(CodeDanglingChoice, "choice", ch.ID, "choice %q leads to node %s, which was deleted or is in another conversation", ch.Text, to)
 				}
+				choice := Choice{
+					ID: ch.ID, Text: ch.Text, To: deref(ch.ToNodeID),
+					Condition: cond("choice", ch.ID, "condition", ch.Condition),
+					Effects:   effects("choice", ch.ID, ch.Effects),
+				}
+				if skill := deref(ch.CheckSkillID); skill != "" {
+					if !live[script.KindSkill][skill] {
+						errorf(CodeBadCheck, "choice", ch.ID, "choice %q checks a skill that was deleted (%s)", ch.Text, skill)
+					}
+					fail := deref(ch.FailNodeID)
+					if fail != "" && nodeConv[fail] != conv.ID {
+						errorf(CodeBadCheck, "choice", ch.ID, "choice %q fails to node %s, which was deleted or is in another conversation", ch.Text, fail)
+					}
+					choice.Check = &Check{Skill: skill, Difficulty: int(ch.CheckDifficulty), Fail: fail}
+				}
 				r.Stats.Words += len(strings.Fields(ch.Text))
 				r.Stats.Choices++
-				node.Choices = append(node.Choices, Choice{ID: ch.ID, Text: ch.Text, To: deref(ch.ToNodeID)})
+				node.Choices = append(node.Choices, choice)
 			}
 			out.Nodes = append(out.Nodes, node)
 			r.Stats.Nodes++
@@ -187,8 +353,23 @@ func Compile(c Content) (Bundle, Report) {
 		b.Conversations = append(b.Conversations, out)
 	}
 
+	if openings == 0 && len(c.Conversations) > 0 {
+		errorf(CodeNoOpening, "game", "", "no conversation opens the game; mark one as the opening")
+	}
+	for _, f := range c.Flags {
+		switch {
+		case read[f.ID] && !set[f.ID] && flagInitial[f.ID] == 0:
+			warnf(CodeNeverSet, "flag", f.ID, "flag %s is read but never set, and starts at 0", f.Key)
+		case set[f.ID] && !read[f.ID]:
+			warnf(CodeNeverRead, "flag", f.ID, "flag %s is set but never read", f.Key)
+		}
+	}
+
 	r.Stats.Characters = len(b.Characters)
 	r.Stats.Conversations = len(b.Conversations)
+	r.Stats.Flags = len(b.Flags)
+	r.Stats.Skills = len(b.Skills)
+	r.Stats.Quests = len(b.Quests)
 	r.Stats.OpenNotes = c.OpenNotes
 	return b, r
 }
@@ -205,9 +386,15 @@ func reachable(conv Conversation) map[string]bool {
 		id := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
 		for _, ch := range byID[id].Choices {
-			if _, ok := byID[ch.To]; ok && !seen[ch.To] {
-				seen[ch.To] = true
-				stack = append(stack, ch.To)
+			next := []string{ch.To}
+			if ch.Check != nil {
+				next = append(next, ch.Check.Fail)
+			}
+			for _, to := range next {
+				if _, ok := byID[to]; ok && !seen[to] {
+					seen[to] = true
+					stack = append(stack, to)
+				}
 			}
 		}
 	}
@@ -223,6 +410,10 @@ func deref(s *string) string {
 
 // LoadStore is what Load reads.
 type LoadStore interface {
+	ListFlags(ctx context.Context) ([]dbgen.Flag, error)
+	ListSkills(ctx context.Context) ([]dbgen.Skill, error)
+	ListQuests(ctx context.Context) ([]dbgen.Quest, error)
+	ListAllQuestStages(ctx context.Context) ([]dbgen.QuestStage, error)
 	ListCharacters(ctx context.Context) ([]dbgen.Character, error)
 	ListConversations(ctx context.Context) ([]dbgen.Conversation, error)
 	ListAllNodes(ctx context.Context) ([]dbgen.Node, error)
@@ -247,7 +438,33 @@ func Load(ctx context.Context, s LoadStore) (Content, error) {
 	if c.Choices, err = s.ListAllChoices(ctx); err != nil {
 		return Content{}, err
 	}
+	if c.Flags, err = s.ListFlags(ctx); err != nil {
+		return Content{}, err
+	}
+	if c.Skills, err = s.ListSkills(ctx); err != nil {
+		return Content{}, err
+	}
+	if c.Quests, err = s.ListQuests(ctx); err != nil {
+		return Content{}, err
+	}
+	if c.Stages, err = s.ListAllQuestStages(ctx); err != nil {
+		return Content{}, err
+	}
 	var ids []string
+	for _, conv := range c.Conversations {
+		if conv.LabelRevisionID != nil {
+			ids = append(ids, *conv.LabelRevisionID)
+		}
+	}
+	for _, sk := range c.Skills {
+		ids = append(ids, sk.NameRevisionID)
+	}
+	for _, q := range c.Quests {
+		ids = append(ids, q.NameRevisionID)
+	}
+	for _, st := range c.Stages {
+		ids = append(ids, st.JournalRevisionID)
+	}
 	for _, ch := range c.Characters {
 		ids = append(ids, ch.NameRevisionID)
 	}

@@ -20,20 +20,20 @@ type TxStore interface {
 	InTx(ctx context.Context, fn func(q *dbgen.Queries) error) error
 }
 
-// speaker checks that a speaker id names a live character and returns its
-// name. An empty id is the narrator.
-func speaker(ctx context.Context, q *dbgen.Queries, id string) (*string, string, error) {
+// speaker checks that a speaker id names a live character. An empty id is
+// the narrator.
+func speaker(ctx context.Context, q *dbgen.Queries, id string) (*string, error) {
 	if id == "" {
-		return nil, "", nil
+		return nil, nil
 	}
 	c, err := q.GetCharacter(ctx, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, "", fmt.Errorf("%w: no character %s", app.ErrBadInput, id)
+			return nil, fmt.Errorf("%w: no character %s", app.ErrBadInput, id)
 		}
-		return nil, "", err
+		return nil, err
 	}
-	return &c.ID, c.Name, nil
+	return &c.ID, nil
 }
 
 // -----------------------------------------------------------------------------
@@ -62,7 +62,15 @@ func (e CreateNodeEndpoint) Interact(ctx context.Context, req apigen.CreateNodeR
 		if err != nil {
 			return app.NotFound(err, "conversation", req.ConversationId)
 		}
-		speakerID, name, err := speaker(ctx, q, strings.TrimSpace(req.Body.SpeakerId))
+		speakerID, err := speaker(ctx, q, strings.TrimSpace(req.Body.SpeakerId))
+		if err != nil {
+			return err
+		}
+		w, err := loadWorld(ctx, q)
+		if err != nil {
+			return err
+		}
+		effects, err := app.ParseEffects("effects", req.Body.Effects, w.Names)
 		if err != nil {
 			return err
 		}
@@ -77,6 +85,7 @@ func (e CreateNodeEndpoint) Interact(ctx context.Context, req apigen.CreateNodeR
 			SpeakerID:      speakerID,
 			Text:           text,
 			TextRevisionID: rev,
+			Effects:        effects,
 			CreatedBy:      auth.KeyIDPtr(ctx),
 		})
 		if err != nil {
@@ -87,7 +96,7 @@ func (e CreateNodeEndpoint) Interact(ctx context.Context, req apigen.CreateNodeR
 				return err
 			}
 		}
-		m = nodeModel{Node: row, SpeakerName: name}
+		m = nodeModel{Node: row, World: w}
 		return nil
 	})
 	return m, err
@@ -103,7 +112,7 @@ func (e CreateNodeEndpoint) Render(vm Node) apigen.CreateNodeResponseObject {
 // Update node
 // -----------------------------------------------------------------------------
 
-// UpdateNodeEndpoint changes a node's speaker, text, or both. People only.
+// UpdateNodeEndpoint changes a node's speaker, text or effects. People only.
 type UpdateNodeEndpoint struct {
 	Store TxStore
 	Links app.Links
@@ -129,7 +138,16 @@ func (e UpdateNodeEndpoint) Interact(ctx context.Context, req apigen.UpdateNodeR
 		arg := dbgen.UpdateNodeParams{ID: cur.ID}
 		if s := req.Body.SpeakerId; s != nil {
 			arg.SetSpeaker = true
-			if arg.SpeakerID, _, err = speaker(ctx, q, strings.TrimSpace(*s)); err != nil {
+			if arg.SpeakerID, err = speaker(ctx, q, strings.TrimSpace(*s)); err != nil {
+				return err
+			}
+		}
+		if ef := req.Body.Effects; ef != nil {
+			names, err := app.LoadNames(ctx, q)
+			if err != nil {
+				return err
+			}
+			if arg.Effects, err = app.ParseEffects("effects", *ef, names); err != nil {
 				return err
 			}
 		}
@@ -157,7 +175,7 @@ func (e UpdateNodeEndpoint) Render(vm Node) apigen.UpdateNodeResponseObject {
 	return apigen.UpdateNode200JSONResponse(toAPINode(vm))
 }
 
-// loadNode fills in a node's choices and speaker name.
+// loadNode fills in a node's choices and the world its view needs.
 func loadNode(ctx context.Context, q *dbgen.Queries, row dbgen.Node) (nodeModel, error) {
 	all, err := q.ListChoicesByConversation(ctx, row.ConversationID)
 	if err != nil {
@@ -169,11 +187,11 @@ func loadNode(ctx context.Context, q *dbgen.Queries, row dbgen.Node) (nodeModel,
 			choices = append(choices, c)
 		}
 	}
-	speakers, err := speakerNames(ctx, q)
+	w, err := loadWorld(ctx, q)
 	if err != nil {
 		return nodeModel{}, err
 	}
-	return nodeModel{Node: row, Choices: choices, SpeakerName: speakerName(speakers, row.SpeakerID)}, nil
+	return nodeModel{Node: row, Choices: choices, World: w}, nil
 }
 
 // -----------------------------------------------------------------------------

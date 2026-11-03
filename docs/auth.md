@@ -14,7 +14,7 @@ There are no tenants and no open sign-up. An **api key** is an identity, a perso
 
 Only a SHA-256 hash of any of them is stored. Raw values are printed once, by the CLI, and never again. Deleting a key (`server keys delete --id …`) cuts off every token and session it approved, because those lookups join on a live key. `server keys rotate --id …` deletes a key and mints a replacement with the same name.
 
-The prefixes are constants in `internal/auth/auth.go`. `tools/rename.sh` changes them for your app.
+The prefixes are constants in `internal/auth/auth.go`.
 
 ## The OAuth flow (claude.ai)
 

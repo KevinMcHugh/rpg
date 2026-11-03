@@ -28,21 +28,24 @@ import (
 	"github.com/KevinMcHugh/rpg/internal/server/conversations"
 	"github.com/KevinMcHugh/rpg/internal/server/me"
 	"github.com/KevinMcHugh/rpg/internal/server/notes"
+	"github.com/KevinMcHugh/rpg/internal/server/world"
 )
 
 // Instructions is sent to every client on connect.
-const Instructions = `This is the authoring tool for a story-driven party RPG: characters, conversations (a graph of lines, called nodes, joined by the choices a player makes), and notes.
+const Instructions = `This is the authoring tool for a story-driven party RPG: characters, conversations (a graph of lines, called nodes, joined by the choices a player makes), the world (flags, skills, quests with numbered stages), and notes.
+
+Choices and conversations carry scripts. A condition says when a choice shows or a conversation can be started ("met_mayor and skill persuasion >= 3"); effects say what a line or a choice changes ("approval aria += 5; quest find_brother = 2"). A choice can be a skill check: 2d6 plus the player's skill against a difficulty, with a node for failure. get_world lists the keys scripts use. Read scripts closely: a choice whose condition can never hold, a flag nothing sets, or a quest stage nothing reaches are the kind of thing worth a note.
 
 Every word a player sees is written by a person. You cannot change the game's content, and you must not write it for them. Your job is to read it closely and leave notes that make it better:
 - gap: a path, consequence or character beat the content is missing ("nothing acknowledges that the player sided with the guild").
 - continuity: something that contradicts the content elsewhere. Cite both places by id.
 - plot_idea: a direction the story could take, a payoff for something set up earlier.
-- pacing, mechanics: structure, length, how choices are spread.
+- pacing, mechanics: structure, length, how choices are spread, how hard checks are, which paths conditions open and close.
 - question: something you need the author to decide or explain.
 
 In a note, describe intent, function and character beats. Never write sample dialogue, a sample choice, a name or any prose that could be pasted into the game: say what a line needs to do, not what it should say. Keep notes short and specific, and target the narrowest thing they are about.
 
-Before commenting on a line, read the character's bible (get_character) and how the player got there (get_path_to). check_build lists what would stop the content shipping. list_notes shows what is already open, so you do not repeat it; reply_to_note continues a thread. Only the author resolves notes.`
+Before commenting on a line, read the character's bible (get_character) and how the player got there (get_path_to). get_path_to is the shortest route by graph, ignoring conditions; check whether the conditions on the way can hold. check_build lists what would stop the content shipping. list_notes shows what is already open, so you do not repeat it; reply_to_note continues a thread. Only the author resolves notes.`
 
 // Tools is the name of every tool, in the order they are registered. None
 // of them writes the game's content.
@@ -50,6 +53,7 @@ var Tools = []string{
 	"whoami",
 	"list_characters", "get_character",
 	"list_conversations", "get_conversation", "get_path_to",
+	"get_world",
 	"check_build",
 	"list_notes", "get_note", "add_note", "reply_to_note",
 }
@@ -95,13 +99,19 @@ type PathOutput struct {
 	Path conversations.Path `json:"path"`
 }
 
+type WorldOutput struct {
+	Flags  []world.Flag  `json:"flags"`
+	Skills []world.Skill `json:"skills"`
+	Quests []world.Quest `json:"quests"`
+}
+
 type BuildOutput struct {
 	Report build.Report `json:"report"`
 }
 
 type ListNotesInput struct {
 	Status     string `json:"status,omitempty" jsonschema:"open, resolved or dismissed; omit for all"`
-	TargetKind string `json:"target_kind,omitempty" jsonschema:"game, character, conversation, node or choice; omit for all"`
+	TargetKind string `json:"target_kind,omitempty" jsonschema:"game, character, conversation, node, choice, flag, skill or quest; omit for all"`
 	TargetID   string `json:"target_id,omitempty" jsonschema:"only notes on this id"`
 }
 
@@ -114,7 +124,7 @@ type NoteOutput struct {
 }
 
 type AddNoteInput struct {
-	TargetKind string `json:"target_kind" jsonschema:"what the note is about: game, character, conversation, node or choice"`
+	TargetKind string `json:"target_kind" jsonschema:"what the note is about: game, character, conversation, node, choice, flag, skill or quest"`
 	TargetID   string `json:"target_id,omitempty" jsonschema:"its id; omit for game"`
 	Kind       string `json:"kind" jsonschema:"gap, continuity, plot_idea, pacing, mechanics, question or other"`
 	Body       string `json:"body" jsonschema:"the note, up to 10000 characters. Describe intent; never write dialogue, choices, names or prose for the game"`
@@ -177,8 +187,24 @@ func registerRead(s *mcpsdk.Server, store server.Store, links app.Links) {
 	})
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
+		Name:        "get_world",
+		Description: "Every flag (with what it means), skill (with the player's starting level) and quest (with its numbered stages and journal entries): the keys that conditions and effects use.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ Empty) (*mcpsdk.CallToolResult, WorldOutput, error) {
+		var out WorldOutput
+		var err error
+		if out.Flags, err = server.BuildViewModel(ctx, world.ListFlagsEndpoint{Store: store, Links: links}, apigen.ListFlagsRequestObject{}); err != nil {
+			return nil, out, err
+		}
+		if out.Skills, err = server.BuildViewModel(ctx, world.ListSkillsEndpoint{Store: store, Links: links}, apigen.ListSkillsRequestObject{}); err != nil {
+			return nil, out, err
+		}
+		out.Quests, err = server.BuildViewModel(ctx, world.ListQuestsEndpoint{Store: store, Links: links}, apigen.ListQuestsRequestObject{})
+		return nil, out, err
+	})
+
+	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "check_build",
-		Description: "Check the content as the build would. Errors stop it shipping (no start node, a choice leading nowhere, text no person wrote); warnings do not (unreachable nodes).",
+		Description: "Check the content as the build would. Errors stop it shipping (no start node or opening, a choice leading nowhere, a script naming something deleted, text no person wrote); warnings do not (unreachable nodes, flags set but never read or read but never set).",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ Empty) (*mcpsdk.CallToolResult, BuildOutput, error) {
 		vm, err := server.BuildViewModel(ctx, build.Endpoint{Store: store, Links: links}, apigen.GetBuildReportRequestObject{})
 		return nil, BuildOutput{Report: vm}, err

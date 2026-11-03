@@ -2,9 +2,11 @@ package conversations
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/rs/xid"
 
 	apigen "github.com/KevinMcHugh/rpg/internal/api/gen"
@@ -12,6 +14,53 @@ import (
 	"github.com/KevinMcHugh/rpg/internal/auth"
 	dbgen "github.com/KevinMcHugh/rpg/internal/db/gen"
 )
+
+// MaxDifficulty bounds a skill check's difficulty. 2d6 plus a skill rarely
+// tops 20.
+const MaxDifficulty = 30
+
+// choiceModel is a stored choice and the world its view needs.
+type choiceModel struct {
+	Choice dbgen.Choice
+	World  world
+}
+
+// check is a skill check as a choice stores it.
+type check struct {
+	skill      *string
+	difficulty int32
+	fail       *string
+}
+
+// cleanCheck validates a skill check on a choice from node from. No skill
+// is no check; a check needs a difficulty, and its failure node (optional:
+// none ends the conversation) must be in the same conversation.
+func cleanCheck(ctx context.Context, q *dbgen.Queries, from dbgen.Node, skillID string, difficulty int, failID string) (check, error) {
+	skillID, failID = strings.TrimSpace(skillID), strings.TrimSpace(failID)
+	if skillID == "" {
+		if failID != "" {
+			return check{}, fmt.Errorf("%w: a failure node needs a skill check", app.ErrBadInput)
+		}
+		return check{}, nil
+	}
+	if _, err := q.GetSkill(ctx, skillID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return check{}, fmt.Errorf("%w: no skill %s", app.ErrBadInput, skillID)
+		}
+		return check{}, err
+	}
+	if difficulty < 1 || difficulty > MaxDifficulty {
+		return check{}, fmt.Errorf("%w: a skill check's difficulty is 1 to %d, not %d", app.ErrBadInput, MaxDifficulty, difficulty)
+	}
+	c := check{skill: &skillID, difficulty: int32(difficulty)}
+	if failID != "" {
+		if err := inConversation(ctx, q, failID, from.ConversationID); err != nil {
+			return check{}, err
+		}
+		c.fail = &failID
+	}
+	return c, nil
+}
 
 // -----------------------------------------------------------------------------
 // Create choice
@@ -22,47 +71,70 @@ import (
 // the conversation. People only.
 type CreateChoiceEndpoint struct{ Store TxStore }
 
-func (e CreateChoiceEndpoint) Interact(ctx context.Context, req apigen.CreateChoiceRequestObject) (dbgen.Choice, error) {
+func (e CreateChoiceEndpoint) Interact(ctx context.Context, req apigen.CreateChoiceRequestObject) (choiceModel, error) {
 	if err := app.RequireHuman(ctx); err != nil {
-		return dbgen.Choice{}, err
+		return choiceModel{}, err
 	}
-	text, err := clean("text", req.Body.Text, MaxChoice, true)
+	b := req.Body
+	text, err := clean("text", b.Text, MaxChoice, true)
 	if err != nil {
-		return dbgen.Choice{}, err
+		return choiceModel{}, err
 	}
-	var row dbgen.Choice
+	var m choiceModel
 	err = e.Store.InTx(ctx, func(q *dbgen.Queries) error {
 		from, err := q.GetNode(ctx, req.NodeId)
 		if err != nil {
 			return app.NotFound(err, "node", req.NodeId)
 		}
 		var to *string
-		if id := strings.TrimSpace(req.Body.ToNodeId); id != "" {
+		if id := strings.TrimSpace(b.ToNodeId); id != "" {
 			if err := inConversation(ctx, q, id, from.ConversationID); err != nil {
 				return err
 			}
 			to = &id
+		}
+		chk, err := cleanCheck(ctx, q, from, b.CheckSkillId, b.CheckDifficulty, b.FailNodeId)
+		if err != nil {
+			return err
+		}
+		w, err := loadWorld(ctx, q)
+		if err != nil {
+			return err
+		}
+		cond, err := app.ParseCond("condition", b.Condition, w.Names)
+		if err != nil {
+			return err
+		}
+		effects, err := app.ParseEffects("effects", b.Effects, w.Names)
+		if err != nil {
+			return err
 		}
 		id := xid.New().String()
 		rev, err := app.Revise(ctx, q, "choice", id, "text", text)
 		if err != nil {
 			return err
 		}
-		row, err = q.CreateChoice(ctx, dbgen.CreateChoiceParams{
-			ID:             id,
-			FromNodeID:     from.ID,
-			ToNodeID:       to,
-			Text:           text,
-			TextRevisionID: rev,
-			SortOrder:      int32(req.Body.SortOrder),
-			CreatedBy:      auth.KeyIDPtr(ctx),
+		row, err := q.CreateChoice(ctx, dbgen.CreateChoiceParams{
+			ID:              id,
+			FromNodeID:      from.ID,
+			ToNodeID:        to,
+			Text:            text,
+			TextRevisionID:  rev,
+			SortOrder:       int32(b.SortOrder),
+			Condition:       cond,
+			Effects:         effects,
+			CheckSkillID:    chk.skill,
+			CheckDifficulty: chk.difficulty,
+			FailNodeID:      chk.fail,
+			CreatedBy:       auth.KeyIDPtr(ctx),
 		})
+		m = choiceModel{Choice: row, World: w}
 		return err
 	})
-	return row, err
+	return m, err
 }
 
-func (CreateChoiceEndpoint) Build(row dbgen.Choice) Choice { return choiceView(row) }
+func (CreateChoiceEndpoint) Build(m choiceModel) Choice { return choiceView(m.Choice, m.World) }
 
 func (CreateChoiceEndpoint) Render(vm Choice) apigen.CreateChoiceResponseObject {
 	return apigen.CreateChoice201JSONResponse(toAPIChoice(vm))
@@ -72,44 +144,82 @@ func (CreateChoiceEndpoint) Render(vm Choice) apigen.CreateChoiceResponseObject 
 // Update choice
 // -----------------------------------------------------------------------------
 
-// UpdateChoiceEndpoint changes a choice's text, target or order. People
-// only.
+// UpdateChoiceEndpoint changes a choice's text, target, order, condition,
+// effects or skill check. People only.
 type UpdateChoiceEndpoint struct{ Store TxStore }
 
-func (e UpdateChoiceEndpoint) Interact(ctx context.Context, req apigen.UpdateChoiceRequestObject) (dbgen.Choice, error) {
+func (e UpdateChoiceEndpoint) Interact(ctx context.Context, req apigen.UpdateChoiceRequestObject) (choiceModel, error) {
 	if err := app.RequireHuman(ctx); err != nil {
-		return dbgen.Choice{}, err
+		return choiceModel{}, err
 	}
+	b := req.Body
 	var text string
-	if t := req.Body.Text; t != nil {
+	if t := b.Text; t != nil {
 		var err error
 		if text, err = clean("text", *t, MaxChoice, true); err != nil {
-			return dbgen.Choice{}, err
+			return choiceModel{}, err
 		}
 	}
-	var row dbgen.Choice
+	var m choiceModel
 	err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
 		cur, err := q.GetChoice(ctx, req.ChoiceId)
 		if err != nil {
 			return app.NotFound(err, "choice", req.ChoiceId)
 		}
+		from, err := q.GetNode(ctx, cur.FromNodeID)
+		if err != nil {
+			return fmt.Errorf("choice %s: its node: %w", cur.ID, err)
+		}
+		w, err := loadWorld(ctx, q)
+		if err != nil {
+			return err
+		}
 		arg := dbgen.UpdateChoiceParams{ID: cur.ID}
-		if s := req.Body.SortOrder; s != nil {
+		if s := b.SortOrder; s != nil {
 			order := int32(*s)
 			arg.SortOrder = &order
 		}
-		if t := req.Body.ToNodeId; t != nil {
+		if t := b.ToNodeId; t != nil {
 			arg.SetTarget = true
 			if id := strings.TrimSpace(*t); id != "" {
-				from, err := q.GetNode(ctx, cur.FromNodeID)
-				if err != nil {
-					return fmt.Errorf("choice %s: its node: %w", cur.ID, err)
-				}
 				if err := inConversation(ctx, q, id, from.ConversationID); err != nil {
 					return err
 				}
 				arg.ToNodeID = &id
 			}
+		}
+		if c := b.Condition; c != nil {
+			arg.SetCondition = true
+			if arg.Condition, err = app.ParseCond("condition", *c, w.Names); err != nil {
+				return err
+			}
+		}
+		if ef := b.Effects; ef != nil {
+			if arg.Effects, err = app.ParseEffects("effects", *ef, w.Names); err != nil {
+				return err
+			}
+		}
+		// Any part of the check sent replaces the check, keeping the parts
+		// not sent.
+		if b.CheckSkillId != nil || b.CheckDifficulty != nil || b.FailNodeId != nil {
+			skill, difficulty, fail := deref(cur.CheckSkillID), int(cur.CheckDifficulty), deref(cur.FailNodeID)
+			if b.CheckSkillId != nil {
+				skill = *b.CheckSkillId
+			}
+			if b.CheckDifficulty != nil {
+				difficulty = *b.CheckDifficulty
+			}
+			if b.FailNodeId != nil {
+				fail = *b.FailNodeId
+			}
+			if strings.TrimSpace(skill) == "" {
+				fail = "" // no check, so nothing to fail to
+			}
+			chk, err := cleanCheck(ctx, q, from, skill, difficulty, fail)
+			if err != nil {
+				return err
+			}
+			arg.SetCheck, arg.CheckSkillID, arg.CheckDifficulty, arg.FailNodeID = true, chk.skill, chk.difficulty, chk.fail
 		}
 		// Unchanged text needs no new revision.
 		if text != "" && text != cur.Text {
@@ -119,13 +229,14 @@ func (e UpdateChoiceEndpoint) Interact(ctx context.Context, req apigen.UpdateCho
 			}
 			arg.Text, arg.TextRevisionID = &text, &rev
 		}
-		row, err = q.UpdateChoice(ctx, arg)
+		row, err := q.UpdateChoice(ctx, arg)
+		m = choiceModel{Choice: row, World: w}
 		return app.NotFound(err, "choice", req.ChoiceId)
 	})
-	return row, err
+	return m, err
 }
 
-func (UpdateChoiceEndpoint) Build(row dbgen.Choice) Choice { return choiceView(row) }
+func (UpdateChoiceEndpoint) Build(m choiceModel) Choice { return choiceView(m.Choice, m.World) }
 
 func (UpdateChoiceEndpoint) Render(vm Choice) apigen.UpdateChoiceResponseObject {
 	return apigen.UpdateChoice200JSONResponse(toAPIChoice(vm))

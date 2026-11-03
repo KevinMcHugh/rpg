@@ -10,9 +10,9 @@ import (
 )
 
 const createNode = `-- name: CreateNode :one
-INSERT INTO nodes (id, conversation_id, speaker_id, text, text_revision_id, created_by)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, conversation_id, speaker_id, text, text_revision_id, created_by, created_at, updated_at, deleted_at
+INSERT INTO nodes (id, conversation_id, speaker_id, text, text_revision_id, effects, created_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, conversation_id, speaker_id, text, text_revision_id, created_by, created_at, updated_at, deleted_at, effects
 `
 
 type CreateNodeParams struct {
@@ -21,6 +21,7 @@ type CreateNodeParams struct {
 	SpeakerID      *string `json:"speaker_id"`
 	Text           string  `json:"text"`
 	TextRevisionID string  `json:"text_revision_id"`
+	Effects        []byte  `json:"effects"`
 	CreatedBy      *string `json:"created_by"`
 }
 
@@ -31,6 +32,7 @@ func (q *Queries) CreateNode(ctx context.Context, arg CreateNodeParams) (Node, e
 		arg.SpeakerID,
 		arg.Text,
 		arg.TextRevisionID,
+		arg.Effects,
 		arg.CreatedBy,
 	)
 	var i Node
@@ -44,6 +46,7 @@ func (q *Queries) CreateNode(ctx context.Context, arg CreateNodeParams) (Node, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.Effects,
 	)
 	return i, err
 }
@@ -62,7 +65,7 @@ func (q *Queries) DeleteNode(ctx context.Context, id string) (int64, error) {
 }
 
 const getNode = `-- name: GetNode :one
-SELECT id, conversation_id, speaker_id, text, text_revision_id, created_by, created_at, updated_at, deleted_at FROM nodes
+SELECT id, conversation_id, speaker_id, text, text_revision_id, created_by, created_at, updated_at, deleted_at, effects FROM nodes
 WHERE id = $1 AND deleted_at IS NULL
 `
 
@@ -79,12 +82,13 @@ func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.Effects,
 	)
 	return i, err
 }
 
 const listAllNodes = `-- name: ListAllNodes :many
-SELECT nodes.id, nodes.conversation_id, nodes.speaker_id, nodes.text, nodes.text_revision_id, nodes.created_by, nodes.created_at, nodes.updated_at, nodes.deleted_at FROM nodes
+SELECT nodes.id, nodes.conversation_id, nodes.speaker_id, nodes.text, nodes.text_revision_id, nodes.created_by, nodes.created_at, nodes.updated_at, nodes.deleted_at, nodes.effects FROM nodes
 JOIN conversations ON conversations.id = nodes.conversation_id AND conversations.deleted_at IS NULL
 WHERE nodes.deleted_at IS NULL
 ORDER BY nodes.conversation_id, nodes.created_at, nodes.id
@@ -110,6 +114,7 @@ func (q *Queries) ListAllNodes(ctx context.Context) ([]Node, error) {
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.Effects,
 		); err != nil {
 			return nil, err
 		}
@@ -122,7 +127,7 @@ func (q *Queries) ListAllNodes(ctx context.Context) ([]Node, error) {
 }
 
 const listNodesByConversation = `-- name: ListNodesByConversation :many
-SELECT id, conversation_id, speaker_id, text, text_revision_id, created_by, created_at, updated_at, deleted_at FROM nodes
+SELECT id, conversation_id, speaker_id, text, text_revision_id, created_by, created_at, updated_at, deleted_at, effects FROM nodes
 WHERE conversation_id = $1 AND deleted_at IS NULL
 ORDER BY created_at, id
 `
@@ -146,6 +151,7 @@ func (q *Queries) ListNodesByConversation(ctx context.Context, conversationID st
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.Effects,
 		); err != nil {
 			return nil, err
 		}
@@ -162,9 +168,10 @@ UPDATE nodes SET
     speaker_id = CASE WHEN $2::bool THEN $3 ELSE speaker_id END,
     text = COALESCE($4, text),
     text_revision_id = COALESCE($5, text_revision_id),
+    effects = COALESCE($6::jsonb, effects),
     updated_at = NOW()
 WHERE id = $1 AND deleted_at IS NULL
-RETURNING id, conversation_id, speaker_id, text, text_revision_id, created_by, created_at, updated_at, deleted_at
+RETURNING id, conversation_id, speaker_id, text, text_revision_id, created_by, created_at, updated_at, deleted_at, effects
 `
 
 type UpdateNodeParams struct {
@@ -173,6 +180,7 @@ type UpdateNodeParams struct {
 	SpeakerID      *string `json:"speaker_id"`
 	Text           *string `json:"text"`
 	TextRevisionID *string `json:"text_revision_id"`
+	Effects        []byte  `json:"effects"`
 }
 
 // set_speaker says whether to change speaker_id, so a PATCH can make a
@@ -184,6 +192,7 @@ func (q *Queries) UpdateNode(ctx context.Context, arg UpdateNodeParams) (Node, e
 		arg.SpeakerID,
 		arg.Text,
 		arg.TextRevisionID,
+		arg.Effects,
 	)
 	var i Node
 	err := row.Scan(
@@ -196,6 +205,7 @@ func (q *Queries) UpdateNode(ctx context.Context, arg UpdateNodeParams) (Node, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.Effects,
 	)
 	return i, err
 }

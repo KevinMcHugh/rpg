@@ -1,0 +1,64 @@
+{{define "title"}}{{.Save.Name}} · {{.Title}}{{end}}
+{{define "content"}}
+<style>
+.game { display: grid; gap: 2rem; grid-template-columns: minmax(0, 1fr) 15rem; }
+@media (max-width: 760px) { .game { grid-template-columns: 1fr; } }
+.log p { margin: 0 0 .9rem; }
+.speaker { font: 700 13px/1 system-ui, sans-serif; letter-spacing: .14em; color: var(--accent); margin-right: .35rem; }
+.narrator { color: var(--muted); font-style: italic; }
+.you { color: var(--you); }
+.check { font: 13px/1.4 system-ui, sans-serif; letter-spacing: .04em; }
+.check.ok { color: var(--ok); } .check.bad { color: var(--bad); }
+.journal, .change { font: 13px/1.4 system-ui, sans-serif; color: var(--journal); }
+.end { border: 0; border-top: 1px solid var(--line); margin: 1.5rem 0; }
+ol.options { padding: 0; margin: 1.25rem 0 0; list-style: none; display: grid; gap: .25rem; counter-reset: opt; }
+ol.options li { counter-increment: opt; }
+ol.options button { all: unset; cursor: pointer; display: block; color: var(--fg); padding: .3rem .4rem; border-radius: 4px; }
+ol.options button::before { content: counter(opt) ". "; color: var(--muted); }
+ol.options button:hover, ol.options button:focus-visible { background: var(--panel); color: var(--accent); outline: none; }
+.tag { font: 12px/1 system-ui, sans-serif; letter-spacing: .05em; color: var(--accent); margin-right: .35rem; }
+aside h3 { font: 700 12px/1 system-ui, sans-serif; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin: 0 0 .6rem; }
+aside section { border-top: 1px solid var(--line); padding-top: .8rem; margin-bottom: 1.4rem; font-size: .95rem; }
+aside .row { display: flex; justify-content: space-between; gap: .5rem; }
+aside .quest { margin-bottom: .7rem; }
+aside .quest b { font-weight: 400; color: var(--fg); }
+aside .done { color: var(--muted); text-decoration: line-through; }
+</style>
+{{if .Notice}}<p class="notice">{{.Notice}}</p>{{end}}
+<div class="game">
+<div class="log">
+  {{range .Log}}
+    {{if eq .Kind "line"}}
+      {{if .Speaker}}<p><span class="speaker">{{upper .Speaker}}</span> {{.Text}}</p>{{else}}<p class="narrator">{{.Text}}</p>{{end}}
+    {{else if eq .Kind "choice"}}<p class="you">— {{.Text}}</p>
+    {{else if eq .Kind "check"}}<p class="check {{if .Success}}ok{{else}}bad{{end}}">[{{.Speaker}}: {{if .Success}}Success{{else}}Failure{{end}}] {{index .Dice 0}} + {{index .Dice 1}} + {{.Bonus}} = {{add (sum .Dice) .Bonus}} against {{.Target}}</p>
+    {{else if eq .Kind "journal"}}<p class="journal">{{if .Done}}Quest complete{{else}}Journal updated{{end}}: {{.Text}}. {{.Detail}}</p>
+    {{else if eq .Kind "approval"}}<p class="change">{{.Speaker}} {{if gt .Delta 0}}approves{{else}}disapproves{{end}} ({{signed .Delta}})</p>
+    {{else if eq .Kind "skill"}}<p class="change">{{.Speaker}} {{signed .Delta}}</p>
+    {{else if eq .Kind "end"}}<hr class="end">
+    {{end}}
+  {{end}}
+  <div id="now"></div>
+  {{if .Options}}
+  <ol class="options">
+    {{range .Options}}
+    <li><form method="POST" action="{{$.Base}}/s/{{$.Save.ID}}/choose"><input type="hidden" name="choice" value="{{.ID}}"><button type="submit">{{with .Check}}<span class="tag">[{{.Skill}} {{.Level}} · {{.Difficulty}} · {{.Chance}}%]</span>{{end}}{{.Text}}</button></form></li>
+    {{end}}
+  </ol>
+  {{else if .Available}}
+  <ol class="options">
+    {{range .Available}}
+    <li><form method="POST" action="{{$.Base}}/s/{{$.Save.ID}}/begin"><input type="hidden" name="conversation" value="{{.ID}}"><button type="submit">{{.Label}}</button></form></li>
+    {{end}}
+  </ol>
+  {{else if .Over}}
+  <p class="narrator" style="text-align:center;margin-top:2rem">— The End —</p>
+  {{end}}
+</div>
+<aside>
+  {{if .Journal}}<section><h3>Journal</h3>{{range .Journal}}<div class="quest{{if .Done}} done{{end}}"><b>{{.Name}}</b><br><span class="muted">{{.Journal}}</span></div>{{end}}</section>{{end}}
+  {{if .Party}}<section><h3>Party</h3>{{range .Party}}<div class="row"><span>{{.Name}}</span><span class="muted">{{signed .Value}}</span></div>{{end}}</section>{{end}}
+  {{if .Abilities}}<section><h3>Skills</h3>{{range .Abilities}}<div class="row"><span>{{.Name}}</span><span class="muted">{{.Value}}</span></div>{{end}}</section>{{end}}
+</aside>
+</div>
+{{end}}

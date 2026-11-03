@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"html"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -32,6 +33,7 @@ import (
 	"github.com/KevinMcHugh/rpg/internal/server/characters"
 	"github.com/KevinMcHugh/rpg/internal/server/conversations"
 	"github.com/KevinMcHugh/rpg/internal/server/notes"
+	"github.com/KevinMcHugh/rpg/internal/server/world"
 	"github.com/KevinMcHugh/rpg/internal/web"
 )
 
@@ -583,6 +585,164 @@ func TestWebPages(t *testing.T) {
 	e.do("GET", strings.Replace(convPath, "/conversations/", "/api/conversations/", 1), e.key, nil, http.StatusOK, &g)
 	if g.Nodes[0].Text != "You came back." {
 		t.Fatalf("an agent's page edit got through: %q", g.Nodes[0].Text)
+	}
+}
+
+// TestMechanics builds a small game over the API (a flag, a skill, a quest,
+// a conversation whose choices carry conditions, effects and a skill
+// check), checks what the build says, then plays it through the
+// playtest pages.
+func TestMechanics(t *testing.T) {
+	e := newEnv(t)
+
+	var flag world.Flag
+	e.do("POST", "/api/flags", e.key, map[string]any{"key": "met_mayor", "description": "The player has met the mayor."}, http.StatusCreated, &flag)
+	e.do("POST", "/api/flags", e.key, map[string]any{"key": "met_mayor"}, http.StatusUnprocessableEntity, nil)
+	e.do("POST", "/api/flags", e.key, map[string]any{"key": "Bad Key"}, http.StatusUnprocessableEntity, nil)
+	var skill world.Skill
+	e.do("POST", "/api/skills", e.key, map[string]any{"name": "Persuasion", "initialLevel": 2}, http.StatusCreated, &skill)
+	if skill.Key != "persuasion" {
+		t.Fatalf("skill key %q", skill.Key)
+	}
+	var quest world.Quest
+	e.do("POST", "/api/quests", e.key, map[string]any{"name": "Find Her Brother", "key": "find_brother"}, http.StatusCreated, &quest)
+	e.do("POST", "/api/quests/"+quest.ID+"/stages", e.key, map[string]any{"number": 1, "journal": "Aria has a brother in the Citadel."}, http.StatusCreated, &quest)
+	e.do("POST", "/api/quests/"+quest.ID+"/stages", e.key, map[string]any{"number": 1, "journal": "Twice."}, http.StatusUnprocessableEntity, nil)
+	if len(quest.Stages) != 1 {
+		t.Fatalf("quest %+v", quest)
+	}
+	var aria characters.Character
+	e.do("POST", "/api/characters", e.key, map[string]any{"name": "Aria Venn", "companion": true}, http.StatusCreated, &aria)
+	if aria.Key != "aria_venn" || !aria.Companion {
+		t.Fatalf("character %+v", aria)
+	}
+
+	// An agent may not touch the world.
+	e.do("POST", "/api/flags", e.agent, map[string]any{"key": "x"}, http.StatusForbidden, nil)
+	e.do("POST", "/api/quests/"+quest.ID+"/stages", e.agent, map[string]any{"number": 2, "journal": "A line Claude wrote."}, http.StatusForbidden, nil)
+
+	var g conversations.Graph
+	e.do("POST", "/api/conversations", e.key, map[string]any{"title": "Docks", "key": "docks"}, http.StatusCreated, &g)
+	if !g.Conversation.Opening {
+		t.Fatal("the first conversation does not open the game")
+	}
+	conv := g.Conversation.ID
+	var n1, n2, n3 conversations.Node
+	e.do("POST", "/api/conversations/"+conv+"/nodes", e.key, map[string]any{"speakerId": aria.ID, "text": "You came back."}, http.StatusCreated, &n1)
+	e.do("POST", "/api/conversations/"+conv+"/nodes", e.key, map[string]any{"speakerId": aria.ID, "text": "He is in the Citadel.", "effects": "quest find_brother = 1"}, http.StatusCreated, &n2)
+	e.do("POST", "/api/conversations/"+conv+"/nodes", e.key, map[string]any{"speakerId": aria.ID, "text": "Forget it."}, http.StatusCreated, &n3)
+	if n2.Effects != "quest find_brother = 1" {
+		t.Fatalf("node effects %q", n2.Effects)
+	}
+
+	// Scripts are checked as they are saved.
+	e.do("POST", "/api/nodes/"+n1.ID+"/choices", e.key, map[string]any{"text": "x", "condition": "met_mayr"}, http.StatusUnprocessableEntity, nil)
+	e.do("POST", "/api/nodes/"+n1.ID+"/choices", e.key, map[string]any{"text": "x", "effects": "quest find_brother += 1"}, http.StatusUnprocessableEntity, nil)
+	e.do("POST", "/api/nodes/"+n1.ID+"/choices", e.key, map[string]any{"text": "x", "checkSkillId": skill.ID}, http.StatusUnprocessableEntity, nil)
+
+	var ask conversations.Choice
+	e.do("POST", "/api/nodes/"+n1.ID+"/choices", e.key, map[string]any{
+		"text": "Tell me about your brother.", "toNodeId": n2.ID, "effects": "approval aria_venn += 5",
+		"checkSkillId": skill.ID, "checkDifficulty": 2, "failNodeId": n3.ID,
+	}, http.StatusCreated, &ask)
+	if ask.CheckSkillName != "Persuasion" || ask.CheckDifficulty != 2 || ask.FailNodeID != n3.ID || ask.Effects != "approval aria_venn += 5" {
+		t.Fatalf("check choice %+v", ask)
+	}
+	var stranger conversations.Choice
+	e.do("POST", "/api/nodes/"+n1.ID+"/choices", e.key, map[string]any{"text": "I'm new here.", "toNodeId": n3.ID, "condition": "not met_mayor", "sortOrder": 1}, http.StatusCreated, &stranger)
+
+	// Renaming a flag shows in every script that names it.
+	e.do("PATCH", "/api/flags/"+flag.ID, e.key, map[string]any{"key": "knows_mayor"}, http.StatusOK, nil)
+	e.do("GET", "/api/conversations/"+conv, e.key, nil, http.StatusOK, &g)
+	if got := g.Nodes[0].Choices[1].Condition; got != "not knows_mayor" {
+		t.Fatalf("condition after renaming the flag: %q", got)
+	}
+	// A PATCH can drop a check.
+	var plain conversations.Choice
+	e.do("PATCH", "/api/choices/"+stranger.ID, e.key, map[string]any{"checkSkillId": ""}, http.StatusOK, &plain)
+	if plain.CheckSkillID != "" || plain.Condition != "not knows_mayor" {
+		t.Fatalf("choice after dropping its check %+v", plain)
+	}
+
+	// The build: the flag is read but nothing sets it.
+	var report build.Report
+	e.do("GET", "/api/build", e.agent, nil, http.StatusOK, &report)
+	if !report.OK || len(report.Warnings) != 1 || report.Warnings[0].Code != "flag_never_set" || report.Stats.Quests != 1 {
+		t.Fatalf("report %+v", report)
+	}
+	// Deleting the skill breaks the check, and the build says so.
+	e.do("DELETE", "/api/skills/"+skill.ID, e.key, nil, http.StatusNoContent, nil)
+	e.do("GET", "/api/build", e.key, nil, http.StatusOK, &report)
+	if report.OK || report.Errors[0].Code != "bad_check" {
+		t.Fatalf("report after deleting the skill %+v", report)
+	}
+	var restored world.Skill
+	e.do("POST", "/api/skills", e.key, map[string]any{"name": "Persuasion", "initialLevel": 2}, http.StatusCreated, &restored)
+	e.do("PATCH", "/api/choices/"+ask.ID, e.key, map[string]any{"checkSkillId": restored.ID}, http.StatusOK, &ask)
+	if ask.CheckDifficulty != 2 || ask.FailNodeID != n3.ID {
+		t.Fatalf("a check keeps the parts not sent: %+v", ask)
+	}
+
+	// Play it. Difficulty 2 with Persuasion 2 cannot fail.
+	jar, _ := cookiejar.New(nil)
+	browser := &http.Client{Jar: jar, CheckRedirect: e.client.CheckRedirect}
+	if resp, _ := browser.PostForm(e.url+"/login", url.Values{"api_key": {e.key}, "next": {"/"}}); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("login: %d", resp.StatusCode)
+	}
+	get := func(path string) string {
+		t.Helper()
+		resp, err := browser.Get(e.url + path)
+		if err != nil || resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET %s: %v %v", path, resp.StatusCode, err)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return html.UnescapeString(string(b)) // as a reader sees it
+	}
+	post := func(path string, form url.Values) string {
+		t.Helper()
+		resp, err := browser.PostForm(e.url+path, form)
+		if err != nil || resp.StatusCode != http.StatusSeeOther {
+			t.Fatalf("POST %s: %v %v", path, resp.StatusCode, err)
+		}
+		resp.Body.Close()
+		loc, _, _ := strings.Cut(resp.Header.Get("Location"), "#")
+		return loc
+	}
+	if !strings.Contains(get("/play"), "Begin") {
+		t.Fatal("the playtest page offers no new game")
+	}
+	savePath, _, _ := strings.Cut(post("/play/new", url.Values{"name": {"first run"}}), "?")
+	page := get(savePath)
+	for _, want := range []string{"ARIA VENN", "You came back.", "Tell me about your brother.", "[Persuasion 2 · 2 · 100%]", "I'm new here."} {
+		if !strings.Contains(page, want) {
+			t.Errorf("play page lacks %q", want)
+		}
+	}
+	post(savePath+"/choose", url.Values{"choice": {ask.ID}})
+	page = get(savePath)
+	for _, want := range []string{"[Persuasion: Success]", "He is in the Citadel.", "Aria Venn approves (+5)", "Journal updated: Find Her Brother.", "The End"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("play page after the check lacks %q", want)
+		}
+	}
+
+	// A playtest can set the world up and start anywhere.
+	savePath, _, _ = strings.Cut(post("/play/new", url.Values{"name": {"setup"}, "node": {n1.ID}, "setup": {"knows_mayor"}}), "?")
+	if page = get(savePath); strings.Contains(page, "I'm new here.") {
+		t.Error("the setup did not hide the choice")
+	}
+	if loc := post("/play/new", url.Values{"setup": {"nonsense ="}}); !strings.Contains(loc, "msg=") {
+		t.Errorf("a bad setup should come back as a message: %s", loc)
+	}
+
+	// Saves are per key: the agent cannot open the person's.
+	e.do("GET", "/api/me", e.agent, nil, http.StatusOK, nil)
+	agentJar, _ := cookiejar.New(nil)
+	agentBrowser := &http.Client{Jar: agentJar, CheckRedirect: e.client.CheckRedirect}
+	agentBrowser.PostForm(e.url+"/login", url.Values{"api_key": {e.agent}, "next": {"/"}}) //nolint:errcheck
+	if resp, _ := agentBrowser.Get(e.url + savePath); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("another key's save: %d", resp.StatusCode)
 	}
 }
 

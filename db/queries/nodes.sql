@@ -1,6 +1,6 @@
 -- name: CreateNode :one
-INSERT INTO nodes (id, conversation_id, speaker_id, text, text_revision_id, created_by)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO nodes (id, conversation_id, speaker_id, text, text_revision_id, effects, created_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING *;
 
 -- name: GetNode :one
@@ -26,6 +26,7 @@ UPDATE nodes SET
     speaker_id = CASE WHEN sqlc.arg(set_speaker)::bool THEN sqlc.narg(speaker_id) ELSE speaker_id END,
     text = COALESCE(sqlc.narg(text), text),
     text_revision_id = COALESCE(sqlc.narg(text_revision_id), text_revision_id),
+    effects = COALESCE(sqlc.narg(effects)::jsonb, effects),
     updated_at = NOW()
 WHERE id = $1 AND deleted_at IS NULL
 RETURNING *;

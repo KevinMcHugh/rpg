@@ -168,10 +168,24 @@ func (l Links) Target(kind, id string) string {
 		return l.NodeByID(id)
 	case "choice":
 		return l.ChoiceByID(id)
+	case "flag":
+		return l.World() + "#flag-" + id
+	case "skill":
+		return l.World() + "#skill-" + id
+	case "quest":
+		return l.Quest(id)
+	case "quest_stage":
+		return l.Base + "/stages/" + id
 	default:
 		return l.Notes()
 	}
 }
+
+// World is the page of flags, skills and quests.
+func (l Links) World() string { return l.Base + "/world" }
+
+// Quest is a quest's page.
+func (l Links) Quest(id string) string { return l.Base + "/quests/" + id }
 
 // Notes is the page of every open note.
 func (l Links) Notes() string { return l.Base + "/notes" }

@@ -8,11 +8,14 @@ That rule is enforced by the system, not left to a prompt. Four layers each catc
 
 | player-facing (people only) | authoring-only (never ships) |
 | --- | --- |
-| a character's name | a character's bible |
-| a node's line | a conversation's title and summary |
-| a choice's text | notes |
+| a character's name | a character's bible and key |
+| a node's line | a conversation's title, summary and key |
+| a choice's text | flags: keys, descriptions |
+| a conversation's label | a quest's summary and key |
+| a skill's name | notes |
+| a quest's name, and each stage's journal entry | |
 
-Structure (which conversation a node is in, who speaks it, where a choice leads) is also people-only, because it changes what players see.
+Structure and rules (which conversation a node is in, who speaks it, where a choice leads, conditions, effects, skill checks, flags) are also people-only, because they change what players see.
 
 ## Who is a person
 
@@ -38,6 +41,10 @@ Give Claude Code an agent key, not yours.
 4. **The database and the build keep the record.** `app.Revise` stores each new string in `text_revisions` with the key that wrote it, and the row points at its latest revision. A trigger refuses any revision whose author is not a human key, whatever the application does. The build (`server build`, `GET /api/build`, the Build page) then checks every shipped string: its revision must exist, belong to that row and field, match the row's text exactly, and have been written by a human key. Text changed in `psql` or by a buggy migration fails the build.
 
 The trigger checks only the key's kind, so on its own it would accept a connector token acting as a human key. Layer 3 is what refuses that; the trigger is the backstop against agent keys.
+
+## The exception: the game's interface
+
+The game's own interface has a few words of its own: "Journal updated", "Quest complete", "approves" and "disapproves", "Success" and "Failure", "The End", "Begin", "Continue". They are in `internal/game/play/templates` and Claude wrote them when it built the game, so they are not human-written and the build does not check them. Rewrite them in your own words. If you want them checked too, move them into the content (a settings table of interface strings, each with a revision) so the build covers them like everything else.
 
 ## The soft spot
 

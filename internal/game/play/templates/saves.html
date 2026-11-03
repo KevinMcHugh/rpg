@@ -1,0 +1,27 @@
+{{define "content"}}
+{{if .Notice}}<p class="notice">{{.Notice}}</p>{{end}}
+<section class="ui" style="max-width:36rem">
+  <h1 style="font-family:Georgia,serif;font-weight:400">New game</h1>
+  {{if and (not .HasOpening) (not .Node)}}<p class="muted">No conversation opens the game yet{{if .Playtest}}; mark one as the opening, or start from a line{{end}}.</p>{{end}}
+  <form method="POST" action="{{.Base}}/new" style="display:grid;gap:.6rem">
+    <input name="name" placeholder="Name this game" aria-label="Name" maxlength="100">
+    {{if .Playtest}}
+    <input name="node" value="{{.Node}}" placeholder="Start at line (an id; empty for the opening)" aria-label="Start at line">
+    <textarea name="setup" rows="4" placeholder="Set the world up first, in the script language: met_mayor; skill persuasion = 5; quest find_brother = 2" aria-label="Setup"></textarea>
+    {{end}}
+    <div><button class="btn" type="submit">Begin</button></div>
+  </form>
+  {{if .Saves}}
+  <h2 style="font-family:Georgia,serif;font-weight:400;margin-top:2rem">Continue</h2>
+  <ul style="list-style:none;padding:0;display:grid;gap:.5rem">
+  {{range .Saves}}
+    <li style="display:flex;gap:.75rem;align-items:baseline;flex-wrap:wrap">
+      <a href="{{$.Base}}/s/{{.ID}}#now" style="font-size:1.05rem">{{.Name}}</a>
+      <span class="muted">{{.Updated}}</span>
+      <form method="POST" action="{{$.Base}}/s/{{.ID}}/delete" style="display:inline"><button class="btn ghost" type="submit">Delete</button></form>
+    </li>
+  {{end}}
+  </ul>
+  {{end}}
+</section>
+{{end}}

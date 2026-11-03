@@ -405,6 +405,336 @@ paths:
           $ref: "#/components/responses/NotFound"
 
   # ---------------------------------------------------------------------------
+  # World: flags, skills and quests
+  # ---------------------------------------------------------------------------
+
+  /flags:
+    get:
+      operationId: listFlags
+      summary: List flags by key
+      responses:
+        "200":
+          description: The flags
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FlagList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      operationId: createFlag
+      summary: Create a flag
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FlagCreate"
+      responses:
+        "201":
+          description: The created flag
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Flag"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+
+  /flags/{flagId}:
+    parameters:
+      - $ref: "#/components/parameters/FlagId"
+    patch:
+      operationId: updateFlag
+      summary: Change a flag's key, description or initial value
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FlagUpdate"
+      responses:
+        "200":
+          description: The updated flag
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Flag"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+    delete:
+      operationId: deleteFlag
+      summary: Delete a flag
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /skills:
+    get:
+      operationId: listSkills
+      summary: List skills by name
+      responses:
+        "200":
+          description: The skills
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      operationId: createSkill
+      summary: Create a skill
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SkillCreate"
+      responses:
+        "201":
+          description: The created skill
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Skill"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+
+  /skills/{skillId}:
+    parameters:
+      - $ref: "#/components/parameters/SkillId"
+    patch:
+      operationId: updateSkill
+      summary: Change a skill's key, name or starting level
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SkillUpdate"
+      responses:
+        "200":
+          description: The updated skill
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Skill"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+    delete:
+      operationId: deleteSkill
+      summary: Delete a skill
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /quests:
+    get:
+      operationId: listQuests
+      summary: List quests by name, with their stages
+      responses:
+        "200":
+          description: The quests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuestList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      operationId: createQuest
+      summary: Create a quest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuestCreate"
+      responses:
+        "201":
+          description: The created quest
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Quest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+
+  /quests/{questId}:
+    parameters:
+      - $ref: "#/components/parameters/QuestId"
+    get:
+      operationId: getQuest
+      summary: One quest with its stages
+      responses:
+        "200":
+          description: The quest
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Quest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      operationId: updateQuest
+      summary: Change a quest's key, name or summary
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuestUpdate"
+      responses:
+        "200":
+          description: The updated quest
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Quest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+    delete:
+      operationId: deleteQuest
+      summary: Delete a quest and its stages
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /quests/{questId}/stages:
+    parameters:
+      - $ref: "#/components/parameters/QuestId"
+    post:
+      operationId: createQuestStage
+      summary: Add a stage to a quest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuestStageCreate"
+      responses:
+        "201":
+          description: The quest, with the new stage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Quest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+
+  /stages/{stageId}:
+    parameters:
+      - $ref: "#/components/parameters/StageId"
+    patch:
+      operationId: updateQuestStage
+      summary: Change a quest stage's number, journal entry or whether it completes the quest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuestStageUpdate"
+      responses:
+        "200":
+          description: The quest, with the changed stage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Quest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+    delete:
+      operationId: deleteQuestStage
+      summary: Delete a quest stage
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ---------------------------------------------------------------------------
   # Notes: feedback on the content, the one thing an agent may write
   # ---------------------------------------------------------------------------
 
@@ -438,7 +768,7 @@ paths:
           $ref: "#/components/responses/Unprocessable"
     post:
       operationId: createNote
-      summary: Leave a note on the game, a character, a conversation, a node or a choice
+      summary: Leave a note on the game, a character, a conversation, a node, a choice, a flag, a skill or a quest
       x-agent-writable: true
       requestBody:
         required: true
@@ -528,8 +858,9 @@ paths:
       summary: Check the content as the build would, without writing a bundle
       description: |
         Errors stop a build: text that no human key wrote, a missing start
-        node, a choice pointing at a deleted node. Warnings do not:
-        unreachable nodes, for example.
+        node, a choice pointing at a deleted node, a script naming something
+        deleted. Warnings do not: unreachable nodes, or a flag that is set
+        but never read, for example.
       responses:
         "200":
           description: The report
@@ -573,6 +904,30 @@ components:
         type: string
     ChoiceId:
       name: choiceId
+      in: path
+      required: true
+      schema:
+        type: string
+    FlagId:
+      name: flagId
+      in: path
+      required: true
+      schema:
+        type: string
+    SkillId:
+      name: skillId
+      in: path
+      required: true
+      schema:
+        type: string
+    QuestId:
+      name: questId
+      in: path
+      required: true
+      schema:
+        type: string
+    StageId:
+      name: stageId
       in: path
       required: true
       schema:
@@ -644,10 +999,16 @@ components:
 
     Character:
       type: object
-      required: [id, name, bible, createdAt, updatedAt, url]
+      required: [id, key, name, bible, companion, createdAt, updatedAt, url]
       properties:
         id:
           type: string
+        key:
+          type: string
+          description: What scripts call the character (approval aria > 5). Authoring only.
+        companion:
+          type: boolean
+          description: Can join the party; the journal shows a companion's approval.
         name:
           type: string
           description: Player-facing.
@@ -678,8 +1039,13 @@ components:
       properties:
         name:
           type: string
+        key:
+          type: string
+          description: Leave out to make one from the name.
         bible:
           type: string
+        companion:
+          type: boolean
 
     CharacterUpdate:
       type: object
@@ -691,15 +1057,36 @@ components:
         bible:
           type: string
           x-go-type-skip-optional-pointer: false
+        key:
+          type: string
+          x-go-type-skip-optional-pointer: false
+        companion:
+          type: boolean
+          x-go-type-skip-optional-pointer: false
 
     # ---- conversations ----
 
     Conversation:
       type: object
-      required: [id, title, summary, startNodeId, createdAt, updatedAt, url]
+      required: [id, key, title, summary, startNodeId, label, condition, repeatable, opening, createdAt, updatedAt, url]
       properties:
         id:
           type: string
+        key:
+          type: string
+          description: What scripts call the conversation (done docks). Authoring only.
+        label:
+          type: string
+          description: Player-facing. What the player picks to start this conversation between others; empty when it is only reached from another.
+        condition:
+          type: string
+          description: When the player may start it, in the script language; empty is always.
+        repeatable:
+          type: boolean
+          description: Whether it stays available after it is finished once.
+        opening:
+          type: boolean
+          description: Whether the game opens with it. One conversation does.
         title:
           type: string
           description: Authoring label; never ships.
@@ -745,6 +1132,9 @@ components:
       properties:
         title:
           type: string
+        key:
+          type: string
+          description: Leave out to make one from the title.
         summary:
           type: string
 
@@ -761,10 +1151,25 @@ components:
         startNodeId:
           type: string
           x-go-type-skip-optional-pointer: false
+        key:
+          type: string
+          x-go-type-skip-optional-pointer: false
+        label:
+          type: string
+          x-go-type-skip-optional-pointer: false
+        condition:
+          type: string
+          x-go-type-skip-optional-pointer: false
+        repeatable:
+          type: boolean
+          x-go-type-skip-optional-pointer: false
+        opening:
+          type: boolean
+          x-go-type-skip-optional-pointer: false
 
     Node:
       type: object
-      required: [id, conversationId, speakerId, speakerName, text, choices, url]
+      required: [id, conversationId, speakerId, speakerName, text, effects, choices, url]
       properties:
         id:
           type: string
@@ -779,6 +1184,9 @@ components:
         text:
           type: string
           description: Player-facing.
+        effects:
+          type: string
+          description: What reaching this line changes, in the script language.
         choices:
           type: array
           items:
@@ -795,6 +1203,8 @@ components:
           description: A character id; leave out for the narrator.
         text:
           type: string
+        effects:
+          type: string
 
     NodeUpdate:
       type: object
@@ -806,10 +1216,13 @@ components:
         text:
           type: string
           x-go-type-skip-optional-pointer: false
+        effects:
+          type: string
+          x-go-type-skip-optional-pointer: false
 
     Choice:
       type: object
-      required: [id, fromNodeId, toNodeId, text, sortOrder]
+      required: [id, fromNodeId, toNodeId, text, sortOrder, condition, effects, checkSkillId, checkSkillName, checkDifficulty, failNodeId]
       properties:
         id:
           type: string
@@ -823,6 +1236,21 @@ components:
           description: Player-facing.
         sortOrder:
           type: integer
+        condition:
+          type: string
+          description: When the choice shows, in the script language; empty is always.
+        effects:
+          type: string
+          description: What taking the choice changes, in the script language.
+        checkSkillId:
+          type: string
+          description: "When set, the choice is a skill check: 2d6 plus the player's skill against checkDifficulty. Success goes to toNodeId, failure to failNodeId."
+        checkSkillName:
+          type: string
+        checkDifficulty:
+          type: integer
+        failNodeId:
+          type: string
 
     ChoiceCreate:
       type: object
@@ -835,6 +1263,16 @@ components:
           description: A node in the same conversation; leave out to end the conversation.
         sortOrder:
           type: integer
+        condition:
+          type: string
+        effects:
+          type: string
+        checkSkillId:
+          type: string
+        checkDifficulty:
+          type: integer
+        failNodeId:
+          type: string
 
     ChoiceUpdate:
       type: object
@@ -848,6 +1286,22 @@ components:
           x-go-type-skip-optional-pointer: false
         sortOrder:
           type: integer
+          x-go-type-skip-optional-pointer: false
+        condition:
+          type: string
+          x-go-type-skip-optional-pointer: false
+        effects:
+          type: string
+          x-go-type-skip-optional-pointer: false
+        checkSkillId:
+          type: string
+          description: An empty checkSkillId removes the check.
+          x-go-type-skip-optional-pointer: false
+        checkDifficulty:
+          type: integer
+          x-go-type-skip-optional-pointer: false
+        failNodeId:
+          type: string
           x-go-type-skip-optional-pointer: false
 
     NodePath:
@@ -881,11 +1335,214 @@ components:
         choiceText:
           type: string
 
+    # ---- world ----
+
+    Flag:
+      type: object
+      required: [id, key, description, initialValue, url]
+      properties:
+        id:
+          type: string
+        key:
+          type: string
+          description: What scripts call it. A flag is a number; 0 is false.
+        description:
+          type: string
+          description: What it means. Authoring only.
+        initialValue:
+          type: integer
+        url:
+          type: string
+
+    FlagList:
+      type: object
+      required: [flags]
+      properties:
+        flags:
+          type: array
+          items:
+            $ref: "#/components/schemas/Flag"
+
+    FlagCreate:
+      type: object
+      required: [key]
+      properties:
+        key:
+          type: string
+        description:
+          type: string
+        initialValue:
+          type: integer
+
+    FlagUpdate:
+      type: object
+      description: Fields left out are left alone.
+      properties:
+        key:
+          type: string
+          x-go-type-skip-optional-pointer: false
+        description:
+          type: string
+          x-go-type-skip-optional-pointer: false
+        initialValue:
+          type: integer
+          x-go-type-skip-optional-pointer: false
+
+    Skill:
+      type: object
+      required: [id, key, name, initialLevel, url]
+      properties:
+        id:
+          type: string
+        key:
+          type: string
+        name:
+          type: string
+          description: Player-facing; shown on skill checks.
+        initialLevel:
+          type: integer
+          description: The player's level at the start of the game.
+        url:
+          type: string
+
+    SkillList:
+      type: object
+      required: [skills]
+      properties:
+        skills:
+          type: array
+          items:
+            $ref: "#/components/schemas/Skill"
+
+    SkillCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        key:
+          type: string
+          description: Leave out to make one from the name.
+        initialLevel:
+          type: integer
+
+    SkillUpdate:
+      type: object
+      description: Fields left out are left alone.
+      properties:
+        name:
+          type: string
+          x-go-type-skip-optional-pointer: false
+        key:
+          type: string
+          x-go-type-skip-optional-pointer: false
+        initialLevel:
+          type: integer
+          x-go-type-skip-optional-pointer: false
+
+    Quest:
+      type: object
+      required: [id, key, name, summary, stages, url]
+      properties:
+        id:
+          type: string
+        key:
+          type: string
+        name:
+          type: string
+          description: Player-facing; shown in the journal.
+        summary:
+          type: string
+          description: Authoring only.
+        stages:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuestStage"
+        url:
+          type: string
+
+    QuestStage:
+      type: object
+      required: [id, questId, number, journal, completes]
+      properties:
+        id:
+          type: string
+        questId:
+          type: string
+        number:
+          type: integer
+          description: What scripts move the quest to (quest find_brother = 2). 0 is not started.
+        journal:
+          type: string
+          description: Player-facing; the journal entry at this stage.
+        completes:
+          type: boolean
+
+    QuestList:
+      type: object
+      required: [quests]
+      properties:
+        quests:
+          type: array
+          items:
+            $ref: "#/components/schemas/Quest"
+
+    QuestCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        key:
+          type: string
+          description: Leave out to make one from the name.
+        summary:
+          type: string
+
+    QuestUpdate:
+      type: object
+      description: Fields left out are left alone.
+      properties:
+        name:
+          type: string
+          x-go-type-skip-optional-pointer: false
+        key:
+          type: string
+          x-go-type-skip-optional-pointer: false
+        summary:
+          type: string
+          x-go-type-skip-optional-pointer: false
+
+    QuestStageCreate:
+      type: object
+      required: [number, journal]
+      properties:
+        number:
+          type: integer
+        journal:
+          type: string
+        completes:
+          type: boolean
+
+    QuestStageUpdate:
+      type: object
+      description: Fields left out are left alone.
+      properties:
+        number:
+          type: integer
+          x-go-type-skip-optional-pointer: false
+        journal:
+          type: string
+          x-go-type-skip-optional-pointer: false
+        completes:
+          type: boolean
+          x-go-type-skip-optional-pointer: false
+
     # ---- notes ----
 
     NoteTargetKind:
       type: string
-      enum: [game, character, conversation, node, choice]
+      enum: [game, character, conversation, node, choice, flag, skill, quest]
 
     NoteKind:
       type: string
@@ -998,8 +1655,14 @@ components:
 
     BuildStats:
       type: object
-      required: [characters, conversations, nodes, choices, words, openNotes]
+      required: [characters, conversations, nodes, choices, flags, skills, quests, words, openNotes]
       properties:
+        flags:
+          type: integer
+        skills:
+          type: integer
+        quests:
+          type: integer
         characters:
           type: integer
         conversations:

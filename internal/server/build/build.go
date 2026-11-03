@@ -65,7 +65,8 @@ func (Endpoint) Render(vm Report) apigen.GetBuildReportResponseObject {
 		Warnings: issues(vm.Warnings),
 		Stats: apigen.BuildStats{
 			Characters: s.Characters, Conversations: s.Conversations, Nodes: s.Nodes,
-			Choices: s.Choices, Words: s.Words, OpenNotes: s.OpenNotes,
+			Choices: s.Choices, Flags: s.Flags, Skills: s.Skills, Quests: s.Quests,
+			Words: s.Words, OpenNotes: s.OpenNotes,
 		},
 	}
 }

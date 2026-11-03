@@ -12,18 +12,27 @@ type Querier interface {
 	// Marks an invite used in one UPDATE, so two redemptions racing the same
 	// code cannot both succeed.
 	ClaimInviteByHash(ctx context.Context, codeHash string) (Invite, error)
+	// Only one conversation opens the game.
+	ClearOpening(ctx context.Context, id string) error
 	ConsumeOAuthCode(ctx context.Context, codeHash string) (OauthCode, error)
 	CountOpenNotes(ctx context.Context) (int64, error)
 	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (ApiKey, error)
 	CreateCharacter(ctx context.Context, arg CreateCharacterParams) (Character, error)
 	CreateChoice(ctx context.Context, arg CreateChoiceParams) (Choice, error)
+	// The first conversation opens the game, as the first line of a
+	// conversation becomes its start.
 	CreateConversation(ctx context.Context, arg CreateConversationParams) (Conversation, error)
+	CreateFlag(ctx context.Context, arg CreateFlagParams) (Flag, error)
 	CreateInvite(ctx context.Context, arg CreateInviteParams) (Invite, error)
 	CreateNode(ctx context.Context, arg CreateNodeParams) (Node, error)
 	CreateNote(ctx context.Context, arg CreateNoteParams) (Note, error)
 	CreateOAuthClient(ctx context.Context, arg CreateOAuthClientParams) (OauthClient, error)
 	CreateOAuthCode(ctx context.Context, arg CreateOAuthCodeParams) error
 	CreateOAuthToken(ctx context.Context, arg CreateOAuthTokenParams) error
+	CreateQuest(ctx context.Context, arg CreateQuestParams) (Quest, error)
+	CreateQuestStage(ctx context.Context, arg CreateQuestStageParams) (QuestStage, error)
+	CreateSave(ctx context.Context, arg CreateSaveParams) (Save, error)
+	CreateSkill(ctx context.Context, arg CreateSkillParams) (Skill, error)
 	CreateTextRevision(ctx context.Context, arg CreateTextRevisionParams) (TextRevision, error)
 	DeleteAPIKey(ctx context.Context, id string) error
 	DeleteCharacter(ctx context.Context, id string) (int64, error)
@@ -33,19 +42,33 @@ type Querier interface {
 	// Its nodes and choices stay behind but no longer ship: the build reads
 	// only live conversations.
 	DeleteConversation(ctx context.Context, id string) (int64, error)
+	DeleteFlag(ctx context.Context, id string) (int64, error)
 	DeleteInvite(ctx context.Context, id string) (int64, error)
 	DeleteNode(ctx context.Context, id string) (int64, error)
 	DeleteNote(ctx context.Context, id string) (int64, error)
+	// Its stages go with it.
+	DeleteQuest(ctx context.Context, id string) (int64, error)
+	DeleteQuestStage(ctx context.Context, id string) (int64, error)
+	DeleteQuestStages(ctx context.Context, questID string) error
+	DeleteSave(ctx context.Context, arg DeleteSaveParams) (int64, error)
+	DeleteSkill(ctx context.Context, id string) (int64, error)
 	GetAPIKey(ctx context.Context, id string) (ApiKey, error)
 	GetAPIKeyByHash(ctx context.Context, keyHash string) (ApiKey, error)
 	GetCharacter(ctx context.Context, id string) (Character, error)
 	GetChoice(ctx context.Context, id string) (Choice, error)
 	GetConversation(ctx context.Context, id string) (Conversation, error)
+	GetFlag(ctx context.Context, id string) (Flag, error)
 	GetNode(ctx context.Context, id string) (Node, error)
 	// A note with the name of the key that wrote it.
 	GetNote(ctx context.Context, id string) (GetNoteRow, error)
 	GetOAuthClient(ctx context.Context, id string) (OauthClient, error)
 	GetOAuthTokenByRefreshHash(ctx context.Context, refreshTokenHash *string) (OauthToken, error)
+	GetQuest(ctx context.Context, id string) (Quest, error)
+	GetQuestStage(ctx context.Context, id string) (QuestStage, error)
+	// Saves are private to whoever made them; the game binary has no keys, so
+	// its saves all have a NULL created_by and match a NULL argument.
+	GetSave(ctx context.Context, arg GetSaveParams) (Save, error)
+	GetSkill(ctx context.Context, id string) (Skill, error)
 	ListAPIKeys(ctx context.Context) ([]ApiKey, error)
 	// Unused, unexpired, undeleted invites.
 	ListActiveInvites(ctx context.Context) ([]Invite, error)
@@ -55,13 +78,20 @@ type Querier interface {
 	ListAllChoices(ctx context.Context) ([]Choice, error)
 	// Every live node of every live conversation, for the build.
 	ListAllNodes(ctx context.Context) ([]Node, error)
+	// Every live stage of every live quest, for the build.
+	ListAllQuestStages(ctx context.Context) ([]QuestStage, error)
 	ListCharacters(ctx context.Context) ([]Character, error)
 	ListChoicesByConversation(ctx context.Context, conversationID string) ([]Choice, error)
 	ListConversations(ctx context.Context) ([]Conversation, error)
+	ListFlags(ctx context.Context) ([]Flag, error)
 	ListNodesByConversation(ctx context.Context, conversationID string) ([]Node, error)
 	// Filters left NULL match everything. Oldest first, so a thread reads in
 	// order.
 	ListNotes(ctx context.Context, arg ListNotesParams) ([]ListNotesRow, error)
+	ListQuestStages(ctx context.Context, questID string) ([]QuestStage, error)
+	ListQuests(ctx context.Context) ([]Quest, error)
+	ListSaves(ctx context.Context, createdBy *string) ([]Save, error)
+	ListSkills(ctx context.Context) ([]Skill, error)
 	// Revisions with the kind and name of the key that wrote them, for the
 	// build's provenance check.
 	ListTextRevisionsByIDs(ctx context.Context, ids []string) ([]ListTextRevisionsByIDsRow, error)
@@ -75,14 +105,25 @@ type Querier interface {
 	TouchAPIKey(ctx context.Context, id string) error
 	// A new name comes with its new revision.
 	UpdateCharacter(ctx context.Context, arg UpdateCharacterParams) (Character, error)
-	// set_target says whether to change to_node_id, so a PATCH can make a
-	// choice end the conversation. A new text comes with its new revision.
+	// The set_ arguments say whether to change a nullable column, so a PATCH
+	// can clear it: set_target makes a choice end the conversation, set_check
+	// changes or removes its skill check. A new text comes with its new
+	// revision.
 	UpdateChoice(ctx context.Context, arg UpdateChoiceParams) (Choice, error)
-	// set_start says whether to change start_node_id, so a PATCH can clear it.
+	// set_start and set_condition say whether to change those columns, so a
+	// PATCH can clear them. A new label comes with its new revision.
 	UpdateConversation(ctx context.Context, arg UpdateConversationParams) (Conversation, error)
+	UpdateFlag(ctx context.Context, arg UpdateFlagParams) (Flag, error)
 	// set_speaker says whether to change speaker_id, so a PATCH can make a
 	// line the narrator's. A new text comes with its new revision.
 	UpdateNode(ctx context.Context, arg UpdateNodeParams) (Node, error)
+	// A new name comes with its new revision.
+	UpdateQuest(ctx context.Context, arg UpdateQuestParams) (Quest, error)
+	// A new journal entry comes with its new revision.
+	UpdateQuestStage(ctx context.Context, arg UpdateQuestStageParams) (QuestStage, error)
+	UpdateSave(ctx context.Context, arg UpdateSaveParams) (Save, error)
+	// A new name comes with its new revision.
+	UpdateSkill(ctx context.Context, arg UpdateSkillParams) (Skill, error)
 }
 
 var _ Querier = (*Queries)(nil)

@@ -14,6 +14,7 @@
     <summary>New conversation</summary>
     <form method="POST" action="/conversations" class="stack" style="margin-top:.75rem">
       <input name="title" placeholder="Title (authoring only)" aria-label="Title" required maxlength="200">
+      <input class="script" name="key" placeholder="key for scripts (optional; made from the title)" aria-label="Key">
       <textarea name="summary" placeholder="What is this conversation for? (authoring only)" aria-label="Summary"></textarea>
       <div><button type="submit">Create</button></div>
     </form>
@@ -23,8 +24,10 @@
   {{range .Conversations}}
     <article class="card">
       <h3><a href="/conversations/{{.ID}}">{{.Title}}</a></h3>
+      {{if .Label}}<div style="font-size:.9rem">“{{.Label}}”</div>{{end}}
       {{if .Summary}}<div class="excerpt">{{.Summary}}</div>{{end}}
       <div class="row muted" style="font-size:.8rem">
+        {{if .Opening}}<span class="badge start">opening</span>{{end}}
         {{if not .StartNodeID}}<span class="badge err">no start</span>{{end}}
         <code class="id" title="Click to select. This is the id the MCP tools take.">{{.ID}}</code>
       </div>
@@ -42,6 +45,8 @@
     <summary>New character</summary>
     <form method="POST" action="/characters" class="stack" style="margin-top:.75rem">
       <input name="name" placeholder="Name" aria-label="Name" required maxlength="100">
+      <input class="script" name="key" placeholder="key for scripts (optional; made from the name)" aria-label="Key">
+      <label class="check"><input type="checkbox" name="companion" value="1"> Companion</label>
       <textarea name="bible" placeholder="Bible: voice, wants, secrets (authoring only)" aria-label="Bible"></textarea>
       <div><button type="submit">Create</button></div>
     </form>

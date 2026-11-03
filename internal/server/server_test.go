@@ -81,6 +81,8 @@ func TestHumanOnlyOperations(t *testing.T) {
 		"POST /conversations/{conversationId}/nodes", "PATCH /nodes/{nodeId}", "DELETE /nodes/{nodeId}",
 		"POST /nodes/{nodeId}/choices", "PATCH /choices/{choiceId}", "DELETE /choices/{choiceId}",
 		"PATCH /notes/{noteId}", "DELETE /notes/{noteId}",
+		"POST /flags", "PATCH /flags/{flagId}", "POST /skills", "POST /quests",
+		"POST /quests/{questId}/stages", "PATCH /stages/{stageId}", "DELETE /stages/{stageId}",
 	} {
 		if !human[op] {
 			t.Errorf("%s is not human-only", op)
