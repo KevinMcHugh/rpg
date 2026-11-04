@@ -596,6 +596,11 @@ export interface components {
          */
         Role: "owner" | "writer";
         Game: {
+            /**
+             * Format: date-time
+             * @description When it last changed. Send it back as updatedAt when changing it.
+             */
+            updatedAt: string;
             role: components["schemas"]["Role"];
             id: string;
             key: string;
@@ -645,6 +650,11 @@ export interface components {
         };
         /** @description Fields left out are left alone. */
         GameUpdate: {
+            /**
+             * Format: date-time
+             * @description The game's updatedAt as the caller last loaded it. If it has changed since, someone else saved in between, and the change is refused with a 409; reload, and make the change again.
+             */
+            updatedAt: string;
             name?: string;
             key?: string;
             ruleset?: components["schemas"]["Ruleset"];
@@ -678,6 +688,11 @@ export interface components {
         };
         /** @description Fields left out are left alone. */
         CharacterUpdate: {
+            /**
+             * Format: date-time
+             * @description The character's updatedAt as the caller last loaded it. If it has changed since, someone else saved in between, and the change is refused with a 409; reload, and make the change again.
+             */
+            updatedAt: string;
             name?: string;
             bible?: string;
             key?: string;
@@ -724,6 +739,11 @@ export interface components {
         };
         /** @description Fields left out are left alone. An empty startNodeId clears it. */
         ConversationUpdate: {
+            /**
+             * Format: date-time
+             * @description The conversation's updatedAt as the caller last loaded it. If it has changed since, someone else saved in between, and the change is refused with a 409; reload, and make the change again.
+             */
+            updatedAt: string;
             title?: string;
             summary?: string;
             startNodeId?: string;
@@ -734,6 +754,11 @@ export interface components {
             opening?: boolean;
         };
         Node: {
+            /**
+             * Format: date-time
+             * @description When it last changed. Send it back as updatedAt when changing it.
+             */
+            updatedAt: string;
             id: string;
             conversationId: string;
             /** @description Empty for the narrator. */
@@ -755,11 +780,21 @@ export interface components {
         };
         /** @description Fields left out are left alone. An empty speakerId makes the line the narrator's. */
         NodeUpdate: {
+            /**
+             * Format: date-time
+             * @description The node's updatedAt as the caller last loaded it. If it has changed since, someone else saved in between, and the change is refused with a 409; reload, and make the change again.
+             */
+            updatedAt: string;
             speakerId?: string;
             text?: string;
             effects?: string;
         };
         Choice: {
+            /**
+             * Format: date-time
+             * @description When it last changed. Send it back as updatedAt when changing it.
+             */
+            updatedAt: string;
             id: string;
             fromNodeId: string;
             /** @description Empty when the choice ends the conversation. */
@@ -796,6 +831,11 @@ export interface components {
         };
         /** @description Fields left out are left alone. An empty toNodeId makes the choice end the conversation. */
         ChoiceUpdate: {
+            /**
+             * Format: date-time
+             * @description The choice's updatedAt as the caller last loaded it. If it has changed since, someone else saved in between, and the change is refused with a 409; reload, and make the change again.
+             */
+            updatedAt: string;
             text?: string;
             toNodeId?: string;
             sortOrder?: number;
@@ -823,6 +863,11 @@ export interface components {
             choiceText: string;
         };
         Flag: {
+            /**
+             * Format: date-time
+             * @description When it last changed. Send it back as updatedAt when changing it.
+             */
+            updatedAt: string;
             id: string;
             gameId: string;
             /** @description What scripts call it. A flag is a number; 0 is false. */
@@ -842,6 +887,11 @@ export interface components {
         };
         /** @description Fields left out are left alone. */
         FlagUpdate: {
+            /**
+             * Format: date-time
+             * @description The flag's updatedAt as the caller last loaded it. If it has changed since, someone else saved in between, and the change is refused with a 409; reload, and make the change again.
+             */
+            updatedAt: string;
             key?: string;
             description?: string;
             initialValue?: number;
@@ -852,6 +902,11 @@ export interface components {
          */
         Ability: "str" | "dex" | "con" | "int" | "wis" | "cha";
         Skill: {
+            /**
+             * Format: date-time
+             * @description When it last changed. Send it back as updatedAt when changing it.
+             */
+            updatedAt: string;
             id: string;
             gameId: string;
             key: string;
@@ -881,6 +936,11 @@ export interface components {
         };
         /** @description Fields left out are left alone. */
         SkillUpdate: {
+            /**
+             * Format: date-time
+             * @description The skill's updatedAt as the caller last loaded it. If it has changed since, someone else saved in between, and the change is refused with a 409; reload, and make the change again.
+             */
+            updatedAt: string;
             name?: string;
             key?: string;
             initialLevel?: number;
@@ -888,6 +948,11 @@ export interface components {
             ability?: string;
         };
         Quest: {
+            /**
+             * Format: date-time
+             * @description When it last changed. Send it back as updatedAt when changing it.
+             */
+            updatedAt: string;
             id: string;
             gameId: string;
             key: string;
@@ -899,6 +964,11 @@ export interface components {
             url: string;
         };
         QuestStage: {
+            /**
+             * Format: date-time
+             * @description When it last changed. Send it back as updatedAt when changing it.
+             */
+            updatedAt: string;
             id: string;
             questId: string;
             /** @description What scripts move the quest to (quest find_brother = 2). 0 is not started. */
@@ -918,6 +988,11 @@ export interface components {
         };
         /** @description Fields left out are left alone. */
         QuestUpdate: {
+            /**
+             * Format: date-time
+             * @description The quest's updatedAt as the caller last loaded it. If it has changed since, someone else saved in between, and the change is refused with a 409; reload, and make the change again.
+             */
+            updatedAt: string;
             name?: string;
             key?: string;
             summary?: string;
@@ -929,6 +1004,11 @@ export interface components {
         };
         /** @description Fields left out are left alone. */
         QuestStageUpdate: {
+            /**
+             * Format: date-time
+             * @description The stage's updatedAt as the caller last loaded it. If it has changed since, someone else saved in between, and the change is refused with a 409; reload, and make the change again.
+             */
+            updatedAt: string;
             number?: number;
             journal?: string;
             completes?: boolean;
@@ -971,6 +1051,11 @@ export interface components {
             parentId?: string;
         };
         NoteUpdate: {
+            /**
+             * Format: date-time
+             * @description The note's updatedAt as the caller last loaded it. If it has changed since, someone else saved in between, and the change is refused with a 409; reload, and make the change again.
+             */
+            updatedAt: string;
             status: components["schemas"]["NoteStatus"];
         };
         BuildReport: {
@@ -1030,6 +1115,15 @@ export interface components {
         };
         /** @description No such resource */
         NotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description Someone else changed it after the caller loaded it (the updatedAt sent is stale); reload, and make the change again */
+        Conflict: {
             headers: {
                 [name: string]: unknown;
             };
@@ -1212,6 +1306,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             422: components["responses"]["Unprocessable"];
         };
     };
@@ -1473,6 +1568,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             422: components["responses"]["Unprocessable"];
         };
     };
@@ -1606,6 +1702,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             422: components["responses"]["Unprocessable"];
         };
     };
@@ -1691,6 +1788,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             422: components["responses"]["Unprocessable"];
         };
     };
@@ -1800,6 +1898,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             422: components["responses"]["Unprocessable"];
         };
     };
@@ -1909,6 +2008,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             422: components["responses"]["Unprocessable"];
         };
     };
@@ -2018,6 +2118,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             422: components["responses"]["Unprocessable"];
         };
     };
@@ -2151,6 +2252,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             422: components["responses"]["Unprocessable"];
         };
     };
@@ -2236,6 +2338,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             422: components["responses"]["Unprocessable"];
         };
     };
@@ -2373,6 +2476,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             422: components["responses"]["Unprocessable"];
         };
     };

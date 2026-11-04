@@ -272,6 +272,11 @@ func (e UpdateChoiceEndpoint) Interact(ctx context.Context, req apigen.UpdateCho
 	return m, err
 }
 
+// Guard refuses a change over someone else's newer one.
+func (UpdateChoiceEndpoint) Guard(req apigen.UpdateChoiceRequestObject) app.Guard {
+	return app.Guard{Kind: "choice", ID: req.ChoiceId, Seen: req.Body.UpdatedAt}
+}
+
 func (UpdateChoiceEndpoint) Build(m choiceModel) Choice { return choiceView(m.Choice, m.World) }
 
 func (UpdateChoiceEndpoint) Render(vm Choice) apigen.UpdateChoiceResponseObject {

@@ -359,8 +359,7 @@ func (e CreateEndpoint) Render(vm Note) apigen.CreateNoteResponseObject {
 
 type UpdateStore interface {
 	app.AccessStore
-	GetStore
-	SetNoteStatus(ctx context.Context, arg dbgen.SetNoteStatusParams) (dbgen.Note, error)
+	InTx(ctx context.Context, fn func(q *dbgen.Queries) error) error
 }
 
 // UpdateEndpoint resolves, dismisses or reopens a note. People only: the
@@ -380,11 +379,22 @@ func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateNoteReque
 	if err := oneOf("status", string(req.Body.Status), Statuses); err != nil {
 		return dbgen.GetNoteRow{}, err
 	}
-	if _, err := e.Store.SetNoteStatus(ctx, dbgen.SetNoteStatusParams{ID: req.NoteId, Status: string(req.Body.Status)}); err != nil {
-		return dbgen.GetNoteRow{}, app.NotFound(err, "note", req.NoteId)
-	}
-	row, err := e.Store.GetNote(ctx, req.NoteId)
-	return row, app.NotFound(err, "note", req.NoteId)
+	var row dbgen.GetNoteRow
+	err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+		if _, err := q.SetNoteStatus(ctx, dbgen.SetNoteStatusParams{ID: req.NoteId, Status: string(req.Body.Status)}); err != nil {
+			return app.NotFound(err, "note", req.NoteId)
+		}
+		var err error
+		row, err = q.GetNote(ctx, req.NoteId)
+		return app.NotFound(err, "note", req.NoteId)
+	})
+	return row, err
+}
+
+// Guard refuses a change over someone else's newer one: reopening a note
+// another writer has just resolved, say.
+func (UpdateEndpoint) Guard(req apigen.UpdateNoteRequestObject) app.Guard {
+	return app.Guard{Kind: "note", ID: req.NoteId, Seen: req.Body.UpdatedAt}
 }
 
 func (e UpdateEndpoint) Build(row dbgen.GetNoteRow) Note {

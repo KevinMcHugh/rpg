@@ -171,7 +171,15 @@ func TestMembersAndInvites(t *testing.T) {
 	if len(list.Games) != 1 || list.Games[0].ID != g.ID || list.Games[0].Role != "writer" {
 		t.Fatalf("bea's games %+v", list.Games)
 	}
-	e.do("PATCH", "/api/characters/"+aria.ID, bea, map[string]any{"bible": "Wants out."}, http.StatusOK, nil)
+	e.do("PATCH", "/api/characters/"+aria.ID, bea, map[string]any{"bible": "Wants out.", "updatedAt": aria.UpdatedAt}, http.StatusOK, nil)
+	// The owner, still looking at the copy from before Bea saved, cannot
+	// write over her change; reloading gives them hers to build on.
+	e.do("PATCH", "/api/characters/"+aria.ID, e.key, map[string]any{"bible": "Wants in.", "updatedAt": aria.UpdatedAt}, http.StatusConflict, nil)
+	e.do("GET", "/api/characters/"+aria.ID, e.key, nil, http.StatusOK, &aria)
+	if aria.Bible != "Wants out." {
+		t.Fatalf("the refused write landed: %+v", aria)
+	}
+	e.do("PATCH", "/api/characters/"+aria.ID, e.key, map[string]any{"bible": "Wants out, then in.", "updatedAt": aria.UpdatedAt}, http.StatusOK, nil)
 	e.do("GET", "/api/characters/"+aria.ID, beaAgent, nil, http.StatusOK, nil)
 	e.do("PATCH", "/api/games/"+g.ID, bea, map[string]any{"name": "Mine"}, http.StatusForbidden, nil)
 	e.do("DELETE", "/api/games/"+g.ID, bea, nil, http.StatusForbidden, nil)

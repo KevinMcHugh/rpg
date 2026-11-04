@@ -192,6 +192,11 @@ func (e UpdateNodeEndpoint) Interact(ctx context.Context, req apigen.UpdateNodeR
 	return m, err
 }
 
+// Guard refuses a change over someone else's newer one.
+func (UpdateNodeEndpoint) Guard(req apigen.UpdateNodeRequestObject) app.Guard {
+	return app.Guard{Kind: "node", ID: req.NodeId, Seen: req.Body.UpdatedAt}
+}
+
 func (e UpdateNodeEndpoint) Build(m nodeModel) Node { return nodeView(m, e.Links) }
 
 func (e UpdateNodeEndpoint) Render(vm Node) apigen.UpdateNodeResponseObject {

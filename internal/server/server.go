@@ -190,6 +190,14 @@ func isForbidden(err error) bool { return errors.Is(err, app.ErrForbidden) }
 // of bounds.
 func isUnprocessable(err error) bool { return errors.Is(err, app.ErrBadInput) }
 
+// isConflict is a write over a row someone else changed since the caller
+// loaded it (a stale updatedAt; see Guarded).
+func isConflict(err error) bool { return errors.Is(err, app.ErrConflict) }
+
+func conflict(err error) apigen.ConflictJSONResponse {
+	return apigen.ConflictJSONResponse{Error: err.Error()}
+}
+
 func notFound(err error) apigen.NotFoundJSONResponse {
 	return apigen.NotFoundJSONResponse{Error: err.Error()}
 }
@@ -248,12 +256,14 @@ func (s *Server) UpdateGame(ctx context.Context, req apigen.UpdateGameRequestObj
 	if req.Body == nil {
 		return apigen.UpdateGame400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
 	}
-	resp, err := Run(ctx, games.UpdateEndpoint{Store: s.store, Links: s.links}, req)
+	resp, err := RunGuarded(ctx, games.UpdateEndpoint{Store: s.store, Links: s.links}, req)
 	switch {
 	case isForbidden(err):
 		return apigen.UpdateGame403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
 	case isNotFound(err):
 		return apigen.UpdateGame404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	case isConflict(err):
+		return apigen.UpdateGame409JSONResponse{ConflictJSONResponse: conflict(err)}, nil
 	case isUnprocessable(err):
 		return apigen.UpdateGame422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
 	}
@@ -374,12 +384,14 @@ func (s *Server) UpdateCharacter(ctx context.Context, req apigen.UpdateCharacter
 	if req.Body == nil {
 		return apigen.UpdateCharacter400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
 	}
-	resp, err := Run(ctx, characters.UpdateEndpoint{Store: s.store, Links: s.links}, req)
+	resp, err := RunGuarded(ctx, characters.UpdateEndpoint{Store: s.store, Links: s.links}, req)
 	switch {
 	case isForbidden(err):
 		return apigen.UpdateCharacter403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
 	case isNotFound(err):
 		return apigen.UpdateCharacter404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	case isConflict(err):
+		return apigen.UpdateCharacter409JSONResponse{ConflictJSONResponse: conflict(err)}, nil
 	case isUnprocessable(err):
 		return apigen.UpdateCharacter422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
 	}
@@ -437,12 +449,14 @@ func (s *Server) UpdateConversation(ctx context.Context, req apigen.UpdateConver
 	if req.Body == nil {
 		return apigen.UpdateConversation400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
 	}
-	resp, err := Run(ctx, conversations.UpdateEndpoint{Store: s.store, Links: s.links}, req)
+	resp, err := RunGuarded(ctx, conversations.UpdateEndpoint{Store: s.store, Links: s.links}, req)
 	switch {
 	case isForbidden(err):
 		return apigen.UpdateConversation403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
 	case isNotFound(err):
 		return apigen.UpdateConversation404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	case isConflict(err):
+		return apigen.UpdateConversation409JSONResponse{ConflictJSONResponse: conflict(err)}, nil
 	case isUnprocessable(err):
 		return apigen.UpdateConversation422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
 	}
@@ -480,12 +494,14 @@ func (s *Server) UpdateNode(ctx context.Context, req apigen.UpdateNodeRequestObj
 	if req.Body == nil {
 		return apigen.UpdateNode400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
 	}
-	resp, err := Run(ctx, conversations.UpdateNodeEndpoint{Store: s.store, Links: s.links}, req)
+	resp, err := RunGuarded(ctx, conversations.UpdateNodeEndpoint{Store: s.store, Links: s.links}, req)
 	switch {
 	case isForbidden(err):
 		return apigen.UpdateNode403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
 	case isNotFound(err):
 		return apigen.UpdateNode404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	case isConflict(err):
+		return apigen.UpdateNode409JSONResponse{ConflictJSONResponse: conflict(err)}, nil
 	case isUnprocessable(err):
 		return apigen.UpdateNode422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
 	}
@@ -531,12 +547,14 @@ func (s *Server) UpdateChoice(ctx context.Context, req apigen.UpdateChoiceReques
 	if req.Body == nil {
 		return apigen.UpdateChoice400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
 	}
-	resp, err := Run(ctx, conversations.UpdateChoiceEndpoint{Store: s.store}, req)
+	resp, err := RunGuarded(ctx, conversations.UpdateChoiceEndpoint{Store: s.store}, req)
 	switch {
 	case isForbidden(err):
 		return apigen.UpdateChoice403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
 	case isNotFound(err):
 		return apigen.UpdateChoice404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	case isConflict(err):
+		return apigen.UpdateChoice409JSONResponse{ConflictJSONResponse: conflict(err)}, nil
 	case isUnprocessable(err):
 		return apigen.UpdateChoice422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
 	}
@@ -586,12 +604,14 @@ func (s *Server) UpdateFlag(ctx context.Context, req apigen.UpdateFlagRequestObj
 	if req.Body == nil {
 		return apigen.UpdateFlag400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
 	}
-	resp, err := Run(ctx, world.UpdateFlagEndpoint{Store: s.store, Links: s.links}, req)
+	resp, err := RunGuarded(ctx, world.UpdateFlagEndpoint{Store: s.store, Links: s.links}, req)
 	switch {
 	case isForbidden(err):
 		return apigen.UpdateFlag403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
 	case isNotFound(err):
 		return apigen.UpdateFlag404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	case isConflict(err):
+		return apigen.UpdateFlag409JSONResponse{ConflictJSONResponse: conflict(err)}, nil
 	case isUnprocessable(err):
 		return apigen.UpdateFlag422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
 	}
@@ -637,12 +657,14 @@ func (s *Server) UpdateSkill(ctx context.Context, req apigen.UpdateSkillRequestO
 	if req.Body == nil {
 		return apigen.UpdateSkill400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
 	}
-	resp, err := Run(ctx, world.UpdateSkillEndpoint{Store: s.store, Links: s.links}, req)
+	resp, err := RunGuarded(ctx, world.UpdateSkillEndpoint{Store: s.store, Links: s.links}, req)
 	switch {
 	case isForbidden(err):
 		return apigen.UpdateSkill403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
 	case isNotFound(err):
 		return apigen.UpdateSkill404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	case isConflict(err):
+		return apigen.UpdateSkill409JSONResponse{ConflictJSONResponse: conflict(err)}, nil
 	case isUnprocessable(err):
 		return apigen.UpdateSkill422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
 	}
@@ -696,12 +718,14 @@ func (s *Server) UpdateQuest(ctx context.Context, req apigen.UpdateQuestRequestO
 	if req.Body == nil {
 		return apigen.UpdateQuest400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
 	}
-	resp, err := Run(ctx, world.UpdateQuestEndpoint{Store: s.store, Links: s.links}, req)
+	resp, err := RunGuarded(ctx, world.UpdateQuestEndpoint{Store: s.store, Links: s.links}, req)
 	switch {
 	case isForbidden(err):
 		return apigen.UpdateQuest403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
 	case isNotFound(err):
 		return apigen.UpdateQuest404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	case isConflict(err):
+		return apigen.UpdateQuest409JSONResponse{ConflictJSONResponse: conflict(err)}, nil
 	case isUnprocessable(err):
 		return apigen.UpdateQuest422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
 	}
@@ -739,12 +763,14 @@ func (s *Server) UpdateQuestStage(ctx context.Context, req apigen.UpdateQuestSta
 	if req.Body == nil {
 		return apigen.UpdateQuestStage400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
 	}
-	resp, err := Run(ctx, world.UpdateStageEndpoint{Store: s.store, Links: s.links}, req)
+	resp, err := RunGuarded(ctx, world.UpdateStageEndpoint{Store: s.store, Links: s.links}, req)
 	switch {
 	case isForbidden(err):
 		return apigen.UpdateQuestStage403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
 	case isNotFound(err):
 		return apigen.UpdateQuestStage404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	case isConflict(err):
+		return apigen.UpdateQuestStage409JSONResponse{ConflictJSONResponse: conflict(err)}, nil
 	case isUnprocessable(err):
 		return apigen.UpdateQuestStage422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
 	}
@@ -803,12 +829,14 @@ func (s *Server) UpdateNote(ctx context.Context, req apigen.UpdateNoteRequestObj
 	if req.Body == nil {
 		return apigen.UpdateNote400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
 	}
-	resp, err := Run(ctx, notes.UpdateEndpoint{Store: s.store, Links: s.links}, req)
+	resp, err := RunGuarded(ctx, notes.UpdateEndpoint{Store: s.store, Links: s.links}, req)
 	switch {
 	case isForbidden(err):
 		return apigen.UpdateNote403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
 	case isNotFound(err):
 		return apigen.UpdateNote404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	case isConflict(err):
+		return apigen.UpdateNote409JSONResponse{ConflictJSONResponse: conflict(err)}, nil
 	case isUnprocessable(err):
 		return apigen.UpdateNote422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
 	}

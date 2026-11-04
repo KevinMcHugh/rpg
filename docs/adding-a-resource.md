@@ -62,7 +62,7 @@ Add paths and schemas to `api/openapi.yaml`, following the characters entries. T
 - Add `security: []` only to make it **public**. Public responses also get `Access-Control-Allow-Origin: *`.
 - Every write needs a **person** unless it says `x-agent-writable: true`. Add that only for feedback-like data an agent should be able to write, never for anything a player sees ([authorship.md](authorship.md)).
 
-For a PATCH body, mark each optional field `x-go-type-skip-optional-pointer: false`, so "not sent" differs from "sent empty".
+For a PATCH body, mark each optional field `x-go-type-skip-optional-pointer: false`, so "not sent" differs from "sent empty". Every PATCH body also requires `updatedAt` (`format: date-time`), every PATCH declares `"409": $ref: "#/components/responses/Conflict"`, and the resource's schema shows `updatedAt` so a client has one to send back; `TestEveryPatchIsGuarded` checks the first two.
 
 Name path parameters so they do not collide with schema names: oapi-codegen generates a Go type for both. Creature Lab's `Form` parameter clashed with its `Form` schema, for example.
 
@@ -84,7 +84,8 @@ Create `internal/server/widgets/widgets.go`, using `characters/characters.go` as
 - `auth.KeyIDPtr(ctx)` for `created_by`;
 - if the resource belongs to a game (most do): a `game_id` column, list and create under `/games/{gameId}` checked with `app.Game`, and `app.SameGame` on anything it connects to;
 - `app.Access(ctx, store, kind, id)` first in every endpoint that takes the resource's id, which keeps it private to its game's members, with a case for the kind in the `GameAccess` query (`db/queries/games.sql`) and its id parameter in `TestEveryOperationIsMembersOnly`;
-- `app.RequireHuman(ctx)` first in every write, and, for a player-facing field, a `*_revision_id` column written through `app.Revise` in the same transaction (`InTx`), plus a check in `internal/content` so the build verifies it.
+- `app.RequireHuman(ctx)` first in every write, and, for a player-facing field, a `*_revision_id` column written through `app.Revise` in the same transaction (`InTx`), plus a check in `internal/content` so the build verifies it;
+- on the update endpoint, a `Guard` method naming the row and the `updatedAt` the caller sent (`app.Guard{Kind: "widget", ID: req.WidgetId, Seen: req.Body.UpdatedAt}`), with the write done in `InTx`, which checks it; and a CTE and arm for the kind in `LockForWrite` (`db/queries/guard.sql`). See "Stale writes" in [architecture.md](architecture.md).
 
 If a view model links to a page, add a method to `app.Links`.
 
@@ -104,7 +105,7 @@ func (s *Server) GetWidget(ctx context.Context, req apigen.GetWidgetRequestObjec
 }
 ```
 
-Check `req.Body == nil` in operations that take a body, and return the 400.
+Check `req.Body == nil` in operations that take a body, and return the 400. A PATCH runs with `RunGuarded` instead of `Run`, and maps `isConflict(err)` to its 409 with `conflict(err)`.
 
 ## 7. MCP tools
 

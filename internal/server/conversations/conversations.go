@@ -56,31 +56,33 @@ type Conversation struct {
 
 // Node is a line of dialogue with the choices it offers.
 type Node struct {
-	ID             string   `json:"id"`
-	ConversationID string   `json:"conversationId"`
-	SpeakerID      string   `json:"speakerId"`
-	SpeakerName    string   `json:"speakerName"`
-	Text           string   `json:"text"`
-	Effects        string   `json:"effects"`
-	Choices        []Choice `json:"choices"`
-	URL            string   `json:"url"`
+	ID             string    `json:"id"`
+	ConversationID string    `json:"conversationId"`
+	SpeakerID      string    `json:"speakerId"`
+	SpeakerName    string    `json:"speakerName"`
+	Text           string    `json:"text"`
+	Effects        string    `json:"effects"`
+	Choices        []Choice  `json:"choices"`
+	UpdatedAt      time.Time `json:"updatedAt"`
+	URL            string    `json:"url"`
 }
 
 // Choice is something the player can say at a node.
 type Choice struct {
-	ID              string `json:"id"`
-	FromNodeID      string `json:"fromNodeId"`
-	ToNodeID        string `json:"toNodeId"`
-	Text            string `json:"text"`
-	SortOrder       int    `json:"sortOrder"`
-	Condition       string `json:"condition"`
-	Effects         string `json:"effects"`
-	CheckSkillID    string `json:"checkSkillId"`
-	CheckSkillName  string `json:"checkSkillName"`
-	CheckDifficulty int    `json:"checkDifficulty"`
-	FailNodeID      string `json:"failNodeId"`
-	CritSuccessID   string `json:"critSuccessNodeId"`
-	CritFailID      string `json:"critFailNodeId"`
+	ID              string    `json:"id"`
+	FromNodeID      string    `json:"fromNodeId"`
+	ToNodeID        string    `json:"toNodeId"`
+	Text            string    `json:"text"`
+	SortOrder       int       `json:"sortOrder"`
+	Condition       string    `json:"condition"`
+	Effects         string    `json:"effects"`
+	CheckSkillID    string    `json:"checkSkillId"`
+	CheckSkillName  string    `json:"checkSkillName"`
+	CheckDifficulty int       `json:"checkDifficulty"`
+	FailNodeID      string    `json:"failNodeId"`
+	CritSuccessID   string    `json:"critSuccessNodeId"`
+	CritFailID      string    `json:"critFailNodeId"`
+	UpdatedAt       time.Time `json:"updatedAt"`
 }
 
 // Graph is a conversation with every node, in the order they were written.
@@ -122,6 +124,7 @@ func choiceView(row dbgen.Choice, w world) Choice {
 		FailNodeID:      deref(row.FailNodeID),
 		CritSuccessID:   deref(row.CritSuccessNodeID),
 		CritFailID:      deref(row.CritFailNodeID),
+		UpdatedAt:       row.UpdatedAt.Time,
 	}
 	if c.CheckSkillID != "" {
 		c.CheckSkillName = w.Skills[c.CheckSkillID]
@@ -188,6 +191,7 @@ func nodeView(m nodeModel, links app.Links) Node {
 		Text:           m.Node.Text,
 		Effects:        app.FormatEffects(m.Node.Effects, m.World.Names),
 		Choices:        choices,
+		UpdatedAt:      m.Node.UpdatedAt.Time,
 		URL:            links.Node(m.Node.ConversationID, m.Node.ID),
 	}
 }
@@ -245,7 +249,7 @@ func toAPIChoice(c Choice) apigen.Choice {
 		Id: c.ID, FromNodeId: c.FromNodeID, ToNodeId: c.ToNodeID, Text: c.Text, SortOrder: c.SortOrder,
 		Condition: c.Condition, Effects: c.Effects,
 		CheckSkillId: c.CheckSkillID, CheckSkillName: c.CheckSkillName, CheckDifficulty: c.CheckDifficulty, FailNodeId: c.FailNodeID,
-		CritSuccessNodeId: c.CritSuccessID, CritFailNodeId: c.CritFailID,
+		CritSuccessNodeId: c.CritSuccessID, CritFailNodeId: c.CritFailID, UpdatedAt: c.UpdatedAt,
 	}
 }
 
@@ -262,6 +266,7 @@ func toAPINode(n Node) apigen.Node {
 		Text:           n.Text,
 		Effects:        n.Effects,
 		Choices:        choices,
+		UpdatedAt:      n.UpdatedAt,
 		Url:            n.URL,
 	}
 }
@@ -567,6 +572,11 @@ func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateConversat
 		return graphModel{}, err
 	}
 	return loadGraph(ctx, e.Store, req.ConversationId)
+}
+
+// Guard refuses a change over someone else's newer one.
+func (UpdateEndpoint) Guard(req apigen.UpdateConversationRequestObject) app.Guard {
+	return app.Guard{Kind: "conversation", ID: req.ConversationId, Seen: req.Body.UpdatedAt}
 }
 
 func (e UpdateEndpoint) Build(m graphModel) Graph { return graphView(m, e.Links) }

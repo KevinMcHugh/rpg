@@ -181,7 +181,7 @@ function FlagRow({ f, notes, reload, focused }: { f: Flag; notes: Note[]; reload
       must(
         await api.PATCH("/flags/{flagId}", {
           params: { path: { flagId: f.id } },
-          body: { key: str(fd, "key"), description: str(fd, "description"), initialValue: num(fd, "initial") },
+          body: { key: str(fd, "key"), description: str(fd, "description"), initialValue: num(fd, "initial"), updatedAt: f.updatedAt },
         }),
       );
       setEditing(false);
@@ -261,7 +261,7 @@ function SkillRow({ s, reload, focused, d20 }: { s: Skill; reload: () => void; f
       must(
         await api.PATCH("/skills/{skillId}", {
           params: { path: { skillId: s.id } },
-          body: { name: str(fd, "name"), key: str(fd, "key"), initialLevel: num(fd, "initial"), ...(d20 ? { ability: str(fd, "ability") } : {}) },
+          body: { name: str(fd, "name"), key: str(fd, "key"), initialLevel: num(fd, "initial"), ...(d20 ? { ability: str(fd, "ability") } : {}), updatedAt: s.updatedAt },
         }),
       );
       setEditing(false);

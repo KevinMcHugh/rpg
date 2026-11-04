@@ -134,6 +134,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/Unprocessable"
     delete:
@@ -342,6 +344,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/Unprocessable"
     delete:
@@ -446,6 +450,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/Unprocessable"
     delete:
@@ -519,6 +525,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/Unprocessable"
     delete:
@@ -612,6 +620,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/Unprocessable"
     delete:
@@ -702,6 +712,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/Unprocessable"
     delete:
@@ -788,6 +800,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/Unprocessable"
     delete:
@@ -888,6 +902,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/Unprocessable"
     delete:
@@ -960,6 +976,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/Unprocessable"
     delete:
@@ -1078,6 +1096,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/Unprocessable"
     delete:
@@ -1231,6 +1251,12 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    Conflict:
+      description: Someone else changed it after the caller loaded it (the updatedAt sent is stale); reload, and make the change again
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     Unprocessable:
       description: The request parsed but a field is out of bounds
       content:
@@ -1297,8 +1323,12 @@ components:
 
     Game:
       type: object
-      required: [id, key, name, ruleset, role, url]
+      required: [id, key, name, ruleset, role, url, updatedAt]
       properties:
+        updatedAt:
+          type: string
+          format: date-time
+          description: When it last changed. Send it back as updatedAt when changing it.
         role:
           $ref: "#/components/schemas/Role"
         id:
@@ -1399,7 +1429,12 @@ components:
     GameUpdate:
       type: object
       description: Fields left out are left alone.
+      required: [updatedAt]
       properties:
+        updatedAt:
+          type: string
+          format: date-time
+          description: The game's updatedAt as the caller last loaded it. If it has changed since, someone else saved in between, and the change is refused with a 409; reload, and make the change again.
         name:
           type: string
           x-go-type-skip-optional-pointer: false
@@ -1468,7 +1503,12 @@ components:
     CharacterUpdate:
       type: object
       description: Fields left out are left alone.
+      required: [updatedAt]
       properties:
+        updatedAt:
+          type: string
+          format: date-time
+          description: The character's updatedAt as the caller last loaded it. If it has changed since, someone else saved in between, and the change is refused with a 409; reload, and make the change again.
         name:
           type: string
           x-go-type-skip-optional-pointer: false
@@ -1561,7 +1601,12 @@ components:
     ConversationUpdate:
       type: object
       description: Fields left out are left alone. An empty startNodeId clears it.
+      required: [updatedAt]
       properties:
+        updatedAt:
+          type: string
+          format: date-time
+          description: The conversation's updatedAt as the caller last loaded it. If it has changed since, someone else saved in between, and the change is refused with a 409; reload, and make the change again.
         title:
           type: string
           x-go-type-skip-optional-pointer: false
@@ -1589,8 +1634,12 @@ components:
 
     Node:
       type: object
-      required: [id, conversationId, speakerId, speakerName, text, effects, choices, url]
+      required: [id, conversationId, speakerId, speakerName, text, effects, choices, url, updatedAt]
       properties:
+        updatedAt:
+          type: string
+          format: date-time
+          description: When it last changed. Send it back as updatedAt when changing it.
         id:
           type: string
         conversationId:
@@ -1629,7 +1678,12 @@ components:
     NodeUpdate:
       type: object
       description: Fields left out are left alone. An empty speakerId makes the line the narrator's.
+      required: [updatedAt]
       properties:
+        updatedAt:
+          type: string
+          format: date-time
+          description: The node's updatedAt as the caller last loaded it. If it has changed since, someone else saved in between, and the change is refused with a 409; reload, and make the change again.
         speakerId:
           type: string
           x-go-type-skip-optional-pointer: false
@@ -1642,8 +1696,12 @@ components:
 
     Choice:
       type: object
-      required: [id, fromNodeId, toNodeId, text, sortOrder, condition, effects, checkSkillId, checkSkillName, checkDifficulty, failNodeId, critSuccessNodeId, critFailNodeId]
+      required: [id, fromNodeId, toNodeId, text, sortOrder, condition, effects, checkSkillId, checkSkillName, checkDifficulty, failNodeId, critSuccessNodeId, critFailNodeId, updatedAt]
       properties:
+        updatedAt:
+          type: string
+          format: date-time
+          description: When it last changed. Send it back as updatedAt when changing it.
         id:
           type: string
         fromNodeId:
@@ -1707,7 +1765,12 @@ components:
     ChoiceUpdate:
       type: object
       description: Fields left out are left alone. An empty toNodeId makes the choice end the conversation.
+      required: [updatedAt]
       properties:
+        updatedAt:
+          type: string
+          format: date-time
+          description: The choice's updatedAt as the caller last loaded it. If it has changed since, someone else saved in between, and the change is refused with a 409; reload, and make the change again.
         text:
           type: string
           x-go-type-skip-optional-pointer: false
@@ -1775,8 +1838,12 @@ components:
 
     Flag:
       type: object
-      required: [id, gameId, key, description, initialValue, url]
+      required: [id, gameId, key, description, initialValue, url, updatedAt]
       properties:
+        updatedAt:
+          type: string
+          format: date-time
+          description: When it last changed. Send it back as updatedAt when changing it.
         id:
           type: string
         gameId:
@@ -1815,7 +1882,12 @@ components:
     FlagUpdate:
       type: object
       description: Fields left out are left alone.
+      required: [updatedAt]
       properties:
+        updatedAt:
+          type: string
+          format: date-time
+          description: The flag's updatedAt as the caller last loaded it. If it has changed since, someone else saved in between, and the change is refused with a 409; reload, and make the change again.
         key:
           type: string
           x-go-type-skip-optional-pointer: false
@@ -1833,8 +1905,12 @@ components:
 
     Skill:
       type: object
-      required: [id, gameId, key, name, initialLevel, ability, url]
+      required: [id, gameId, key, name, initialLevel, ability, url, updatedAt]
       properties:
+        updatedAt:
+          type: string
+          format: date-time
+          description: When it last changed. Send it back as updatedAt when changing it.
         id:
           type: string
         gameId:
@@ -1884,7 +1960,12 @@ components:
     SkillUpdate:
       type: object
       description: Fields left out are left alone.
+      required: [updatedAt]
       properties:
+        updatedAt:
+          type: string
+          format: date-time
+          description: The skill's updatedAt as the caller last loaded it. If it has changed since, someone else saved in between, and the change is refused with a 409; reload, and make the change again.
         name:
           type: string
           x-go-type-skip-optional-pointer: false
@@ -1901,8 +1982,12 @@ components:
 
     Quest:
       type: object
-      required: [id, gameId, key, name, summary, stages, url]
+      required: [id, gameId, key, name, summary, stages, url, updatedAt]
       properties:
+        updatedAt:
+          type: string
+          format: date-time
+          description: When it last changed. Send it back as updatedAt when changing it.
         id:
           type: string
         gameId:
@@ -1924,8 +2009,12 @@ components:
 
     QuestStage:
       type: object
-      required: [id, questId, number, journal, completes]
+      required: [id, questId, number, journal, completes, updatedAt]
       properties:
+        updatedAt:
+          type: string
+          format: date-time
+          description: When it last changed. Send it back as updatedAt when changing it.
         id:
           type: string
         questId:
@@ -1963,7 +2052,12 @@ components:
     QuestUpdate:
       type: object
       description: Fields left out are left alone.
+      required: [updatedAt]
       properties:
+        updatedAt:
+          type: string
+          format: date-time
+          description: The quest's updatedAt as the caller last loaded it. If it has changed since, someone else saved in between, and the change is refused with a 409; reload, and make the change again.
         name:
           type: string
           x-go-type-skip-optional-pointer: false
@@ -1988,7 +2082,12 @@ components:
     QuestStageUpdate:
       type: object
       description: Fields left out are left alone.
+      required: [updatedAt]
       properties:
+        updatedAt:
+          type: string
+          format: date-time
+          description: The stage's updatedAt as the caller last loaded it. If it has changed since, someone else saved in between, and the change is refused with a 409; reload, and make the change again.
         number:
           type: integer
           x-go-type-skip-optional-pointer: false
@@ -2076,8 +2175,12 @@ components:
 
     NoteUpdate:
       type: object
-      required: [status]
+      required: [status, updatedAt]
       properties:
+        updatedAt:
+          type: string
+          format: date-time
+          description: The note's updatedAt as the caller last loaded it. If it has changed since, someone else saved in between, and the change is refused with a 409; reload, and make the change again.
         status:
           $ref: "#/components/schemas/NoteStatus"
 
