@@ -119,6 +119,15 @@ func TestMembersAndInvites(t *testing.T) {
 		t.Fatalf("a redirect to a stranger's node: %d", resp.StatusCode)
 	}
 
+	// Bea's own game may have the same key: a key is a label, the id is
+	// the game.
+	var hers games.Game
+	e.do("POST", "/api/games", bea, map[string]any{"name": "Heist"}, http.StatusCreated, &hers)
+	if hers.Key != g.Key || hers.ID == g.ID {
+		t.Fatalf("two people's games called Heist: %+v %+v", g, hers)
+	}
+	e.do("DELETE", "/api/games/"+hers.ID, bea, nil, http.StatusNoContent, nil)
+
 	// Only the owner, and only a person, makes invites.
 	e.do("POST", "/api/games/"+g.ID+"/invites", e.agent, map[string]any{}, http.StatusForbidden, nil)
 	e.do("POST", "/api/games/"+g.ID+"/invites", e.key, map[string]any{"expiresInHours": 10000}, http.StatusUnprocessableEntity, nil)

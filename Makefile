@@ -49,7 +49,7 @@ agent-key: ## Mint an agent's api key, which may only read and leave notes, for 
 invite: ## Mint a single-use invite for a newcomer (usage: make invite NOTE=ana)
 	go run ./cmd/server invites create --note "$(NOTE)"
 
-bundle: ## Check a game's content and write its bundle to content.json (GAME=key when there is more than one; needs DATABASE_URL)
+bundle: ## Check a game's content and write its bundle to content.json (GAME=key or id when there is more than one; needs DATABASE_URL)
 	go run ./cmd/server build $(if $(GAME),--game "$(GAME)") --out content.json
 
 play: ## Play content.json in the game binary on :8090 (GAME_DATABASE_URL: its own database, migrated like the authoring one)

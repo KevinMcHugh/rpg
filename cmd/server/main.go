@@ -11,12 +11,14 @@
 //	                                  agent key goes to the only user when
 //	                                  there is just one
 //	server users list                 list users, with their sign-ins
-//	server members add --game KEY --user USER [--role writer|owner]
+//	server members add --game GAME --user USER [--role writer|owner]
 //	                                  put someone in a game without an invite
-//	server import --game KEY --file FILE
+//	server import --game GAME --file FILE
 //	                                  import licensed text (an SRD's skills)
 //	                                  into a game; see docs/authorship.md
-//	server build [--game KEY] [--out FILE]
+//	server build [--game GAME] [--out FILE]
+//	                                  (GAME is a game's id, or its key when
+//	                                  no other game shares it)
 //	                                  check a game's content and write the
 //	                                  bundle it runs on (stdout by default);
 //	                                  --game may be left out when there is one
@@ -302,6 +304,32 @@ func mint(ctx context.Context, q *dbgen.Queries, name, kind string, userID *stri
 	return nil
 }
 
+// findGame is the game a command names by id or key. A key is a label
+// that several people's games may share, so an ambiguous one is refused
+// with their ids.
+func findGame(ctx context.Context, q *dbgen.Queries, idOrKey string) (dbgen.Game, error) {
+	found, err := q.FindGames(ctx, idOrKey)
+	if err != nil {
+		return dbgen.Game{}, err
+	}
+	for _, g := range found {
+		if g.ID == idOrKey {
+			return g, nil
+		}
+	}
+	switch len(found) {
+	case 1:
+		return found[0], nil
+	case 0:
+		return dbgen.Game{}, fmt.Errorf("no game %q", idOrKey)
+	}
+	ids := make([]string, len(found))
+	for i, g := range found {
+		ids[i] = g.ID + " (" + g.Name + ")"
+	}
+	return dbgen.Game{}, fmt.Errorf("%d games have the key %q; name one by id: %s", len(found), idOrKey, strings.Join(ids, ", "))
+}
+
 // findUser is a user by id, or else by name, which must be unambiguous.
 func findUser(ctx context.Context, q *dbgen.Queries, idOrName string) (dbgen.User, error) {
 	all, err := q.ListUsers(ctx)
@@ -377,7 +405,7 @@ func users(args []string) error {
 // binary from before there were users has no owner until someone adds one.
 func members(args []string) error {
 	if len(args) == 0 || args[0] != "add" {
-		return errors.New("usage: members add --game KEY --user USER [--role writer|owner]")
+		return errors.New("usage: members add --game GAME --user USER [--role writer|owner]")
 	}
 	fs := flag.NewFlagSet("members add", flag.ExitOnError)
 	gameKey := fs.String("game", "", "the game's key")
@@ -399,9 +427,9 @@ func members(args []string) error {
 	}
 	defer pool.Close()
 	q := dbgen.New(pool)
-	game, err := q.GetGameByKey(ctx, *gameKey)
+	game, err := findGame(ctx, q, *gameKey)
 	if err != nil {
-		return fmt.Errorf("game %q: %w", *gameKey, err)
+		return err
 	}
 	u, err := findUser(ctx, q, *user)
 	if err != nil {
@@ -419,7 +447,7 @@ func members(args []string) error {
 func buildContent(args []string) error {
 	fs := flag.NewFlagSet("build", flag.ExitOnError)
 	out := fs.String("out", "", "file to write the bundle to (default stdout)")
-	gameKey := fs.String("game", "", "the game's key (default: the only game)")
+	gameKey := fs.String("game", "", "the game's id or key (default: the only game)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -434,8 +462,8 @@ func buildContent(args []string) error {
 	q := dbgen.New(pool)
 	var game dbgen.Game
 	if *gameKey != "" {
-		if game, err = q.GetGameByKey(ctx, *gameKey); err != nil {
-			return fmt.Errorf("game %q: %w", *gameKey, err)
+		if game, err = findGame(ctx, q, *gameKey); err != nil {
+			return err
 		}
 	} else {
 		games, err := q.ListGames(ctx)
@@ -531,9 +559,9 @@ func importLicensed(args []string) error {
 	}
 	defer pool.Close()
 	store := app.NewStore(pool)
-	game, err := store.GetGameByKey(ctx, *gameKey)
+	game, err := findGame(ctx, store.Queries, *gameKey)
 	if err != nil {
-		return fmt.Errorf("game %q: %w", *gameKey, err)
+		return err
 	}
 	added, kept, err := store.Import(ctx, game.ID, in)
 	if err != nil {

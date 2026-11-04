@@ -1392,7 +1392,7 @@ components:
           type: string
         key:
           type: string
-          description: Leave out to make one from the name.
+          description: A readable label for the command line; leave out to make one from the name. Not unique (the id is the game's identity).
         ruleset:
           $ref: "#/components/schemas/Ruleset"
 

@@ -4,7 +4,7 @@ The content is more than dialogue. Choices check skills, change approval and mov
 
 ## Games
 
-The tool holds several games. Each has its own characters, conversations, world, notes, build and playtest saves, and keys are unique only within a game, so two games can both have a flag called `met_mayor`. A line cannot be spoken by another game's character, a check cannot use another game's skill, and a note must be about something in its game. `make bundle GAME=key` builds one game.
+The tool holds several games. Each has its own characters, conversations, world, notes, build and playtest saves, and keys are unique only within a game, so two games can both have a flag called `met_mayor`. A line cannot be spoken by another game's character, a check cannot use another game's skill, and a note must be about something in its game. `make bundle GAME=key` builds one game. A game's own key is only a label for commands like that one, and two people's games may share it: a command takes the game's id instead when its key is ambiguous.
 
 Each game also has a ruleset, which decides how its checks resolve: `classic` (2d6 plus the skill, below), `srd52`, `srd35` or `pf2e`. Content from before there were games is the first game, `first`, on `classic`.
 

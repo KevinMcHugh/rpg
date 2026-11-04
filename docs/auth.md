@@ -60,7 +60,7 @@ Every endpoint starts with `app.Access` (or `app.Game`, which calls it): it find
 
 Whoever creates a game owns it. A **game invite** is a single-use link the owner makes on the game's Members page; only a hash of its code is stored, so the link is shown once. Opening it shows the game's name and who sent it. Accepting needs a person signed in: with their key, or with Google, which makes their account if they are new. Redeeming it is one `UPDATE … WHERE used_at IS NULL`, so two people racing one link cannot both join. A link is not a credential: it grants nothing until someone signs in to spend it, and no API or MCP operation redeems one. Request logs show `[invite]` in place of a code.
 
-Server commands (`server build`, `server import`) run as `auth.System`, which reaches every game. `server members add --game KEY --user USER [--role owner]` puts someone in a game directly, which is how to give an owner to a game made by a binary from before there were users.
+Server commands (`server build`, `server import`) run as `auth.System`, which reaches every game. `server members add --game GAME --user USER [--role owner]` puts someone in a game directly, which is how to give an owner to a game made by a binary from before there were users.
 
 ## Public versus private
 

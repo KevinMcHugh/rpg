@@ -61,6 +61,43 @@ func (q *Queries) DeleteGame(ctx context.Context, id string) (int64, error) {
 	return result.RowsAffected(), nil
 }
 
+const findGames = `-- name: FindGames :many
+SELECT id, key, name, ruleset, created_by, created_at, updated_at, deleted_at FROM games
+WHERE (id = $1 OR key = $1) AND deleted_at IS NULL
+ORDER BY created_at, id
+`
+
+// Games a command names, by id or key. A key may name several: keys are
+// labels, not identities.
+func (q *Queries) FindGames(ctx context.Context, id string) ([]Game, error) {
+	rows, err := q.db.Query(ctx, findGames, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Game{}
+	for rows.Next() {
+		var i Game
+		if err := rows.Scan(
+			&i.ID,
+			&i.Key,
+			&i.Name,
+			&i.Ruleset,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const gameAccess = `-- name: GameAccess :one
 WITH target AS (
     SELECT games.id AS game_id FROM games WHERE $2::text = 'game' AND games.id = $3 AND games.deleted_at IS NULL
@@ -123,27 +160,6 @@ WHERE id = $1 AND deleted_at IS NULL
 
 func (q *Queries) GetGame(ctx context.Context, id string) (Game, error) {
 	row := q.db.QueryRow(ctx, getGame, id)
-	var i Game
-	err := row.Scan(
-		&i.ID,
-		&i.Key,
-		&i.Name,
-		&i.Ruleset,
-		&i.CreatedBy,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.DeletedAt,
-	)
-	return i, err
-}
-
-const getGameByKey = `-- name: GetGameByKey :one
-SELECT id, key, name, ruleset, created_by, created_at, updated_at, deleted_at FROM games
-WHERE key = $1 AND deleted_at IS NULL
-`
-
-func (q *Queries) GetGameByKey(ctx context.Context, key string) (Game, error) {
-	row := q.db.QueryRow(ctx, getGameByKey, key)
 	var i Game
 	err := row.Scan(
 		&i.ID,

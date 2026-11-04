@@ -7,9 +7,12 @@ RETURNING *;
 SELECT * FROM games
 WHERE id = $1 AND deleted_at IS NULL;
 
--- name: GetGameByKey :one
+-- Games a command names, by id or key. A key may name several: keys are
+-- labels, not identities.
+-- name: FindGames :many
 SELECT * FROM games
-WHERE key = $1 AND deleted_at IS NULL;
+WHERE (id = $1 OR key = $1) AND deleted_at IS NULL
+ORDER BY created_at, id;
 
 -- name: ListGames :many
 SELECT * FROM games

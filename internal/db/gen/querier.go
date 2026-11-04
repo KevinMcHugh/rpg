@@ -71,6 +71,9 @@ type Querier interface {
 	DeleteQuestStages(ctx context.Context, questID string) error
 	DeleteSave(ctx context.Context, arg DeleteSaveParams) (int64, error)
 	DeleteSkill(ctx context.Context, id string) (int64, error)
+	// Games a command names, by id or key. A key may name several: keys are
+	// labels, not identities.
+	FindGames(ctx context.Context, id string) ([]Game, error)
 	// The game something belongs to, and the user's role in it ('' when they
 	// are not a member). No row when the thing, or its game, does not exist.
 	GameAccess(ctx context.Context, arg GameAccessParams) (GameAccessRow, error)
@@ -81,7 +84,6 @@ type Querier interface {
 	GetConversation(ctx context.Context, id string) (Conversation, error)
 	GetFlag(ctx context.Context, id string) (Flag, error)
 	GetGame(ctx context.Context, id string) (Game, error)
-	GetGameByKey(ctx context.Context, key string) (Game, error)
 	// An invite that can still be redeemed, with its game, for the join page.
 	GetGameInviteByHash(ctx context.Context, codeHash string) (GetGameInviteByHashRow, error)
 	// A user's own human key, which their web sessions act as. Signing in with

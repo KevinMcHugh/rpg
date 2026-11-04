@@ -639,7 +639,7 @@ export interface components {
         };
         GameCreate: {
             name: string;
-            /** @description Leave out to make one from the name. */
+            /** @description A readable label for the command line; leave out to make one from the name. Not unique (the id is the game's identity). */
             key?: string;
             ruleset?: components["schemas"]["Ruleset"];
         };

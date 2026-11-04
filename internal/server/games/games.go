@@ -185,7 +185,7 @@ func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateGameReque
 		}
 		return q.AddGameMember(ctx, dbgen.AddGameMemberParams{GameID: row.ID, UserID: user, Role: app.RoleOwner})
 	})
-	return row, app.KeyTaken(err, "game", key)
+	return row, err
 }
 
 func (e CreateEndpoint) Build(row dbgen.Game) Game { return ToViewModel(row, app.RoleOwner, e.Links) }
@@ -237,9 +237,6 @@ func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateGameReque
 		arg.Ruleset = &ruleset
 	}
 	row, err := e.Store.UpdateGame(ctx, arg)
-	if arg.Key != nil {
-		err = app.KeyTaken(err, "game", *arg.Key)
-	}
 	return row, app.NotFound(err, "game", req.GameId)
 }
 
