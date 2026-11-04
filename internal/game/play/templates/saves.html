@@ -24,5 +24,9 @@
   {{end}}
   </ul>
   {{end}}
+  {{with .Credits}}
+  <h2 style="font-family:Georgia,serif;font-weight:400;margin-top:2rem">Credits</h2>
+  {{range .}}<p class="muted" style="white-space:pre-wrap">{{.Notice}}</p>{{end}}
+  {{end}}
 </section>
 {{end}}

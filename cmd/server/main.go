@@ -5,6 +5,9 @@
 //	server keys create --name NAME [--human]
 //	                                  mint an api key (printed once); only a
 //	                                  --human key may write the game's text
+//	server import --game KEY --file FILE
+//	                                  import licensed text (an SRD's skills)
+//	                                  into a game; see docs/authorship.md
 //	server build [--game KEY] [--out FILE]
 //	                                  check a game's content and write the
 //	                                  bundle it runs on (stdout by default);
@@ -61,8 +64,10 @@ func main() {
 		err = invites(args)
 	case "build":
 		err = buildContent(args)
+	case "import":
+		err = importLicensed(args)
 	default:
-		err = fmt.Errorf("unknown command %q; use serve, keys, invites or build", cmd)
+		err = fmt.Errorf("unknown command %q; use serve, keys, invites, import or build", cmd)
 	}
 	if err != nil {
 		slog.Error("server", "err", err)
@@ -330,4 +335,42 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// importLicensed adds licensed text from a file to a game (app.Import).
+func importLicensed(args []string) error {
+	fs := flag.NewFlagSet("import", flag.ExitOnError)
+	gameKey := fs.String("game", "", "the game's key")
+	file := fs.String("file", "", "the JSON file to import (docs/authorship.md shows its shape)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *gameKey == "" || *file == "" {
+		return errors.New("--game and --file are required")
+	}
+	raw, err := os.ReadFile(*file)
+	if err != nil {
+		return err
+	}
+	var in app.Licensed
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return fmt.Errorf("%s: %w", *file, err)
+	}
+	ctx := context.Background()
+	pool, err := openPool(ctx)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	store := app.NewStore(pool)
+	game, err := store.GetGameByKey(ctx, *gameKey)
+	if err != nil {
+		return fmt.Errorf("game %q: %w", *gameKey, err)
+	}
+	added, kept, err := store.Import(ctx, game.ID, in)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s: imported %d skills from %s; %d were already there\n", game.Key, added, in.Source, kept)
+	return nil
 }

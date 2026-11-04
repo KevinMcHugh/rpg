@@ -27,20 +27,23 @@ type choiceModel struct {
 
 // check is a skill check as a choice stores it.
 type check struct {
-	skill      *string
-	difficulty int32
-	fail       *string
+	skill                 *string
+	difficulty            int32
+	fail, critS, critFail *string
 }
+
+// branches are where a check can go besides the choice's target.
+type branches struct{ fail, critSuccess, critFail string }
 
 // cleanCheck validates a skill check on a choice from node from, in game
 // gameID. No skill is no check; a check needs a difficulty and a skill in
 // the same game, and its failure node (optional: none ends the
 // conversation) must be in the same conversation.
-func cleanCheck(ctx context.Context, q *dbgen.Queries, from dbgen.Node, gameID, skillID string, difficulty int, failID string) (check, error) {
-	skillID, failID = strings.TrimSpace(skillID), strings.TrimSpace(failID)
+func cleanCheck(ctx context.Context, q *dbgen.Queries, from dbgen.Node, gameID, skillID string, difficulty int, to branches) (check, error) {
+	skillID = strings.TrimSpace(skillID)
 	if skillID == "" {
-		if failID != "" {
-			return check{}, fmt.Errorf("%w: a failure node needs a skill check", app.ErrBadInput)
+		if to != (branches{}) {
+			return check{}, fmt.Errorf("%w: a failure or critical node needs a skill check", app.ErrBadInput)
 		}
 		return check{}, nil
 	}
@@ -58,11 +61,16 @@ func cleanCheck(ctx context.Context, q *dbgen.Queries, from dbgen.Node, gameID, 
 		return check{}, fmt.Errorf("%w: a skill check's difficulty is 1 to %d, not %d", app.ErrBadInput, MaxDifficulty, difficulty)
 	}
 	c := check{skill: &skillID, difficulty: int32(difficulty)}
-	if failID != "" {
-		if err := inConversation(ctx, q, failID, from.ConversationID); err != nil {
-			return check{}, err
+	for _, b := range []struct {
+		id   string
+		into **string
+	}{{to.fail, &c.fail}, {to.critSuccess, &c.critS}, {to.critFail, &c.critFail}} {
+		if id := strings.TrimSpace(b.id); id != "" {
+			if err := inConversation(ctx, q, id, from.ConversationID); err != nil {
+				return check{}, err
+			}
+			*b.into = &id
 		}
-		c.fail = &failID
 	}
 	return c, nil
 }
@@ -102,7 +110,7 @@ func (e CreateChoiceEndpoint) Interact(ctx context.Context, req apigen.CreateCho
 		if err != nil {
 			return err
 		}
-		chk, err := cleanCheck(ctx, q, from, game, b.CheckSkillId, b.CheckDifficulty, b.FailNodeId)
+		chk, err := cleanCheck(ctx, q, from, game, b.CheckSkillId, b.CheckDifficulty, branches{b.FailNodeId, b.CritSuccessNodeId, b.CritFailNodeId})
 		if err != nil {
 			return err
 		}
@@ -124,18 +132,20 @@ func (e CreateChoiceEndpoint) Interact(ctx context.Context, req apigen.CreateCho
 			return err
 		}
 		row, err := q.CreateChoice(ctx, dbgen.CreateChoiceParams{
-			ID:              id,
-			FromNodeID:      from.ID,
-			ToNodeID:        to,
-			Text:            text,
-			TextRevisionID:  rev,
-			SortOrder:       int32(b.SortOrder),
-			Condition:       cond,
-			Effects:         effects,
-			CheckSkillID:    chk.skill,
-			CheckDifficulty: chk.difficulty,
-			FailNodeID:      chk.fail,
-			CreatedBy:       auth.KeyIDPtr(ctx),
+			ID:                id,
+			FromNodeID:        from.ID,
+			ToNodeID:          to,
+			Text:              text,
+			TextRevisionID:    rev,
+			SortOrder:         int32(b.SortOrder),
+			Condition:         cond,
+			Effects:           effects,
+			CheckSkillID:      chk.skill,
+			CheckDifficulty:   chk.difficulty,
+			FailNodeID:        chk.fail,
+			CritSuccessNodeID: chk.critS,
+			CritFailNodeID:    chk.critFail,
+			CreatedBy:         auth.KeyIDPtr(ctx),
 		})
 		m = choiceModel{Choice: row, World: w}
 		return err
@@ -214,25 +224,32 @@ func (e UpdateChoiceEndpoint) Interact(ctx context.Context, req apigen.UpdateCho
 		}
 		// Any part of the check sent replaces the check, keeping the parts
 		// not sent.
-		if b.CheckSkillId != nil || b.CheckDifficulty != nil || b.FailNodeId != nil {
-			skill, difficulty, fail := deref(cur.CheckSkillID), int(cur.CheckDifficulty), deref(cur.FailNodeID)
+		if b.CheckSkillId != nil || b.CheckDifficulty != nil || b.FailNodeId != nil || b.CritSuccessNodeId != nil || b.CritFailNodeId != nil {
+			skill, difficulty := deref(cur.CheckSkillID), int(cur.CheckDifficulty)
+			to := branches{deref(cur.FailNodeID), deref(cur.CritSuccessNodeID), deref(cur.CritFailNodeID)}
 			if b.CheckSkillId != nil {
 				skill = *b.CheckSkillId
 			}
 			if b.CheckDifficulty != nil {
 				difficulty = *b.CheckDifficulty
 			}
-			if b.FailNodeId != nil {
-				fail = *b.FailNodeId
+			for _, f := range []struct {
+				sent *string
+				into *string
+			}{{b.FailNodeId, &to.fail}, {b.CritSuccessNodeId, &to.critSuccess}, {b.CritFailNodeId, &to.critFail}} {
+				if f.sent != nil {
+					*f.into = *f.sent
+				}
 			}
 			if strings.TrimSpace(skill) == "" {
-				fail = "" // no check, so nothing to fail to
+				to = branches{} // no check, so nowhere else to go
 			}
-			chk, err := cleanCheck(ctx, q, from, game, skill, difficulty, fail)
+			chk, err := cleanCheck(ctx, q, from, game, skill, difficulty, to)
 			if err != nil {
 				return err
 			}
-			arg.SetCheck, arg.CheckSkillID, arg.CheckDifficulty, arg.FailNodeID = true, chk.skill, chk.difficulty, chk.fail
+			arg.SetCheck, arg.CheckSkillID, arg.CheckDifficulty = true, chk.skill, chk.difficulty
+			arg.FailNodeID, arg.CritSuccessNodeID, arg.CritFailNodeID = chk.fail, chk.critS, chk.critFail
 		}
 		// Unchanged text needs no new revision.
 		if text != "" && text != cur.Text {

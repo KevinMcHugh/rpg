@@ -1,8 +1,9 @@
 -- name: CreateChoice :one
 INSERT INTO choices (
     id, from_node_id, to_node_id, text, text_revision_id, sort_order,
-    condition, effects, check_skill_id, check_difficulty, fail_node_id, created_by
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    condition, effects, check_skill_id, check_difficulty, fail_node_id,
+    crit_success_node_id, crit_fail_node_id, created_by
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 RETURNING *;
 
 -- name: GetChoice :one
@@ -40,6 +41,8 @@ UPDATE choices SET
     check_skill_id = CASE WHEN sqlc.arg(set_check)::bool THEN sqlc.narg(check_skill_id) ELSE check_skill_id END,
     check_difficulty = CASE WHEN sqlc.arg(set_check)::bool THEN sqlc.arg(check_difficulty) ELSE check_difficulty END,
     fail_node_id = CASE WHEN sqlc.arg(set_check)::bool THEN sqlc.narg(fail_node_id) ELSE fail_node_id END,
+    crit_success_node_id = CASE WHEN sqlc.arg(set_check)::bool THEN sqlc.narg(crit_success_node_id) ELSE crit_success_node_id END,
+    crit_fail_node_id = CASE WHEN sqlc.arg(set_check)::bool THEN sqlc.narg(crit_fail_node_id) ELSE crit_fail_node_id END,
     updated_at = NOW()
 WHERE id = $1 AND deleted_at IS NULL
 RETURNING *;

@@ -15,6 +15,8 @@
 //	quest find_brother >= 2        a quest's stage number (0 is not started)
 //	quest find_brother done        a quest reached a stage that completes it
 //	done docks_intro               a conversation was finished at least once
+//	ability str >= 14              an ability (str dex con int wis cha) in a d20 ruleset
+//	level >= 3                     the character's level
 //	a and (b or not c)             combined; and binds tighter than or
 //
 // Effects, separated by ";" or new lines:
@@ -25,6 +27,8 @@
 //	skill persuasion += 1          raise a skill
 //	approval aria -= 5             change a character's approval
 //	quest find_brother = 2         move a quest to a stage
+//	ability str = 16               set or change an ability
+//	level += 1                     set or change the level
 //
 // See docs/mechanics.md.
 package script
@@ -47,8 +51,9 @@ const (
 )
 
 // Cond is a stored condition. Exactly one group of fields is set: All, Any
-// or Not combine others; Flag, Skill, Approval or Quest compare with Op and
-// Value; Quest with Op "done" checks completion; Done names a conversation.
+// or Not combine others; Flag, Skill, Approval, Quest or Ability compare
+// with Op and Value; Quest with Op "done" checks completion; Done names a
+// conversation. Ability is one of the six ability keys, or "level".
 type Cond struct {
 	All      []Cond `json:"all,omitempty"`
 	Any      []Cond `json:"any,omitempty"`
@@ -58,17 +63,19 @@ type Cond struct {
 	Approval string `json:"approval,omitempty"`
 	Quest    string `json:"quest,omitempty"`
 	Done     string `json:"done,omitempty"`
+	Ability  string `json:"ability,omitempty"`
 	Op       string `json:"op,omitempty"`
 	Value    int    `json:"value,omitempty"`
 }
 
-// Effect is one stored effect. Exactly one of Flag, Skill, Approval and
-// Quest is set; Op is "=", "+=" or "-=" (always "=" for a quest).
+// Effect is one stored effect. Exactly one of Flag, Skill, Approval, Quest
+// and Ability is set; Op is "=", "+=" or "-=" (always "=" for a quest).
 type Effect struct {
 	Flag     string `json:"flag,omitempty"`
 	Skill    string `json:"skill,omitempty"`
 	Approval string `json:"approval,omitempty"`
 	Quest    string `json:"quest,omitempty"`
+	Ability  string `json:"ability,omitempty"`
 	Op       string `json:"op"`
 	Value    int    `json:"value"`
 }
@@ -127,9 +134,12 @@ func (c Cond) walk(fn func(Cond)) {
 	}
 }
 
-// Ref is what e changes.
+// Ref is what e changes. An ability or the level is no reference to
+// content: its Kind is "".
 func (e Effect) Ref() Ref {
 	switch {
+	case e.Ability != "":
+		return Ref{"", e.Ability}
 	case e.Flag != "":
 		return Ref{KindFlag, e.Flag}
 	case e.Skill != "":
@@ -149,7 +159,11 @@ type World interface {
 	Quest(id string) int
 	QuestDone(id string) bool
 	Done(conversationID string) bool
+	Ability(key string) int // one of Abilities, or "level"
 }
+
+// Abilities are the ability keys scripts may name, and "level".
+var Abilities = []string{"str", "dex", "con", "int", "wis", "cha", "level"}
 
 // Eval reports whether c holds in w. The zero Cond holds.
 func (c Cond) Eval(w World) bool {
@@ -182,6 +196,8 @@ func (c Cond) Eval(w World) bool {
 		return compare(w.Quest(c.Quest), c.Op, c.Value)
 	case c.Done != "":
 		return w.Done(c.Done)
+	case c.Ability != "":
+		return compare(w.Ability(c.Ability), c.Op, c.Value)
 	}
 	return true
 }
@@ -273,7 +289,7 @@ func (n *Names) id(kind, key string) (string, error) {
 
 var keyPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,59}$`)
 
-var keywords = []string{"and", "or", "not", "skill", "approval", "quest", "done", "true", "false"}
+var keywords = []string{"and", "or", "not", "skill", "approval", "quest", "done", "true", "false", "ability", "level"}
 
 // CheckKey reports whether key can name something in a script: lowercase
 // letters, digits and underscores, starting with a letter, and not a word
@@ -592,6 +608,17 @@ func (p *parser) atom() (Cond, error) {
 			return Cond{}, err
 		}
 		return Cond{Done: id}, nil
+	case "ability", "level":
+		p.next()
+		key, err := p.ability(t.text)
+		if err != nil {
+			return Cond{}, err
+		}
+		op, n, err := p.comparison()
+		if err != nil {
+			return Cond{}, err
+		}
+		return Cond{Ability: key, Op: op, Value: n}, nil
 	}
 	id, err := p.ref(KindFlag)
 	if err != nil {
@@ -605,6 +632,18 @@ func (p *parser) atom() (Cond, error) {
 		return Cond{Flag: id, Op: op, Value: n}, nil
 	}
 	return Cond{Flag: id, Op: "!=", Value: 0}, nil
+}
+
+// ability reads the ability after "ability", or is "level" after "level".
+func (p *parser) ability(word string) (string, error) {
+	if word == "level" {
+		return "level", nil
+	}
+	t := p.next()
+	if t.kind != "word" || !slices.Contains(Abilities[:6], t.text) {
+		return "", p.errorf(t, "expected an ability (%s), found %s", strings.Join(Abilities[:6], " "), describe(t))
+	}
+	return t.text, nil
 }
 
 func (p *parser) comparison() (string, int, error) {
@@ -666,6 +705,10 @@ func (c Cond) format(n *Names, prec int) string {
 		return fmt.Sprintf("quest %s %s %d", n.Key(KindQuest, c.Quest), c.Op, c.Value)
 	case c.Done != "":
 		return "done " + n.Key(KindConversation, c.Done)
+	case c.Ability == "level":
+		return fmt.Sprintf("level %s %d", c.Op, c.Value)
+	case c.Ability != "":
+		return fmt.Sprintf("ability %s %s %d", c.Ability, c.Op, c.Value)
 	}
 	return ""
 }
@@ -723,6 +766,17 @@ func (p *parser) effect() (Effect, error) {
 			return Effect{Skill: id, Op: op, Value: n}, nil
 		}
 		return Effect{Approval: id, Op: op, Value: n}, nil
+	case "ability", "level":
+		p.next()
+		key, err := p.ability(t.text)
+		if err != nil {
+			return Effect{}, err
+		}
+		op, n, err := p.assignment(true)
+		if err != nil {
+			return Effect{}, err
+		}
+		return Effect{Ability: key, Op: op, Value: n}, nil
 	case "quest":
 		p.next()
 		id, err := p.ref(KindQuest)
@@ -782,6 +836,10 @@ func FormatEffects(es []Effect, names *Names) string {
 			lines[i] = fmt.Sprintf("skill %s %s %d", names.Key(KindSkill, e.Skill), e.Op, e.Value)
 		case e.Approval != "":
 			lines[i] = fmt.Sprintf("approval %s %s %d", names.Key(KindCharacter, e.Approval), e.Op, e.Value)
+		case e.Ability == "level":
+			lines[i] = fmt.Sprintf("level %s %d", e.Op, e.Value)
+		case e.Ability != "":
+			lines[i] = fmt.Sprintf("ability %s %s %d", e.Ability, e.Op, e.Value)
 		default:
 			lines[i] = fmt.Sprintf("quest %s = %d", names.Key(KindQuest, e.Quest), e.Value)
 		}

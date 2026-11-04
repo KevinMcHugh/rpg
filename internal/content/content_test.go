@@ -208,6 +208,10 @@ func TestMechanics(t *testing.T) {
 			eff, _ := json.Marshal([]script.Effect{{Quest: "q1", Op: "=", Value: 1}})
 			c.Choices[0].Effects = eff
 		}, nil, []string{"flag_never_set f1"}},
+		"abilities are not content": {func(c *content.Content) {
+			eff, _ := json.Marshal([]script.Effect{{Flag: "f1", Op: "=", Value: 1}, {Quest: "q1", Op: "=", Value: 1}, {Ability: "str", Op: "+=", Value: 1}, {Ability: "level", Op: "=", Value: 2}})
+			c.Choices[0].Effects = eff
+		}, nil, nil},
 		"no opening": {func(c *content.Content) {
 			c.Conversations[0].Opening = false
 		}, []string{"no_opening "}, []string{"orphan v1"}},

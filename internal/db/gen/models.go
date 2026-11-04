@@ -34,21 +34,23 @@ type Character struct {
 }
 
 type Choice struct {
-	ID              string             `json:"id"`
-	FromNodeID      string             `json:"from_node_id"`
-	ToNodeID        *string            `json:"to_node_id"`
-	Text            string             `json:"text"`
-	TextRevisionID  string             `json:"text_revision_id"`
-	SortOrder       int32              `json:"sort_order"`
-	CreatedBy       *string            `json:"created_by"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
-	DeletedAt       pgtype.Timestamptz `json:"deleted_at"`
-	Condition       []byte             `json:"condition"`
-	Effects         []byte             `json:"effects"`
-	CheckSkillID    *string            `json:"check_skill_id"`
-	CheckDifficulty int32              `json:"check_difficulty"`
-	FailNodeID      *string            `json:"fail_node_id"`
+	ID                string             `json:"id"`
+	FromNodeID        string             `json:"from_node_id"`
+	ToNodeID          *string            `json:"to_node_id"`
+	Text              string             `json:"text"`
+	TextRevisionID    string             `json:"text_revision_id"`
+	SortOrder         int32              `json:"sort_order"`
+	CreatedBy         *string            `json:"created_by"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt         pgtype.Timestamptz `json:"deleted_at"`
+	Condition         []byte             `json:"condition"`
+	Effects           []byte             `json:"effects"`
+	CheckSkillID      *string            `json:"check_skill_id"`
+	CheckDifficulty   int32              `json:"check_difficulty"`
+	FailNodeID        *string            `json:"fail_node_id"`
+	CritSuccessNodeID *string            `json:"crit_success_node_id"`
+	CritFailNodeID    *string            `json:"crit_fail_node_id"`
 }
 
 type Conversation struct {
@@ -215,14 +217,17 @@ type Skill struct {
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 	DeletedAt      pgtype.Timestamptz `json:"deleted_at"`
 	GameID         string             `json:"game_id"`
+	Ability        *string            `json:"ability"`
 }
 
 type TextRevision struct {
-	ID         string             `json:"id"`
-	TargetKind string             `json:"target_kind"`
-	TargetID   string             `json:"target_id"`
-	Field      string             `json:"field"`
-	Body       string             `json:"body"`
-	AuthorKey  string             `json:"author_key"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	ID            string             `json:"id"`
+	TargetKind    string             `json:"target_kind"`
+	TargetID      string             `json:"target_id"`
+	Field         string             `json:"field"`
+	Body          string             `json:"body"`
+	AuthorKey     *string            `json:"author_key"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	Source        *string            `json:"source"`
+	LicenseNotice *string            `json:"license_notice"`
 }

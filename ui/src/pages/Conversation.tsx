@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, must, type Character, type Choice, type Graph, type Node, type Note, type Skill } from "../api/client";
-import { useAct, useGameId, useLoad, useMe } from "../hooks";
+import { hasCriticals, useAct, useGame, useGameId, useLoad, useMe } from "../hooks";
 import { Badge, Form, Id, Key, Loading, Notes, Rule, Script, notesFor, num, str } from "../components/ui";
 import GraphView from "../graph/Graph";
 
@@ -376,6 +376,8 @@ function ChoiceRow({ c, ctx, focused }: { c: Choice; ctx: Ctx; focused: boolean 
         )}
       </div>
       {c.checkSkillId && <div className="to">on failure → {to(c.failNodeId)}</div>}
+      {c.critSuccessNodeId && <div className="to">on a critical success → {to(c.critSuccessNodeId)}</div>}
+      {c.critFailNodeId && <div className="to">on a critical failure → {to(c.critFailNodeId)}</div>}
       {c.condition && <Rule word="if">{c.condition}</Rule>}
       {c.effects && <Rule word="then">{c.effects}</Rule>}
       {notesFor(ctx.notes, "choice", c.id).length > 0 && (
@@ -388,6 +390,7 @@ function ChoiceRow({ c, ctx, focused }: { c: Choice; ctx: Ctx; focused: boolean 
 /** ChoiceForm adds a choice to nodeId, or edits choice. */
 function ChoiceForm({ ctx, nodeId, choice, order, onDone }: { ctx: Ctx; nodeId?: string; choice?: Choice; order?: number; onDone: () => void }) {
   const act = useAct();
+  const crits = hasCriticals(useGame()?.ruleset);
   const [check, setCheck] = useState(Boolean(choice?.checkSkillId));
   const submit = (f: FormData) =>
     act(async () => {
@@ -400,6 +403,11 @@ function ChoiceForm({ ctx, nodeId, choice, order, onDone }: { ctx: Ctx; nodeId?:
         checkSkillId: check ? str(f, "skill") : "",
         checkDifficulty: check ? num(f, "difficulty") : 0,
         failNodeId: check ? str(f, "fail") : "",
+        // Under a ruleset with no criticals the fields are not shown, so
+        // keep what is stored; the build warns about it.
+        ...(crits || !check
+          ? { critSuccessNodeId: check ? str(f, "critSuccess") : "", critFailNodeId: check ? str(f, "critFail") : "" }
+          : {}),
       };
       if (choice) must(await api.PATCH("/choices/{choiceId}", { params: { path: { choiceId: choice.id } }, body }));
       else must(await api.POST("/nodes/{nodeId}/choices", { params: { path: { nodeId: nodeId! } }, body }));
@@ -452,6 +460,18 @@ function ChoiceForm({ ctx, nodeId, choice, order, onDone }: { ctx: Ctx; nodeId?:
           <label className="field grow">
             On failure
             <NodeSelect ctx={ctx} name="fail" value={choice?.failNodeId} none="Ends the conversation" />
+          </label>
+        </div>
+      )}
+      {check && crits && (
+        <div className="row">
+          <label className="field grow">
+            On a critical success
+            <NodeSelect ctx={ctx} name="critSuccess" value={choice?.critSuccessNodeId} none="Same as success" />
+          </label>
+          <label className="field grow">
+            On a critical failure
+            <NodeSelect ctx={ctx} name="critFail" value={choice?.critFailNodeId} none="Same as failure" />
           </label>
         </div>
       )}

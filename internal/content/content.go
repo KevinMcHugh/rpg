@@ -12,10 +12,13 @@ package content
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/KevinMcHugh/rpg/internal/app"
 	dbgen "github.com/KevinMcHugh/rpg/internal/db/gen"
+	"github.com/KevinMcHugh/rpg/internal/rules"
 	"github.com/KevinMcHugh/rpg/internal/script"
 )
 
@@ -81,6 +84,9 @@ const (
 	CodeNeverRead      = "flag_never_read" // a flag set that nothing reads
 	CodeNoStages       = "no_stages"       // a quest with no stages
 	CodeOrphan         = "orphan"          // a conversation with no label that does not open the game: nothing starts it
+	CodeRuleset        = "ruleset"         // a game on a ruleset there is no such ruleset
+	CodeCritUnused     = "crit_unused"     // a critical branch under a ruleset with no critical degrees
+	CodeNoAbility      = "no_ability"      // a skill checked under a d20 ruleset that names no ability
 )
 
 // Bundle is what the game runs on: player-facing text and the shape of the
@@ -94,6 +100,7 @@ type Bundle struct {
 	Flags         []Flag         `json:"flags"`
 	Skills        []Skill        `json:"skills"`
 	Quests        []Quest        `json:"quests"`
+	Credits       []Credit       `json:"credits"` // notices for the licensed text it ships
 }
 
 type Character struct {
@@ -128,12 +135,17 @@ type Choice struct {
 	Check     *Check          `json:"check,omitempty"`
 }
 
-// Check is a skill check: 2d6 plus the skill against Difficulty. Success
-// goes to the choice's To, failure to Fail (empty ends the conversation).
+// Check is a skill check, resolved by the game's ruleset (package rules).
+// Success goes to the choice's To and failure to Fail (empty ends the
+// conversation). Under a ruleset with critical degrees (pf2e), a critical
+// success goes to CritSuccess and a critical failure to CritFail, each
+// falling back to the ordinary destination when empty.
 type Check struct {
-	Skill      string `json:"skill"`
-	Difficulty int    `json:"difficulty"`
-	Fail       string `json:"fail,omitempty"`
+	Skill       string `json:"skill"`
+	Difficulty  int    `json:"difficulty"`
+	Fail        string `json:"fail,omitempty"`
+	CritSuccess string `json:"critSuccess,omitempty"`
+	CritFail    string `json:"critFail,omitempty"`
 }
 
 // Flag is a number in the world state; 0 is false.
@@ -146,6 +158,14 @@ type Skill struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
 	Initial int    `json:"initial,omitempty"`
+	Ability string `json:"ability,omitempty"` // the ability a d20 ruleset adds
+}
+
+// Credit is a license notice the game must show, for licensed text it
+// ships.
+type Credit struct {
+	Source string `json:"source"`
+	Notice string `json:"notice"`
 }
 
 type Quest struct {
@@ -172,7 +192,9 @@ func Compile(c Content) (Bundle, Report) {
 	}
 
 	// attest checks one player-facing string against the revision its row
-	// points at.
+	// points at. Text a human key wrote is fine; so is licensed text,
+	// whose notice the bundle then carries.
+	credits := map[string]string{} // source → notice
 	attest := func(kind, id, field, text, revID string) {
 		rev, ok := c.Revisions[revID]
 		switch {
@@ -180,17 +202,30 @@ func Compile(c Content) (Bundle, Report) {
 			errorf(CodeProvenance, kind, id, "%s %s's %s has no text revision, so nothing records who wrote it", kind, id, field)
 		case rev.TargetKind != kind || rev.TargetID != id || rev.Field != field:
 			errorf(CodeProvenance, kind, id, "%s %s points at a revision of %s %s's %s", kind, id, rev.TargetKind, rev.TargetID, rev.Field)
+		case rev.Source != "":
+			if rev.Body != text {
+				errorf(CodeProvenance, kind, id, "%s %s's %s differs from the licensed text it was imported as", kind, id, field)
+			}
+			credits[rev.Source] = rev.LicenseNotice
 		case rev.AuthorKind != "human":
 			errorf(CodeProvenance, kind, id, "%s %s's %s was written by %s, which is not a human key", kind, id, field, rev.AuthorName)
 		case rev.Body != text:
 			errorf(CodeProvenance, kind, id, "%s %s's %s differs from its latest revision: it was changed without one", kind, id, field)
 		}
 	}
-
-	b := Bundle{Ruleset: c.Game.Ruleset, Characters: []Character{}, Conversations: []Conversation{}, Flags: []Flag{}, Skills: []Skill{}, Quests: []Quest{}}
-	if b.Ruleset == "" {
-		b.Ruleset = "classic"
+	ruleset := c.Game.Ruleset
+	if ruleset == "" {
+		ruleset = "classic"
 	}
+	rs, err := rules.For(ruleset)
+	if err != nil {
+		errorf(CodeRuleset, "game", "", "%v", err)
+		rs, _ = rules.For("classic")
+	}
+	crits := len(rs.Degrees()) > 2
+	d20 := rs.ID() != "classic"
+
+	b := Bundle{Ruleset: ruleset, Characters: []Character{}, Conversations: []Conversation{}, Flags: []Flag{}, Skills: []Skill{}, Quests: []Quest{}, Credits: []Credit{}}
 	speakers := map[string]bool{}
 	for _, ch := range c.Characters {
 		attest("character", ch.ID, "name", ch.Name, ch.NameRevisionID)
@@ -209,11 +244,14 @@ func Compile(c Content) (Bundle, Report) {
 		flagInitial[f.ID] = int(f.InitialValue)
 		b.Flags = append(b.Flags, Flag{ID: f.ID, Initial: int(f.InitialValue)})
 	}
+	skillAbility := map[string]string{}
 	for _, sk := range c.Skills {
 		attest("skill", sk.ID, "name", sk.Name, sk.NameRevisionID)
 		live[script.KindSkill][sk.ID] = true
-		b.Skills = append(b.Skills, Skill{ID: sk.ID, Name: sk.Name, Initial: int(sk.InitialLevel)})
+		skillAbility[sk.ID] = deref(sk.Ability)
+		b.Skills = append(b.Skills, Skill{ID: sk.ID, Name: sk.Name, Initial: int(sk.InitialLevel), Ability: deref(sk.Ability)})
 	}
+	noAbility := map[string]bool{} // skills already warned about
 	stagesByQuest := map[string][]dbgen.QuestStage{}
 	for _, st := range c.Stages {
 		stagesByQuest[st.QuestID] = append(stagesByQuest[st.QuestID], st)
@@ -264,6 +302,9 @@ func Compile(c Content) (Bundle, Report) {
 		es := app.DecodeEffects(raw)
 		for _, e := range es {
 			ref := e.Ref()
+			if ref.Kind == "" {
+				continue // an ability or the level: no content to check
+			}
 			if !live[ref.Kind][ref.ID] {
 				errorf(CodeBadReference, kind, id, "%s %s's effects change a %s that was deleted (%s)", kind, id, ref.Kind, ref.ID)
 				continue
@@ -333,11 +374,20 @@ func Compile(c Content) (Bundle, Report) {
 					if !live[script.KindSkill][skill] {
 						errorf(CodeBadCheck, "choice", ch.ID, "choice %q checks a skill that was deleted (%s)", ch.Text, skill)
 					}
-					fail := deref(ch.FailNodeID)
-					if fail != "" && nodeConv[fail] != conv.ID {
-						errorf(CodeBadCheck, "choice", ch.ID, "choice %q fails to node %s, which was deleted or is in another conversation", ch.Text, fail)
+					fail, critS, critF := deref(ch.FailNodeID), deref(ch.CritSuccessNodeID), deref(ch.CritFailNodeID)
+					for _, branch := range []struct{ what, node string }{{"fails", fail}, {"critically succeeds", critS}, {"critically fails", critF}} {
+						if branch.node != "" && nodeConv[branch.node] != conv.ID {
+							errorf(CodeBadCheck, "choice", ch.ID, "choice %q %s to node %s, which was deleted or is in another conversation", ch.Text, branch.what, branch.node)
+						}
 					}
-					choice.Check = &Check{Skill: skill, Difficulty: int(ch.CheckDifficulty), Fail: fail}
+					if !crits && (critS != "" || critF != "") {
+						warnf(CodeCritUnused, "choice", ch.ID, "choice %q has a critical branch, but the %s ruleset has no critical successes or failures", ch.Text, rs.ID())
+					}
+					if d20 && live[script.KindSkill][skill] && skillAbility[skill] == "" && !noAbility[skill] {
+						noAbility[skill] = true
+						warnf(CodeNoAbility, "skill", skill, "skill %s is checked, but names no ability for the %s ruleset to add", skill, rs.ID())
+					}
+					choice.Check = &Check{Skill: skill, Difficulty: int(ch.CheckDifficulty), Fail: fail, CritSuccess: critS, CritFail: critF}
 				}
 				r.Stats.Words += len(strings.Fields(ch.Text))
 				r.Stats.Choices++
@@ -370,6 +420,10 @@ func Compile(c Content) (Bundle, Report) {
 		}
 	}
 
+	for _, src := range slices.Sorted(maps.Keys(credits)) {
+		b.Credits = append(b.Credits, Credit{Source: src, Notice: credits[src]})
+	}
+
 	r.Stats.Characters = len(b.Characters)
 	r.Stats.Conversations = len(b.Conversations)
 	r.Stats.Flags = len(b.Flags)
@@ -393,7 +447,7 @@ func reachable(conv Conversation) map[string]bool {
 		for _, ch := range byID[id].Choices {
 			next := []string{ch.To}
 			if ch.Check != nil {
-				next = append(next, ch.Check.Fail)
+				next = append(next, ch.Check.Fail, ch.Check.CritSuccess, ch.Check.CritFail)
 			}
 			for _, to := range next {
 				if _, ok := byID[to]; ok && !seen[to] {

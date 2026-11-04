@@ -644,11 +644,15 @@ export interface components {
             condition: string;
             /** @description What taking the choice changes, in the script language. */
             effects: string;
-            /** @description When set, the choice is a skill check: 2d6 plus the player's skill against checkDifficulty. Success goes to toNodeId, failure to failNodeId. */
+            /** @description When set, the choice is a skill check, rolled by the game's ruleset against checkDifficulty. Success goes to toNodeId, failure to failNodeId. */
             checkSkillId: string;
             checkSkillName: string;
             checkDifficulty: number;
             failNodeId: string;
+            /** @description Where a critical success goes, under a ruleset that has them (pf2e); empty is the ordinary success. */
+            critSuccessNodeId: string;
+            /** @description Where a critical failure goes; empty is the ordinary failure. */
+            critFailNodeId: string;
         };
         ChoiceCreate: {
             text: string;
@@ -660,6 +664,8 @@ export interface components {
             checkSkillId?: string;
             checkDifficulty?: number;
             failNodeId?: string;
+            critSuccessNodeId?: string;
+            critFailNodeId?: string;
         };
         /** @description Fields left out are left alone. An empty toNodeId makes the choice end the conversation. */
         ChoiceUpdate: {
@@ -672,6 +678,8 @@ export interface components {
             checkSkillId?: string;
             checkDifficulty?: number;
             failNodeId?: string;
+            critSuccessNodeId?: string;
+            critFailNodeId?: string;
         };
         NodePath: {
             nodeId: string;
@@ -711,14 +719,27 @@ export interface components {
             description?: string;
             initialValue?: number;
         };
+        /**
+         * @description One of the six abilities a d20 ruleset adds to a skill check.
+         * @enum {string}
+         */
+        Ability: "str" | "dex" | "con" | "int" | "wis" | "cha";
         Skill: {
             id: string;
             gameId: string;
             key: string;
             /** @description Player-facing; shown on skill checks. */
             name: string;
-            /** @description The player's level at the start of the game. */
+            /**
+             * @description The player's value in the skill at the start of the game. What it
+             *     means depends on the game's ruleset: classic, a level added to
+             *     2d6; srd52, a proficiency tier (0 none, 1 proficient, 2
+             *     expertise); srd35, ranks; pf2e, a proficiency rank (0 untrained
+             *     to 4 legendary).
+             */
             initialLevel: number;
+            /** @description The ability a d20 ruleset adds (str, dex, con, int, wis or cha); empty for none, as in classic. */
+            ability: string;
             url: string;
         };
         SkillList: {
@@ -729,12 +750,15 @@ export interface components {
             /** @description Leave out to make one from the name. */
             key?: string;
             initialLevel?: number;
+            ability?: components["schemas"]["Ability"];
         };
         /** @description Fields left out are left alone. */
         SkillUpdate: {
             name?: string;
             key?: string;
             initialLevel?: number;
+            /** @description An empty ability clears it. */
+            ability?: string;
         };
         Quest: {
             id: string;

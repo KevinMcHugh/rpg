@@ -28,6 +28,7 @@ import (
 	"github.com/KevinMcHugh/rpg/internal/app"
 	"github.com/KevinMcHugh/rpg/internal/appmcp"
 	"github.com/KevinMcHugh/rpg/internal/auth"
+	"github.com/KevinMcHugh/rpg/internal/content"
 	dbgen "github.com/KevinMcHugh/rpg/internal/db/gen"
 	"github.com/KevinMcHugh/rpg/internal/server/build"
 	"github.com/KevinMcHugh/rpg/internal/server/characters"
@@ -282,7 +283,7 @@ func TestProvenanceBackstops(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
 	_, err := e.q.CreateTextRevision(ctx, dbgen.CreateTextRevisionParams{
-		ID: xid.New().String(), TargetKind: "node", TargetID: xid.New().String(), Field: "text", Body: "A line Claude wrote.", AuthorKey: e.agentID,
+		ID: xid.New().String(), TargetKind: "node", TargetID: xid.New().String(), Field: "text", Body: "A line Claude wrote.", AuthorKey: &e.agentID,
 	})
 	if err == nil || !strings.Contains(err.Error(), "only a human key") {
 		t.Fatalf("an agent's revision was stored: %v", err)
@@ -679,7 +680,7 @@ func TestMechanics(t *testing.T) {
 	}
 	savePath, _, _ := strings.Cut(post("/play/new", url.Values{"game": {first}, "name": {"first run"}}), "?")
 	page := get(savePath)
-	for _, want := range []string{"ARIA VENN", "You came back.", "Tell me about your brother.", "[Persuasion 2 · 2 · 100%]", "I'm new here."} {
+	for _, want := range []string{"ARIA VENN", "You came back.", "Tell me about your brother.", "[Persuasion +2 · 2 · 100%]", "I'm new here."} {
 		if !strings.Contains(page, want) {
 			t.Errorf("play page lacks %q", want)
 		}
@@ -791,6 +792,84 @@ func TestGames(t *testing.T) {
 	e.do("DELETE", "/api/games/"+g2.ID, e.agent, nil, http.StatusForbidden, nil)
 	e.do("DELETE", "/api/games/"+g2.ID, e.key, nil, http.StatusNoContent, nil)
 	e.do("GET", "/api/games/"+g2.ID+"/characters", e.key, nil, http.StatusNotFound, nil)
+}
+
+// TestRulesetsAndLicensedText makes a pf2e game, imports a skill as
+// licensed text (placeholder text: the test makes up its own source), and
+// checks a choice with critical branches through the API and the build.
+func TestRulesetsAndLicensedText(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	var g games.Game
+	e.do("POST", "/api/games", e.key, map[string]any{"name": "Pathfinder Test", "ruleset": "pf2e"}, http.StatusCreated, &g)
+
+	store := app.NewStore(e.pool)
+	var in app.Licensed
+	if err := json.Unmarshal([]byte(`{"source": "Test SRD", "notice": "Test notice: placeholder attribution.",
+		"skills": [{"key": "test_skill", "name": "Test Skill", "ability": "cha"}]}`), &in); err != nil {
+		t.Fatal(err)
+	}
+	if added, kept, err := store.Import(ctx, g.ID, in); err != nil || added != 1 || kept != 0 {
+		t.Fatalf("import: %d %d %v", added, kept, err)
+	}
+	if added, kept, err := store.Import(ctx, g.ID, in); err != nil || added != 0 || kept != 1 {
+		t.Fatalf("second import: %d %d %v", added, kept, err)
+	}
+	in.Notice = ""
+	if _, _, err := store.Import(ctx, g.ID, in); err == nil {
+		t.Fatal("licensed text with no notice was imported")
+	}
+	var skills struct{ Skills []world.Skill }
+	e.do("GET", "/api/games/"+g.ID+"/skills", e.agent, nil, http.StatusOK, &skills)
+	if len(skills.Skills) != 1 || skills.Skills[0].Ability != "cha" {
+		t.Fatalf("skills %+v", skills.Skills)
+	}
+	sk := skills.Skills[0]
+	e.do("PATCH", "/api/skills/"+sk.ID, e.key, map[string]any{"ability": "luck"}, http.StatusUnprocessableEntity, nil)
+
+	var conv conversations.Graph
+	e.do("POST", "/api/games/"+g.ID+"/conversations", e.key, map[string]any{"title": "Gate"}, http.StatusCreated, &conv)
+	var n1, ok, no, great, awful conversations.Node
+	for _, n := range []*conversations.Node{&n1, &ok, &no, &great, &awful} {
+		e.do("POST", "/api/conversations/"+conv.Conversation.ID+"/nodes", e.key, map[string]any{"text": "A line."}, http.StatusCreated, n)
+	}
+	var ch conversations.Choice
+	e.do("POST", "/api/nodes/"+n1.ID+"/choices", e.key, map[string]any{
+		"text": "Try.", "toNodeId": ok.ID, "checkSkillId": sk.ID, "checkDifficulty": 15,
+		"failNodeId": no.ID, "critSuccessNodeId": great.ID, "critFailNodeId": awful.ID,
+		"effects": "ability cha = 2; level = 3",
+	}, http.StatusCreated, &ch)
+	if ch.CritSuccessID != great.ID || ch.CritFailID != awful.ID || ch.Effects != "ability cha = 2\nlevel = 3" {
+		t.Fatalf("choice %+v", ch)
+	}
+	// Dropping one branch keeps the others.
+	e.do("PATCH", "/api/choices/"+ch.ID, e.key, map[string]any{"critFailNodeId": ""}, http.StatusOK, &ch)
+	if ch.CritSuccessID != great.ID || ch.CritFailID != "" || ch.FailNodeID != no.ID {
+		t.Fatalf("choice after dropping a branch %+v", ch)
+	}
+
+	// The build accepts the licensed name and credits its source.
+	c, err := content.Load(ctx, store, g.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle, report := content.Compile(c)
+	if !report.OK() || bundle.Ruleset != "pf2e" || len(bundle.Credits) != 1 || bundle.Credits[0].Source != "Test SRD" || bundle.Skills[0].Ability != "cha" {
+		t.Fatalf("errors %+v, bundle ruleset %q credits %+v skills %+v", report.Errors, bundle.Ruleset, bundle.Credits, bundle.Skills)
+	}
+	// Renaming the skill makes the name a person's, and the credit goes.
+	e.do("PATCH", "/api/skills/"+sk.ID, e.key, map[string]any{"name": "Our Own Name"}, http.StatusOK, nil)
+	c, _ = content.Load(ctx, store, g.ID)
+	if bundle, report = content.Compile(c); !report.OK() || len(bundle.Credits) != 0 {
+		t.Fatalf("after renaming: errors %+v credits %+v", report.Errors, bundle.Credits)
+	}
+	// Under a ruleset with no critical degrees, the critical branch warns.
+	e.do("PATCH", "/api/games/"+g.ID, e.key, map[string]any{"ruleset": "srd52"}, http.StatusOK, nil)
+	var r build.Report
+	e.do("GET", "/api/games/"+g.ID+"/build", e.key, nil, http.StatusOK, &r)
+	if !r.OK || len(r.Warnings) == 0 || r.Warnings[0].Code != "crit_unused" {
+		t.Fatalf("report under srd52 %+v", r)
+	}
 }
 
 func mustURL(s string) *url.URL {

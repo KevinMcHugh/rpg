@@ -76,7 +76,7 @@ func TestOpeningAndOptions(t *testing.T) {
 		t.Fatalf("options %s", ids(opts))
 	}
 	// Persuasion 2 against 8 needs 6 or more on 2d6: 26 of 36.
-	if c := opts[0].Check; c == nil || c.Skill != "Persuasion" || c.Level != 2 || c.Chance != 72 {
+	if c := opts[0].Check; c == nil || c.Skill != "Persuasion" || c.Level != 2 || c.Bonus != 2 || c.Chance != 72 {
 		t.Fatalf("check %+v", c)
 	}
 	if g.Available(s) != nil {
@@ -176,6 +176,27 @@ func TestAFullGame(t *testing.T) {
 	}
 }
 
+// A choice that raises the skill it checks rolls with the value the
+// player was shown, and raises it afterwards.
+func TestChecksRollBeforeEffects(t *testing.T) {
+	b := bundle()
+	b.Conversations[0].Nodes[0].Choices[0].Effects = []script.Effect{{Skill: "persuasion", Op: "+=", Value: 10}}
+	g := game.New(b)
+	s := g.NewState(7)
+	shown := g.Options(s)[0].Check.Bonus
+	if err := g.Choose(s, "ask"); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range s.Log {
+		if e.Kind == "check" && e.Bonus != shown {
+			t.Fatalf("rolled with +%d, shown +%d", e.Bonus, shown)
+		}
+	}
+	if s.Skills["persuasion"] != 12 {
+		t.Fatalf("persuasion %d after the choice", s.Skills["persuasion"])
+	}
+}
+
 func TestConditionsHideChoices(t *testing.T) {
 	g := game.New(bundle())
 	s := g.NewState(1)
@@ -204,10 +225,45 @@ func TestStaleSaves(t *testing.T) {
 	}
 }
 
-func TestChance(t *testing.T) {
-	for _, tc := range []struct{ level, diff, want int }{{0, 2, 100}, {0, 12, 2}, {0, 13, 0}, {0, 7, 58}, {5, 7, 100}} {
-		if got := game.Chance(tc.level, tc.diff); got != tc.want {
-			t.Errorf("Chance(%d, %d) = %d, want %d", tc.level, tc.diff, got, tc.want)
+// A pf2e game: an easy Diplomacy check, with all four branches.
+func TestCriticalBranches(t *testing.T) {
+	b := content.Bundle{
+		Ruleset: "pf2e", Opening: "v", Characters: []content.Character{{ID: "aria", Name: "Aria"}},
+		Skills: []content.Skill{{ID: "dip", Name: "Diplomacy", Initial: 2, Ability: "cha"}},
+		Conversations: []content.Conversation{{ID: "v", Start: "n", Nodes: []content.Node{
+			{ID: "n", Text: "Well?", Choices: []content.Choice{{ID: "ask", Text: "Please.", To: "ok",
+				Check: &content.Check{Skill: "dip", Difficulty: 15, Fail: "no", CritSuccess: "great", CritFail: "awful"}}}},
+			{ID: "ok", Text: "ok"}, {ID: "no", Text: "no"}, {ID: "great", Text: "great"}, {ID: "awful", Text: "awful"},
+		}}},
+	}
+	g := game.New(b)
+	reached := map[string]bool{}
+	for seed := uint64(0); seed < 200; seed++ {
+		s := g.NewState(seed)
+		// Charisma +2, level 3, expert (rank 2): 2 + 3 + 4 = +9.
+		g.Apply(s, []script.Effect{{Ability: "cha", Op: "=", Value: 2}, {Ability: "level", Op: "=", Value: 3}})
+		if o := g.Options(s); seed == 0 && (o[0].Check.Bonus != 9 || o[0].Check.Chance != 75) {
+			t.Fatalf("check option %+v", o[0].Check)
 		}
+		if err := g.Choose(s, "ask"); err != nil {
+			t.Fatal(err)
+		}
+		var check game.Entry
+		for _, e := range s.Log {
+			if e.Kind == "check" {
+				check = e
+			}
+		}
+		line := lastLine(s).Text
+		want := map[string]string{"critical_success": "great", "success": "ok", "failure": "no", "critical_failure": "awful"}[check.Degree]
+		if line != want || len(check.Dice) != 1 {
+			t.Fatalf("seed %d: %s rolled %v, then %q", seed, check.Degree, check.Dice, line)
+		}
+		reached[line] = true
+	}
+	// A d20 +9 against 15 can land in all four: 1 is a critical failure
+	// (10, stepped down), 2-5 fail, 6-15 succeed, 16-20 succeed critically.
+	if len(reached) != 4 {
+		t.Fatalf("200 seeds reached only %v", reached)
 	}
 }

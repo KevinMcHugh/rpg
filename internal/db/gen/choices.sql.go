@@ -12,24 +12,27 @@ import (
 const createChoice = `-- name: CreateChoice :one
 INSERT INTO choices (
     id, from_node_id, to_node_id, text, text_revision_id, sort_order,
-    condition, effects, check_skill_id, check_difficulty, fail_node_id, created_by
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-RETURNING id, from_node_id, to_node_id, text, text_revision_id, sort_order, created_by, created_at, updated_at, deleted_at, condition, effects, check_skill_id, check_difficulty, fail_node_id
+    condition, effects, check_skill_id, check_difficulty, fail_node_id,
+    crit_success_node_id, crit_fail_node_id, created_by
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+RETURNING id, from_node_id, to_node_id, text, text_revision_id, sort_order, created_by, created_at, updated_at, deleted_at, condition, effects, check_skill_id, check_difficulty, fail_node_id, crit_success_node_id, crit_fail_node_id
 `
 
 type CreateChoiceParams struct {
-	ID              string  `json:"id"`
-	FromNodeID      string  `json:"from_node_id"`
-	ToNodeID        *string `json:"to_node_id"`
-	Text            string  `json:"text"`
-	TextRevisionID  string  `json:"text_revision_id"`
-	SortOrder       int32   `json:"sort_order"`
-	Condition       []byte  `json:"condition"`
-	Effects         []byte  `json:"effects"`
-	CheckSkillID    *string `json:"check_skill_id"`
-	CheckDifficulty int32   `json:"check_difficulty"`
-	FailNodeID      *string `json:"fail_node_id"`
-	CreatedBy       *string `json:"created_by"`
+	ID                string  `json:"id"`
+	FromNodeID        string  `json:"from_node_id"`
+	ToNodeID          *string `json:"to_node_id"`
+	Text              string  `json:"text"`
+	TextRevisionID    string  `json:"text_revision_id"`
+	SortOrder         int32   `json:"sort_order"`
+	Condition         []byte  `json:"condition"`
+	Effects           []byte  `json:"effects"`
+	CheckSkillID      *string `json:"check_skill_id"`
+	CheckDifficulty   int32   `json:"check_difficulty"`
+	FailNodeID        *string `json:"fail_node_id"`
+	CritSuccessNodeID *string `json:"crit_success_node_id"`
+	CritFailNodeID    *string `json:"crit_fail_node_id"`
+	CreatedBy         *string `json:"created_by"`
 }
 
 func (q *Queries) CreateChoice(ctx context.Context, arg CreateChoiceParams) (Choice, error) {
@@ -45,6 +48,8 @@ func (q *Queries) CreateChoice(ctx context.Context, arg CreateChoiceParams) (Cho
 		arg.CheckSkillID,
 		arg.CheckDifficulty,
 		arg.FailNodeID,
+		arg.CritSuccessNodeID,
+		arg.CritFailNodeID,
 		arg.CreatedBy,
 	)
 	var i Choice
@@ -64,6 +69,8 @@ func (q *Queries) CreateChoice(ctx context.Context, arg CreateChoiceParams) (Cho
 		&i.CheckSkillID,
 		&i.CheckDifficulty,
 		&i.FailNodeID,
+		&i.CritSuccessNodeID,
+		&i.CritFailNodeID,
 	)
 	return i, err
 }
@@ -93,7 +100,7 @@ func (q *Queries) DeleteChoicesFromNode(ctx context.Context, fromNodeID string) 
 }
 
 const getChoice = `-- name: GetChoice :one
-SELECT id, from_node_id, to_node_id, text, text_revision_id, sort_order, created_by, created_at, updated_at, deleted_at, condition, effects, check_skill_id, check_difficulty, fail_node_id FROM choices
+SELECT id, from_node_id, to_node_id, text, text_revision_id, sort_order, created_by, created_at, updated_at, deleted_at, condition, effects, check_skill_id, check_difficulty, fail_node_id, crit_success_node_id, crit_fail_node_id FROM choices
 WHERE id = $1 AND deleted_at IS NULL
 `
 
@@ -116,12 +123,14 @@ func (q *Queries) GetChoice(ctx context.Context, id string) (Choice, error) {
 		&i.CheckSkillID,
 		&i.CheckDifficulty,
 		&i.FailNodeID,
+		&i.CritSuccessNodeID,
+		&i.CritFailNodeID,
 	)
 	return i, err
 }
 
 const listAllChoices = `-- name: ListAllChoices :many
-SELECT choices.id, choices.from_node_id, choices.to_node_id, choices.text, choices.text_revision_id, choices.sort_order, choices.created_by, choices.created_at, choices.updated_at, choices.deleted_at, choices.condition, choices.effects, choices.check_skill_id, choices.check_difficulty, choices.fail_node_id FROM choices
+SELECT choices.id, choices.from_node_id, choices.to_node_id, choices.text, choices.text_revision_id, choices.sort_order, choices.created_by, choices.created_at, choices.updated_at, choices.deleted_at, choices.condition, choices.effects, choices.check_skill_id, choices.check_difficulty, choices.fail_node_id, choices.crit_success_node_id, choices.crit_fail_node_id FROM choices
 JOIN nodes ON nodes.id = choices.from_node_id AND nodes.deleted_at IS NULL
 JOIN conversations ON conversations.id = nodes.conversation_id AND conversations.deleted_at IS NULL
 WHERE conversations.game_id = $1 AND choices.deleted_at IS NULL
@@ -156,6 +165,8 @@ func (q *Queries) ListAllChoices(ctx context.Context, gameID string) ([]Choice, 
 			&i.CheckSkillID,
 			&i.CheckDifficulty,
 			&i.FailNodeID,
+			&i.CritSuccessNodeID,
+			&i.CritFailNodeID,
 		); err != nil {
 			return nil, err
 		}
@@ -168,7 +179,7 @@ func (q *Queries) ListAllChoices(ctx context.Context, gameID string) ([]Choice, 
 }
 
 const listChoicesByConversation = `-- name: ListChoicesByConversation :many
-SELECT choices.id, choices.from_node_id, choices.to_node_id, choices.text, choices.text_revision_id, choices.sort_order, choices.created_by, choices.created_at, choices.updated_at, choices.deleted_at, choices.condition, choices.effects, choices.check_skill_id, choices.check_difficulty, choices.fail_node_id FROM choices
+SELECT choices.id, choices.from_node_id, choices.to_node_id, choices.text, choices.text_revision_id, choices.sort_order, choices.created_by, choices.created_at, choices.updated_at, choices.deleted_at, choices.condition, choices.effects, choices.check_skill_id, choices.check_difficulty, choices.fail_node_id, choices.crit_success_node_id, choices.crit_fail_node_id FROM choices
 JOIN nodes ON nodes.id = choices.from_node_id AND nodes.deleted_at IS NULL
 WHERE nodes.conversation_id = $1 AND choices.deleted_at IS NULL
 ORDER BY choices.from_node_id, choices.sort_order, choices.created_at, choices.id
@@ -199,6 +210,8 @@ func (q *Queries) ListChoicesByConversation(ctx context.Context, conversationID 
 			&i.CheckSkillID,
 			&i.CheckDifficulty,
 			&i.FailNodeID,
+			&i.CritSuccessNodeID,
+			&i.CritFailNodeID,
 		); err != nil {
 			return nil, err
 		}
@@ -221,25 +234,29 @@ UPDATE choices SET
     check_skill_id = CASE WHEN $10::bool THEN $11 ELSE check_skill_id END,
     check_difficulty = CASE WHEN $10::bool THEN $12 ELSE check_difficulty END,
     fail_node_id = CASE WHEN $10::bool THEN $13 ELSE fail_node_id END,
+    crit_success_node_id = CASE WHEN $10::bool THEN $14 ELSE crit_success_node_id END,
+    crit_fail_node_id = CASE WHEN $10::bool THEN $15 ELSE crit_fail_node_id END,
     updated_at = NOW()
 WHERE id = $1 AND deleted_at IS NULL
-RETURNING id, from_node_id, to_node_id, text, text_revision_id, sort_order, created_by, created_at, updated_at, deleted_at, condition, effects, check_skill_id, check_difficulty, fail_node_id
+RETURNING id, from_node_id, to_node_id, text, text_revision_id, sort_order, created_by, created_at, updated_at, deleted_at, condition, effects, check_skill_id, check_difficulty, fail_node_id, crit_success_node_id, crit_fail_node_id
 `
 
 type UpdateChoiceParams struct {
-	ID              string  `json:"id"`
-	SetTarget       bool    `json:"set_target"`
-	ToNodeID        *string `json:"to_node_id"`
-	Text            *string `json:"text"`
-	TextRevisionID  *string `json:"text_revision_id"`
-	SortOrder       *int32  `json:"sort_order"`
-	SetCondition    bool    `json:"set_condition"`
-	Condition       []byte  `json:"condition"`
-	Effects         []byte  `json:"effects"`
-	SetCheck        bool    `json:"set_check"`
-	CheckSkillID    *string `json:"check_skill_id"`
-	CheckDifficulty int32   `json:"check_difficulty"`
-	FailNodeID      *string `json:"fail_node_id"`
+	ID                string  `json:"id"`
+	SetTarget         bool    `json:"set_target"`
+	ToNodeID          *string `json:"to_node_id"`
+	Text              *string `json:"text"`
+	TextRevisionID    *string `json:"text_revision_id"`
+	SortOrder         *int32  `json:"sort_order"`
+	SetCondition      bool    `json:"set_condition"`
+	Condition         []byte  `json:"condition"`
+	Effects           []byte  `json:"effects"`
+	SetCheck          bool    `json:"set_check"`
+	CheckSkillID      *string `json:"check_skill_id"`
+	CheckDifficulty   int32   `json:"check_difficulty"`
+	FailNodeID        *string `json:"fail_node_id"`
+	CritSuccessNodeID *string `json:"crit_success_node_id"`
+	CritFailNodeID    *string `json:"crit_fail_node_id"`
 }
 
 // The set_ arguments say whether to change a nullable column, so a PATCH
@@ -261,6 +278,8 @@ func (q *Queries) UpdateChoice(ctx context.Context, arg UpdateChoiceParams) (Cho
 		arg.CheckSkillID,
 		arg.CheckDifficulty,
 		arg.FailNodeID,
+		arg.CritSuccessNodeID,
+		arg.CritFailNodeID,
 	)
 	var i Choice
 	err := row.Scan(
@@ -279,6 +298,8 @@ func (q *Queries) UpdateChoice(ctx context.Context, arg UpdateChoiceParams) (Cho
 		&i.CheckSkillID,
 		&i.CheckDifficulty,
 		&i.FailNodeID,
+		&i.CritSuccessNodeID,
+		&i.CritFailNodeID,
 	)
 	return i, err
 }

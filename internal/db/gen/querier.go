@@ -25,6 +25,9 @@ type Querier interface {
 	CreateFlag(ctx context.Context, arg CreateFlagParams) (Flag, error)
 	CreateGame(ctx context.Context, arg CreateGameParams) (Game, error)
 	CreateInvite(ctx context.Context, arg CreateInviteParams) (Invite, error)
+	// Licensed text, imported by `server import`: it names its source and
+	// license notice instead of a key.
+	CreateLicensedRevision(ctx context.Context, arg CreateLicensedRevisionParams) (TextRevision, error)
 	CreateNode(ctx context.Context, arg CreateNodeParams) (Node, error)
 	CreateNote(ctx context.Context, arg CreateNoteParams) (Note, error)
 	CreateOAuthClient(ctx context.Context, arg CreateOAuthClientParams) (OauthClient, error)
@@ -74,6 +77,7 @@ type Querier interface {
 	// its saves all have a NULL created_by and match a NULL argument.
 	GetSave(ctx context.Context, arg GetSaveParams) (Save, error)
 	GetSkill(ctx context.Context, id string) (Skill, error)
+	GetSkillByKey(ctx context.Context, arg GetSkillByKeyParams) (Skill, error)
 	ListAPIKeys(ctx context.Context) ([]ApiKey, error)
 	// Unused, unexpired, undeleted invites.
 	ListActiveInvites(ctx context.Context) ([]Invite, error)
@@ -98,8 +102,8 @@ type Querier interface {
 	ListQuests(ctx context.Context, gameID string) ([]Quest, error)
 	ListSaves(ctx context.Context, arg ListSavesParams) ([]Save, error)
 	ListSkills(ctx context.Context, gameID string) ([]Skill, error)
-	// Revisions with the kind and name of the key that wrote them, for the
-	// build's provenance check.
+	// Revisions with the kind and name of the key that wrote them, or the
+	// source and notice of licensed text, for the build's provenance check.
 	ListTextRevisionsByIDs(ctx context.Context, ids []string) ([]ListTextRevisionsByIDsRow, error)
 	// A token stops working when its api key is deleted. client_id is NULL for
 	// a web session, and the key's kind says whether a person holds it.
@@ -129,7 +133,8 @@ type Querier interface {
 	// A new journal entry comes with its new revision.
 	UpdateQuestStage(ctx context.Context, arg UpdateQuestStageParams) (QuestStage, error)
 	UpdateSave(ctx context.Context, arg UpdateSaveParams) (Save, error)
-	// A new name comes with its new revision.
+	// A new name comes with its new revision. set_ability says whether to
+	// change ability, so a PATCH can clear it.
 	UpdateSkill(ctx context.Context, arg UpdateSkillParams) (Skill, error)
 }
 

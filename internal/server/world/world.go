@@ -8,6 +8,7 @@ package world
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/KevinMcHugh/rpg/internal/app"
 	"github.com/KevinMcHugh/rpg/internal/auth"
 	dbgen "github.com/KevinMcHugh/rpg/internal/db/gen"
+	"github.com/KevinMcHugh/rpg/internal/rules"
 )
 
 // Limits, in characters.
@@ -35,6 +37,25 @@ func clean(field, s string, limit int, required bool) (string, error) {
 		return "", fmt.Errorf("%w: %s is %d characters; the limit is %d", app.ErrBadInput, field, n, limit)
 	}
 	return s, nil
+}
+
+// cleanAbility checks a skill's ability: one of the six, or empty for none.
+func cleanAbility(a string) (*string, error) {
+	a = strings.TrimSpace(a)
+	if a == "" {
+		return nil, nil
+	}
+	if !slices.Contains(rules.Abilities, a) {
+		return nil, fmt.Errorf("%w: ability %q is not one of %s", app.ErrBadInput, a, strings.Join(rules.Abilities, ", "))
+	}
+	return &a, nil
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // TxStore runs the writes that record a text revision beside the row.
@@ -227,15 +248,16 @@ type Skill struct {
 	Key          string `json:"key"`
 	Name         string `json:"name"`
 	InitialLevel int    `json:"initialLevel"`
+	Ability      string `json:"ability"`
 	URL          string `json:"url"`
 }
 
 func skillView(row dbgen.Skill, links app.Links) Skill {
-	return Skill{ID: row.ID, GameID: row.GameID, Key: row.Key, Name: row.Name, InitialLevel: int(row.InitialLevel), URL: links.World(row.GameID) + "#skill-" + row.ID}
+	return Skill{ID: row.ID, GameID: row.GameID, Key: row.Key, Name: row.Name, InitialLevel: int(row.InitialLevel), Ability: deref(row.Ability), URL: links.World(row.GameID) + "#skill-" + row.ID}
 }
 
 func skillAPI(s Skill) apigen.Skill {
-	return apigen.Skill{Id: s.ID, GameId: s.GameID, Key: s.Key, Name: s.Name, InitialLevel: s.InitialLevel, Url: s.URL}
+	return apigen.Skill{Id: s.ID, GameId: s.GameID, Key: s.Key, Name: s.Name, InitialLevel: s.InitialLevel, Ability: s.Ability, Url: s.URL}
 }
 
 type ListSkillsStore interface {
@@ -291,6 +313,10 @@ func (e CreateSkillEndpoint) Interact(ctx context.Context, req apigen.CreateSkil
 	if err != nil {
 		return dbgen.Skill{}, err
 	}
+	ability, err := cleanAbility(string(req.Body.Ability))
+	if err != nil {
+		return dbgen.Skill{}, err
+	}
 	var row dbgen.Skill
 	err = e.Store.InTx(ctx, func(q *dbgen.Queries) error {
 		if _, err := app.Game(ctx, q, req.GameId); err != nil {
@@ -302,7 +328,8 @@ func (e CreateSkillEndpoint) Interact(ctx context.Context, req apigen.CreateSkil
 			return err
 		}
 		row, err = q.CreateSkill(ctx, dbgen.CreateSkillParams{
-			ID: id, GameID: req.GameId, Key: key, Name: name, NameRevisionID: rev, InitialLevel: int32(req.Body.InitialLevel), CreatedBy: auth.KeyIDPtr(ctx),
+			ID: id, GameID: req.GameId, Key: key, Name: name, NameRevisionID: rev, InitialLevel: int32(req.Body.InitialLevel),
+			Ability: ability, CreatedBy: auth.KeyIDPtr(ctx),
 		})
 		return app.KeyTaken(err, "skill", key)
 	})
@@ -336,6 +363,13 @@ func (e UpdateSkillEndpoint) Interact(ctx context.Context, req apigen.UpdateSkil
 	if l := req.Body.InitialLevel; l != nil {
 		n := int32(*l)
 		arg.InitialLevel = &n
+	}
+	if a := req.Body.Ability; a != nil {
+		ability, err := cleanAbility(*a)
+		if err != nil {
+			return dbgen.Skill{}, err
+		}
+		arg.SetAbility, arg.Ability = true, ability
 	}
 	var name string
 	if n := req.Body.Name; n != nil {

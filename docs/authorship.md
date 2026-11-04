@@ -42,9 +42,27 @@ Give Claude Code an agent key, not yours.
 
 The trigger checks only the key's kind, so on its own it would accept a connector token acting as a human key. Layer 3 is what refuses that; the trigger is the backstop against agent keys.
 
+## Licensed text
+
+Text a person wrote, but not anyone with a key here, can come in under a license: an SRD's skill names under CC-BY (SRD 5.2), the OGL (3.5 SRD) or the ORC (Pathfinder 2e). It is recorded as licensed text: its revision names the source and the notice the license requires instead of a key, the database accepts it only that way, and no API or MCP operation can write it. Only the person running the server imports it:
+
+```sh
+server import --game star_saga --file srd-skills.json
+```
+
+```json
+{
+  "source": "SRD 5.2",
+  "notice": "The attribution the license requires, copied word for word from the source.",
+  "skills": [{ "key": "athletics", "name": "Athletics", "ability": "str" }]
+}
+```
+
+You make that file from the source itself; Claude does not write or fetch SRD text. Skills the game already has (by key) are left alone. The build accepts licensed text as long as it is unchanged, and puts each source's notice in the bundle's credits, which the game shows. Edit an imported name and it becomes yours: a new revision by your key, and the credit goes once nothing licensed is left.
+
 ## The exception: the game's interface
 
-The game's own interface has a few words of its own: "Journal updated", "Quest complete", "approves" and "disapproves", "Success" and "Failure", "The End", "Begin", "Continue". They are in `internal/game/play/templates` and Claude wrote them when it built the game, so they are not human-written and the build does not check them. Rewrite them in your own words. If you want them checked too, move them into the content (a settings table of interface strings, each with a revision) so the build covers them like everything else.
+The game's own interface has a few words of its own: "Journal updated", "Quest complete", "approves" and "disapproves", "Success", "Failure", "Critical success" and "Critical failure", "The End", "Begin", "Continue", "Credits", and ability keys shown in capitals (STR). They are in `internal/game/play/templates` and Claude wrote them when it built the game, so they are not human-written and the build does not check them. Rewrite them in your own words. If you want them checked too, move them into the content (a settings table of interface strings, each with a revision) so the build covers them like everything else.
 
 ## The soft spot
 

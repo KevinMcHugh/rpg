@@ -113,6 +113,21 @@ var funcs = template.FuncMap{
 		return n
 	},
 	"upper": strings.ToUpper,
+	"neg":   func(n int) int { return -n },
+	// degree names a check's outcome. Saves from before degrees only say
+	// whether it succeeded.
+	"degree": func(e game.Entry) string {
+		switch e.Degree {
+		case "critical_success":
+			return "Critical success"
+		case "critical_failure":
+			return "Critical failure"
+		}
+		if e.Success {
+			return "Success"
+		}
+		return "Failure"
+	},
 	"signed": func(n int) string {
 		if n > 0 {
 			return "+" + itoa(n)
@@ -211,7 +226,7 @@ func (h *Handler) saves(w http.ResponseWriter, r *http.Request) {
 	}
 	h.render(w, r, "saves", map[string]any{
 		"Saves": saves, "Notice": notice, "Playtest": h.Setup != nil, "Game": deref(game),
-		"Node": r.URL.Query().Get("node"), "HasOpening": g.Bundle().Opening != "",
+		"Node": r.URL.Query().Get("node"), "HasOpening": g.Bundle().Opening != "", "Credits": g.Bundle().Credits,
 	})
 }
 

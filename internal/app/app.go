@@ -123,7 +123,7 @@ func Revise(ctx context.Context, q *dbgen.Queries, targetKind, targetID, field, 
 		TargetID:   targetID,
 		Field:      field,
 		Body:       body,
-		AuthorKey:  auth.KeyID(ctx),
+		AuthorKey:  auth.KeyIDPtr(ctx),
 	})
 	return row.ID, err
 }

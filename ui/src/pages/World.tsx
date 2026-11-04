@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import { api, must, type Flag, type Note, type Skill } from "../api/client";
-import { useAct, useGameId, useLoad, useMe } from "../hooks";
+import { api, must, type Flag, type Note, type S, type Skill } from "../api/client";
+
+type Ability = S["Ability"];
+import { abilities, skillValueNames, useAct, useGame, useGameId, useLoad, useMe } from "../hooks";
 import { Form, Key, Loading, Notes, notesFor, num, str } from "../components/ui";
 
 export default function WorldPage() {
@@ -11,6 +13,8 @@ export default function WorldPage() {
   const act = useAct();
   const nav = useNavigate();
   const loc = useLocation();
+  const ruleset = useGame()?.ruleset ?? "classic";
+  const d20 = ruleset !== "classic";
   const { data, error, reload } = useLoad(async () => {
     const path = { params: { path: { gameId } } };
     const [flags, skills, quests, notes] = await Promise.all([
@@ -33,7 +37,12 @@ export default function WorldPage() {
     });
   const addSkill = (f: FormData) =>
     act(async () => {
-      must(await api.POST("/games/{gameId}/skills", { params: { path: { gameId } }, body: { name: str(f, "name"), key: str(f, "key"), initialLevel: num(f, "initial") } }));
+      must(
+        await api.POST("/games/{gameId}/skills", {
+          params: { path: { gameId } },
+          body: { name: str(f, "name"), key: str(f, "key"), initialLevel: num(f, "initial"), ...(str(f, "ability") ? { ability: str(f, "ability") as Ability } : {}) },
+        }),
+      );
       reload();
     });
   const addQuest = (f: FormData) =>
@@ -94,18 +103,21 @@ export default function WorldPage() {
 
       <section id="skills">
         <h2>Skills</h2>
-        <p className="muted">A skill check rolls 2d6 and adds the skill's level against a difficulty. The name shows on checks, so a person writes it.</p>
+        <p className="muted">
+          A skill check rolls the dice this game's ruleset uses and adds what it allows: under {ruleset === "classic" ? "classic, 2d6 plus the skill's level" : "a d20 ruleset, the skill's ability and its value"}. The name shows on checks, so a person writes it, or it is imported with its license.
+        </p>
         <table className="plain">
           <thead>
             <tr>
               <th>Name</th>
               <th>Key</th>
-              <th>Starts at</th>
+              {d20 && <th>Ability</th>}
+              <th title={skillValueNames[ruleset]}>Starts at</th>
             </tr>
           </thead>
           <tbody>
             {data.skills.map((s) => (
-              <SkillRow key={s.id} s={s} reload={reload} focused={loc.hash === "#skill-" + s.id} />
+              <SkillRow key={s.id} s={s} reload={reload} focused={loc.hash === "#skill-" + s.id} d20={d20} />
             ))}
           </tbody>
         </table>
@@ -115,8 +127,10 @@ export default function WorldPage() {
             <div className="row">
               <input name="name" placeholder="Name" aria-label="Name" required maxLength={100} className="grow" />
               <input className="script" name="key" placeholder="key (optional)" aria-label="Key" />
-              <input name="initial" type="number" defaultValue={0} aria-label="Starts at" style={{ width: "6rem" }} />
+              {d20 && <AbilitySelect />}
+              <input name="initial" type="number" defaultValue={0} aria-label="Starts at" title={skillValueNames[ruleset]} style={{ width: "6rem" }} />
             </div>
+            <p className="muted small">Starts at: {skillValueNames[ruleset]}</p>
             <div>
               <button>Add skill</button>
             </div>
@@ -225,7 +239,20 @@ function FlagRow({ f, notes, reload, focused }: { f: Flag; notes: Note[]; reload
   );
 }
 
-function SkillRow({ s, reload, focused }: { s: Skill; reload: () => void; focused: boolean }) {
+function AbilitySelect({ value }: { value?: string }) {
+  return (
+    <select name="ability" defaultValue={value ?? ""} aria-label="Ability">
+      <option value="">no ability</option>
+      {abilities.map((a) => (
+        <option key={a} value={a}>
+          {a.toUpperCase()}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function SkillRow({ s, reload, focused, d20 }: { s: Skill; reload: () => void; focused: boolean; d20: boolean }) {
   const me = useMe();
   const act = useAct();
   const [editing, setEditing] = useState(false);
@@ -234,7 +261,7 @@ function SkillRow({ s, reload, focused }: { s: Skill; reload: () => void; focuse
       must(
         await api.PATCH("/skills/{skillId}", {
           params: { path: { skillId: s.id } },
-          body: { name: str(fd, "name"), key: str(fd, "key"), initialLevel: num(fd, "initial") },
+          body: { name: str(fd, "name"), key: str(fd, "key"), initialLevel: num(fd, "initial"), ...(d20 ? { ability: str(fd, "ability") } : {}) },
         }),
       );
       setEditing(false);
@@ -249,11 +276,12 @@ function SkillRow({ s, reload, focused }: { s: Skill; reload: () => void; focuse
   if (editing) {
     return (
       <tr id={"skill-" + s.id}>
-        <td colSpan={3}>
+        <td colSpan={d20 ? 4 : 3}>
           <Form onSubmit={save} reset={false}>
             <div className="row">
               <input name="name" defaultValue={s.name} aria-label="Name" required className="grow" />
               <input className="script" name="key" defaultValue={s.key} aria-label="Key" required />
+              {d20 && <AbilitySelect value={s.ability} />}
               <input name="initial" type="number" defaultValue={s.initialLevel} aria-label="Starts at" style={{ width: "6rem" }} />
             </div>
             <div className="row tight">
@@ -286,6 +314,7 @@ function SkillRow({ s, reload, focused }: { s: Skill; reload: () => void; focuse
       <td>
         <Key k={s.key} />
       </td>
+      {d20 && <td>{s.ability ? s.ability.toUpperCase() : <span className="muted">none</span>}</td>}
       <td>{s.initialLevel}</td>
     </tr>
   );

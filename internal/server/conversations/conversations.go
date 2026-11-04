@@ -79,6 +79,8 @@ type Choice struct {
 	CheckSkillName  string `json:"checkSkillName"`
 	CheckDifficulty int    `json:"checkDifficulty"`
 	FailNodeID      string `json:"failNodeId"`
+	CritSuccessID   string `json:"critSuccessNodeId"`
+	CritFailID      string `json:"critFailNodeId"`
 }
 
 // Graph is a conversation with every node, in the order they were written.
@@ -118,6 +120,8 @@ func choiceView(row dbgen.Choice, w world) Choice {
 		CheckSkillID:    deref(row.CheckSkillID),
 		CheckDifficulty: int(row.CheckDifficulty),
 		FailNodeID:      deref(row.FailNodeID),
+		CritSuccessID:   deref(row.CritSuccessNodeID),
+		CritFailID:      deref(row.CritFailNodeID),
 	}
 	if c.CheckSkillID != "" {
 		c.CheckSkillName = w.Skills[c.CheckSkillID]
@@ -241,6 +245,7 @@ func toAPIChoice(c Choice) apigen.Choice {
 		Id: c.ID, FromNodeId: c.FromNodeID, ToNodeId: c.ToNodeID, Text: c.Text, SortOrder: c.SortOrder,
 		Condition: c.Condition, Effects: c.Effects,
 		CheckSkillId: c.CheckSkillID, CheckSkillName: c.CheckSkillName, CheckDifficulty: c.CheckDifficulty, FailNodeId: c.FailNodeID,
+		CritSuccessNodeId: c.CritSuccessID, CritFailNodeId: c.CritFailID,
 	}
 }
 

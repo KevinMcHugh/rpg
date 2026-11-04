@@ -185,3 +185,5 @@ ol.choices li.editing { list-style: none; }
 .end text { font: 10px system-ui, sans-serif; fill: var(--muted); }
 
 header.top .game-name a { color: var(--fg); font-weight: 600; text-decoration: none; }
+.edge.crit { stroke-width: 2.5; }
+.edge-label.critSuccess { fill: var(--ok); }

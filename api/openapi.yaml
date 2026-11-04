@@ -1436,7 +1436,7 @@ components:
 
     Choice:
       type: object
-      required: [id, fromNodeId, toNodeId, text, sortOrder, condition, effects, checkSkillId, checkSkillName, checkDifficulty, failNodeId]
+      required: [id, fromNodeId, toNodeId, text, sortOrder, condition, effects, checkSkillId, checkSkillName, checkDifficulty, failNodeId, critSuccessNodeId, critFailNodeId]
       properties:
         id:
           type: string
@@ -1458,13 +1458,19 @@ components:
           description: What taking the choice changes, in the script language.
         checkSkillId:
           type: string
-          description: "When set, the choice is a skill check: 2d6 plus the player's skill against checkDifficulty. Success goes to toNodeId, failure to failNodeId."
+          description: "When set, the choice is a skill check, rolled by the game's ruleset against checkDifficulty. Success goes to toNodeId, failure to failNodeId."
         checkSkillName:
           type: string
         checkDifficulty:
           type: integer
         failNodeId:
           type: string
+        critSuccessNodeId:
+          type: string
+          description: Where a critical success goes, under a ruleset that has them (pf2e); empty is the ordinary success.
+        critFailNodeId:
+          type: string
+          description: Where a critical failure goes; empty is the ordinary failure.
 
     ChoiceCreate:
       type: object
@@ -1486,6 +1492,10 @@ components:
         checkDifficulty:
           type: integer
         failNodeId:
+          type: string
+        critSuccessNodeId:
+          type: string
+        critFailNodeId:
           type: string
 
     ChoiceUpdate:
@@ -1515,6 +1525,12 @@ components:
           type: integer
           x-go-type-skip-optional-pointer: false
         failNodeId:
+          type: string
+          x-go-type-skip-optional-pointer: false
+        critSuccessNodeId:
+          type: string
+          x-go-type-skip-optional-pointer: false
+        critFailNodeId:
           type: string
           x-go-type-skip-optional-pointer: false
 
@@ -1604,9 +1620,14 @@ components:
           type: integer
           x-go-type-skip-optional-pointer: false
 
+    Ability:
+      type: string
+      description: One of the six abilities a d20 ruleset adds to a skill check.
+      enum: [str, dex, con, int, wis, cha]
+
     Skill:
       type: object
-      required: [id, gameId, key, name, initialLevel, url]
+      required: [id, gameId, key, name, initialLevel, ability, url]
       properties:
         id:
           type: string
@@ -1619,7 +1640,15 @@ components:
           description: Player-facing; shown on skill checks.
         initialLevel:
           type: integer
-          description: The player's level at the start of the game.
+          description: |
+            The player's value in the skill at the start of the game. What it
+            means depends on the game's ruleset: classic, a level added to
+            2d6; srd52, a proficiency tier (0 none, 1 proficient, 2
+            expertise); srd35, ranks; pf2e, a proficiency rank (0 untrained
+            to 4 legendary).
+        ability:
+          type: string
+          description: The ability a d20 ruleset adds (str, dex, con, int, wis or cha); empty for none, as in classic.
         url:
           type: string
 
@@ -1643,6 +1672,8 @@ components:
           description: Leave out to make one from the name.
         initialLevel:
           type: integer
+        ability:
+          $ref: "#/components/schemas/Ability"
 
     SkillUpdate:
       type: object
@@ -1656,6 +1687,10 @@ components:
           x-go-type-skip-optional-pointer: false
         initialLevel:
           type: integer
+          x-go-type-skip-optional-pointer: false
+        ability:
+          type: string
+          description: An empty ability clears it.
           x-go-type-skip-optional-pointer: false
 
     Quest:

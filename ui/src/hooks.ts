@@ -80,6 +80,19 @@ export function rememberGame(id: string) {
   }
 }
 
+/** What a skill's value means under each ruleset. */
+export const skillValueNames: Record<string, string> = {
+  classic: "Level (added to 2d6)",
+  srd52: "Proficiency (0 none, 1 proficient, 2 expertise)",
+  srd35: "Ranks",
+  pf2e: "Proficiency rank (0 untrained … 4 legendary)",
+};
+
+export const abilities = ["str", "dex", "con", "int", "wis", "cha"] as const;
+
+/** Rulesets with critical successes and failures. */
+export const hasCriticals = (ruleset: string | undefined) => ruleset === "pf2e";
+
 export const rulesetNames: Record<string, string> = {
   classic: "Classic (2d6)",
   srd52: "SRD 5.2",
