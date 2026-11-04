@@ -136,6 +136,7 @@ func (e ListEndpoint) Render(vms []Character) apigen.ListCharactersResponseObjec
 // -----------------------------------------------------------------------------
 
 type GetStore interface {
+	app.AccessStore
 	GetCharacter(ctx context.Context, id string) (dbgen.Character, error)
 }
 
@@ -146,6 +147,9 @@ type GetEndpoint struct {
 }
 
 func (e GetEndpoint) Interact(ctx context.Context, req apigen.GetCharacterRequestObject) (dbgen.Character, error) {
+	if _, err := app.Access(ctx, e.Store, "character", req.CharacterId); err != nil {
+		return dbgen.Character{}, err
+	}
 	row, err := e.Store.GetCharacter(ctx, req.CharacterId)
 	return row, app.NotFound(err, "character", req.CharacterId)
 }
@@ -161,6 +165,7 @@ func (e GetEndpoint) Render(vm Character) apigen.GetCharacterResponseObject {
 // -----------------------------------------------------------------------------
 
 type TxStore interface {
+	app.AccessStore
 	InTx(ctx context.Context, fn func(q *dbgen.Queries) error) error
 }
 
@@ -172,6 +177,9 @@ type CreateEndpoint struct {
 }
 
 func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateCharacterRequestObject) (dbgen.Character, error) {
+	if _, err := app.Access(ctx, e.Store, "game", req.GameId); err != nil {
+		return dbgen.Character{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return dbgen.Character{}, err
 	}
@@ -229,6 +237,9 @@ type UpdateEndpoint struct {
 }
 
 func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateCharacterRequestObject) (dbgen.Character, error) {
+	if _, err := app.Access(ctx, e.Store, "character", req.CharacterId); err != nil {
+		return dbgen.Character{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return dbgen.Character{}, err
 	}
@@ -288,6 +299,7 @@ func (e UpdateEndpoint) Render(vm Character) apigen.UpdateCharacterResponseObjec
 // -----------------------------------------------------------------------------
 
 type DeleteStore interface {
+	app.AccessStore
 	DeleteCharacter(ctx context.Context, id string) (int64, error)
 }
 
@@ -296,6 +308,9 @@ type DeleteStore interface {
 type DeleteEndpoint struct{ Store DeleteStore }
 
 func (e DeleteEndpoint) Interact(ctx context.Context, req apigen.DeleteCharacterRequestObject) (bool, error) {
+	if _, err := app.Access(ctx, e.Store, "character", req.CharacterId); err != nil {
+		return false, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return false, err
 	}

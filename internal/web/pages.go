@@ -13,13 +13,13 @@ import (
 	"github.com/KevinMcHugh/rpg/internal/auth"
 )
 
-// The server renders only what needs no app: the sign-in page here, and
-// the playtest (package play). The authoring tool is the React app in
+// The server renders only what needs no app: the sign-in and join pages
+// here, and the playtest (package play). The authoring tool is the React app in
 // package ui.
 
 func parsePages() map[string]*template.Template {
 	pages := map[string]*template.Template{}
-	for _, name := range []string{"login"} {
+	for _, name := range []string{"login", "join"} {
 		pages[name] = template.Must(template.New("layout.html").
 			ParseFS(templateFS, "templates/layout.html", "templates/"+name+".html"))
 	}
@@ -30,6 +30,7 @@ func parsePages() map[string]*template.Template {
 // rather than half a page.
 func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name string, data map[string]any) {
 	data["AppName"] = app.Name
+	data["GoogleOn"] = s.Google.enabled()
 	data["SignedIn"] = auth.KeyID(r.Context()) != ""
 	data["Path"] = r.URL.RequestURI()
 	var buf bytes.Buffer
@@ -57,6 +58,10 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 
 func (s *Server) nodeRedirect(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if _, err := app.Access(r.Context(), s.Store, "node", id); err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	n, err := s.Store.GetNode(r.Context(), id)
 	if err != nil {
 		s.fail(w, r, app.NotFound(err, "node", id))
@@ -67,6 +72,10 @@ func (s *Server) nodeRedirect(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) choiceRedirect(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if _, err := app.Access(r.Context(), s.Store, "choice", id); err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	c, err := s.Store.GetChoice(r.Context(), id)
 	if err != nil {
 		s.fail(w, r, app.NotFound(err, "choice", id))
@@ -82,6 +91,10 @@ func (s *Server) choiceRedirect(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) stageRedirect(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if _, err := app.Access(r.Context(), s.Store, "quest_stage", id); err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	st, err := s.Store.GetQuestStage(r.Context(), id)
 	if err != nil {
 		s.fail(w, r, app.NotFound(err, "stage", id))

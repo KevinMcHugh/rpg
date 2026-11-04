@@ -7,6 +7,8 @@ package dbgen
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createGame = `-- name: CreateGame :one
@@ -57,6 +59,61 @@ func (q *Queries) DeleteGame(ctx context.Context, id string) (int64, error) {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const gameAccess = `-- name: GameAccess :one
+WITH target AS (
+    SELECT games.id AS game_id FROM games WHERE $2::text = 'game' AND games.id = $3 AND games.deleted_at IS NULL
+    UNION ALL
+    SELECT characters.game_id FROM characters WHERE $2::text = 'character' AND characters.id = $3 AND characters.deleted_at IS NULL
+    UNION ALL
+    SELECT conversations.game_id FROM conversations WHERE $2::text = 'conversation' AND conversations.id = $3 AND conversations.deleted_at IS NULL
+    UNION ALL
+    SELECT c.game_id FROM nodes n JOIN conversations c ON c.id = n.conversation_id
+    WHERE $2::text = 'node' AND n.id = $3 AND n.deleted_at IS NULL
+    UNION ALL
+    SELECT c.game_id FROM choices ch JOIN nodes n ON n.id = ch.from_node_id JOIN conversations c ON c.id = n.conversation_id
+    WHERE $2::text = 'choice' AND ch.id = $3 AND ch.deleted_at IS NULL
+    UNION ALL
+    SELECT flags.game_id FROM flags WHERE $2::text = 'flag' AND flags.id = $3 AND flags.deleted_at IS NULL
+    UNION ALL
+    SELECT skills.game_id FROM skills WHERE $2::text = 'skill' AND skills.id = $3 AND skills.deleted_at IS NULL
+    UNION ALL
+    SELECT quests.game_id FROM quests WHERE $2::text = 'quest' AND quests.id = $3 AND quests.deleted_at IS NULL
+    UNION ALL
+    SELECT q.game_id FROM quest_stages s JOIN quests q ON q.id = s.quest_id
+    WHERE $2::text = 'quest_stage' AND s.id = $3 AND s.deleted_at IS NULL
+    UNION ALL
+    SELECT notes.game_id FROM notes WHERE $2::text = 'note' AND notes.id = $3 AND notes.deleted_at IS NULL
+    UNION ALL
+    SELECT game_invites.game_id FROM game_invites WHERE $2::text = 'invite' AND game_invites.id = $3 AND game_invites.deleted_at IS NULL
+)
+SELECT target.game_id::text AS game_id, COALESCE(game_members.role, '')::text AS role
+FROM target
+JOIN games ON games.id = target.game_id AND games.deleted_at IS NULL
+LEFT JOIN game_members ON game_members.game_id = target.game_id
+    AND game_members.user_id = $1 AND game_members.deleted_at IS NULL
+LIMIT 1
+`
+
+type GameAccessParams struct {
+	UserID   string `json:"user_id"`
+	Kind     string `json:"kind"`
+	TargetID string `json:"target_id"`
+}
+
+type GameAccessRow struct {
+	GameID string `json:"game_id"`
+	Role   string `json:"role"`
+}
+
+// The game something belongs to, and the user's role in it (” when they
+// are not a member). No row when the thing, or its game, does not exist.
+func (q *Queries) GameAccess(ctx context.Context, arg GameAccessParams) (GameAccessRow, error) {
+	row := q.db.QueryRow(ctx, gameAccess, arg.UserID, arg.Kind, arg.TargetID)
+	var i GameAccessRow
+	err := row.Scan(&i.GameID, &i.Role)
+	return i, err
 }
 
 const getGame = `-- name: GetGame :one
@@ -125,6 +182,57 @@ func (q *Queries) ListGames(ctx context.Context) ([]Game, error) {
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGamesForUser = `-- name: ListGamesForUser :many
+SELECT games.id, games.key, games.name, games.ruleset, games.created_by, games.created_at, games.updated_at, games.deleted_at, game_members.role FROM games
+JOIN game_members ON game_members.game_id = games.id
+    AND game_members.user_id = $1 AND game_members.deleted_at IS NULL
+WHERE games.deleted_at IS NULL
+ORDER BY games.created_at, games.id
+`
+
+type ListGamesForUserRow struct {
+	ID        string             `json:"id"`
+	Key       string             `json:"key"`
+	Name      string             `json:"name"`
+	Ruleset   string             `json:"ruleset"`
+	CreatedBy *string            `json:"created_by"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
+	Role      string             `json:"role"`
+}
+
+// The games a user belongs to, with their role in each.
+func (q *Queries) ListGamesForUser(ctx context.Context, userID string) ([]ListGamesForUserRow, error) {
+	rows, err := q.db.Query(ctx, listGamesForUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListGamesForUserRow{}
+	for rows.Next() {
+		var i ListGamesForUserRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Key,
+			&i.Name,
+			&i.Ruleset,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.Role,
 		); err != nil {
 			return nil, err
 		}

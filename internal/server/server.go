@@ -20,6 +20,7 @@ import (
 	"github.com/KevinMcHugh/rpg/internal/server/conversations"
 	"github.com/KevinMcHugh/rpg/internal/server/games"
 	"github.com/KevinMcHugh/rpg/internal/server/me"
+	"github.com/KevinMcHugh/rpg/internal/server/members"
 	"github.com/KevinMcHugh/rpg/internal/server/notes"
 	"github.com/KevinMcHugh/rpg/internal/server/world"
 )
@@ -266,6 +267,69 @@ func (s *Server) DeleteGame(ctx context.Context, req apigen.DeleteGameRequestObj
 		return apigen.DeleteGame403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
 	case isNotFound(err):
 		return apigen.DeleteGame404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	}
+	return resp, err
+}
+
+// -----------------------------------------------------------------------------
+// Members and invites
+// -----------------------------------------------------------------------------
+
+func (s *Server) ListMembers(ctx context.Context, req apigen.ListMembersRequestObject) (apigen.ListMembersResponseObject, error) {
+	resp, err := Run(ctx, members.ListEndpoint{Store: s.store}, req)
+	if isNotFound(err) {
+		return apigen.ListMembers404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) RemoveMember(ctx context.Context, req apigen.RemoveMemberRequestObject) (apigen.RemoveMemberResponseObject, error) {
+	resp, err := Run(ctx, members.RemoveEndpoint{Store: s.store}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.RemoveMember403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.RemoveMember404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	case isUnprocessable(err):
+		return apigen.RemoveMember422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) ListInvites(ctx context.Context, req apigen.ListInvitesRequestObject) (apigen.ListInvitesResponseObject, error) {
+	resp, err := Run(ctx, members.ListInvitesEndpoint{Store: s.store}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.ListInvites403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.ListInvites404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) CreateInvite(ctx context.Context, req apigen.CreateInviteRequestObject) (apigen.CreateInviteResponseObject, error) {
+	if req.Body == nil {
+		return apigen.CreateInvite400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
+	}
+	resp, err := Run(ctx, members.CreateInviteEndpoint{Store: s.store, Links: s.links}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.CreateInvite403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.CreateInvite404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	case isUnprocessable(err):
+		return apigen.CreateInvite422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) DeleteInvite(ctx context.Context, req apigen.DeleteInviteRequestObject) (apigen.DeleteInviteResponseObject, error) {
+	resp, err := Run(ctx, members.DeleteInviteEndpoint{Store: s.store}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.DeleteInvite403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.DeleteInvite404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
 	}
 	return resp, err
 }

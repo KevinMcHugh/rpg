@@ -23,7 +23,10 @@ export default function GamesPage() {
   return (
     <>
       <h1>Games</h1>
-      <p className="muted">Each game has its own characters, conversations, world and notes, and its own ruleset for checks.</p>
+      <p className="muted">
+        Each game has its own characters, conversations, world and notes, and its own ruleset for checks. You see the games
+        you made and the ones you were invited to.
+      </p>
       <div className="list">
         {data.map((g) => (
           <Link key={g.id} to={"/games/" + g.id} className="card link-card" onClick={() => rememberGame(g.id)}>
@@ -31,12 +34,13 @@ export default function GamesPage() {
               <h3>{g.name}</h3>
               <span className="row tight">
                 <Badge>{rulesetNames[g.ruleset] ?? g.ruleset}</Badge>
+                {g.role === "owner" ? <Badge tone="ok">owner</Badge> : <Badge>writer</Badge>}
                 <Key k={g.key} />
               </span>
             </div>
           </Link>
         ))}
-        {!data.length && <p className="muted">No games yet.</p>}
+        {!data.length && <p className="muted">You are in no games yet. Make one, or ask someone to send you an invite link.</p>}
       </div>
       {me.human && (
         <details className="panel" open={!data.length}>

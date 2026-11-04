@@ -11,6 +11,7 @@ import WorldPage from "./pages/World";
 import QuestPage from "./pages/Quest";
 import NotesPage from "./pages/Notes";
 import BuildPage from "./pages/Build";
+import MembersPage from "./pages/Members";
 
 export default function App() {
   const me = useLoad(async () => must(await api.GET("/me")), []);
@@ -34,7 +35,7 @@ export default function App() {
     wanted.current = id;
     api.GET("/games/{gameId}", { params: { path: { gameId: id } } }).then((r) => {
       if (r.data && wanted.current === id) {
-        setGame({ id: r.data.id, name: r.data.name, ruleset: r.data.ruleset });
+        setGame({ id: r.data.id, name: r.data.name, ruleset: r.data.ruleset, role: r.data.role });
         rememberGame(r.data.id);
       }
     });
@@ -67,6 +68,7 @@ export default function App() {
                   <NavLink to={g + "/world"}>World</NavLink>
                   <NavLink to={g + "/notes"}>Notes</NavLink>
                   <NavLink to={g + "/build"}>Build</NavLink>
+                  <NavLink to={g + "/members"}>Members</NavLink>
                   <a href={"/play?game=" + game.id}>Playtest</a>
                 </>
               )}
@@ -74,7 +76,9 @@ export default function App() {
                 All games
               </NavLink>
             </nav>
-            <span className="who muted">{me.data.name}</span>
+            <span className="who muted" title={"key: " + me.data.name}>
+              {me.data.user?.name ?? me.data.name}
+            </span>
             <form method="POST" action="/logout">
               <button className="ghost small">Sign out</button>
             </form>
@@ -98,6 +102,7 @@ export default function App() {
               <Route path="/games/:gameId/world" element={<WorldPage />} />
               <Route path="/games/:gameId/notes" element={<NotesPage />} />
               <Route path="/games/:gameId/build" element={<BuildPage />} />
+              <Route path="/games/:gameId/members" element={<MembersPage />} />
               <Route path="/characters/:id" element={<CharacterPage />} />
               <Route path="/conversations/:id" element={<ConversationPage />} />
               <Route path="/quests/:id" element={<QuestPage />} />

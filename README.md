@@ -10,6 +10,7 @@ It is built on [app-template](https://github.com/KevinMcHugh/app-template): one 
 
 ## What is here
 
+- **Games and people**: a game belongs to whoever made it, who invites co-writers with a single-use link; nobody else sees it. People sign in with Google or with an api key, and Claude sees what its person sees.
 - **Games**: one tool holds several games, each with its own content, build and ruleset: classic 2d6, SRD 5.2, the 3.5 SRD or Pathfinder 2e, with Pathfinder's four degrees of success.
 - **Characters**: a player-facing name, and a bible (voice, wants, secrets) that never ships but that Claude reads before commenting on anything they say.
 - **Conversations**: a graph of nodes (a line, spoken by a character or the narrator) joined by choices (what the player says, leading to another node or ending the conversation). Titles and summaries are authoring labels. Edit them as a list of lines, or as a graph you can pan and zoom, with the selected line's editor beside it.
@@ -30,8 +31,8 @@ export DATABASE_URL="postgres://localhost/rpg?sslmode=disable"
 createdb rpg
 make ui                         # build the authoring app, which the server embeds
 make dev                        # migrate, then serve on :8080
-make key NAME=you               # in another terminal: your key, which may write content (printed once)
-make agent-key NAME=claude-code # Claude's key, which may only read and leave notes
+make key NAME=you               # in another terminal: you, and your key, which may write content (printed once)
+make agent-key NAME=claude-code # your Claude's key, which may only read and leave notes
 ```
 
 Open http://localhost:8080, sign in with your key, and write a conversation. While working on the app itself, `make ui-dev` serves it on :5173 with live reload, against `make dev`. Connect Claude Code with the agent key:
@@ -81,8 +82,8 @@ internal/db/gen/        sqlc output: do not edit
 | `make check` | fail if the generated code is stale (CI runs it) |
 | `make migrate` / `make rollback` | dbmate up / roll back the last migration |
 | `make new-migration NAME=…` | create a timestamped migration file |
-| `make key NAME=…` | mint a person's api key, which may write content |
-| `make agent-key NAME=…` | mint an agent's api key, which may only read and leave notes |
+| `make key NAME=… [FOR=…]` | mint a person's api key, which may write content: a new user, or another key for user `FOR` |
+| `make agent-key NAME=… [FOR=…]` | mint an agent's api key for user `FOR` (or the only user), which may only read and leave notes |
 | `make bundle GAME=…` | check a game's content and write its `content.json` (`GAME` can be left out while there is one game) |
 | `make play GAME_DATABASE_URL=…` | play `content.json` in the game binary on :8090 |
 | `make invite NOTE=…` | mint a single-use invite |

@@ -1,6 +1,7 @@
 // Package auth carries who a request is from, and the key and token
-// formats. There are no tenants: every caller sees the same data, and the
-// api key that authenticated a request is recorded on what it creates.
+// formats. A request acts as an api key, which belongs to a user; the user
+// decides which games the request may see (app.Access), and the key is
+// recorded on what it creates.
 package auth
 
 import (
@@ -25,6 +26,7 @@ const (
 	RefreshTokenPrefix = "rpg_rt_" // OAuth refresh tokens
 	AuthCodePrefix     = "rpg_ac_" // OAuth authorization codes
 	InvitePrefix       = "rpg_iv_" // single-use invites, minted by `server invites create`
+	GameInvitePrefix   = "rpg_gi_" // single-use links into a game, made by its owner
 )
 
 // GenerateKey returns a new raw api key. It is shown to a person once; only
@@ -69,6 +71,12 @@ type Caller struct {
 	// session. An OAuth connector token is never human, whichever key
 	// approved it: what holds it is a model.
 	Human bool
+	// UserID is the person the key belongs to, whose games the request
+	// may see. "" for a key that has none, which sees no game.
+	UserID string
+	// System is a command run on the server (`server build`, `server
+	// import`), which may reach every game. No request is ever System.
+	System bool
 }
 
 type ctxKey struct{}
@@ -77,6 +85,21 @@ type ctxKey struct{}
 func WithCaller(ctx context.Context, c Caller) context.Context {
 	return context.WithValue(ctx, ctxKey{}, c)
 }
+
+// System marks ctx as a command run on the server itself, which may reach
+// every game. Only cmd/ calls it.
+func System(ctx context.Context) context.Context {
+	return WithCaller(ctx, Caller{System: true})
+}
+
+// CallerFrom is the request's caller; the zero Caller outside one.
+func CallerFrom(ctx context.Context) Caller {
+	c, _ := ctx.Value(ctxKey{}).(Caller)
+	return c
+}
+
+// UserID is the person the request acts for, or "".
+func UserID(ctx context.Context) string { return CallerFrom(ctx).UserID }
 
 // KeyID is the api key the request acts as, or "" outside an authenticated
 // request (a CLI command, a test).

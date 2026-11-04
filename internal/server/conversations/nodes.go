@@ -17,6 +17,7 @@ import (
 
 // TxStore runs the writes that record a text revision beside the row.
 type TxStore interface {
+	app.AccessStore
 	InTx(ctx context.Context, fn func(q *dbgen.Queries) error) error
 }
 
@@ -61,6 +62,9 @@ type CreateNodeEndpoint struct {
 }
 
 func (e CreateNodeEndpoint) Interact(ctx context.Context, req apigen.CreateNodeRequestObject) (nodeModel, error) {
+	if _, err := app.Access(ctx, e.Store, "conversation", req.ConversationId); err != nil {
+		return nodeModel{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return nodeModel{}, err
 	}
@@ -131,6 +135,9 @@ type UpdateNodeEndpoint struct {
 }
 
 func (e UpdateNodeEndpoint) Interact(ctx context.Context, req apigen.UpdateNodeRequestObject) (nodeModel, error) {
+	if _, err := app.Access(ctx, e.Store, "node", req.NodeId); err != nil {
+		return nodeModel{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return nodeModel{}, err
 	}
@@ -220,6 +227,9 @@ func loadNode(ctx context.Context, q *dbgen.Queries, row dbgen.Node, gameID stri
 type DeleteNodeEndpoint struct{ Store TxStore }
 
 func (e DeleteNodeEndpoint) Interact(ctx context.Context, req apigen.DeleteNodeRequestObject) (bool, error) {
+	if _, err := app.Access(ctx, e.Store, "node", req.NodeId); err != nil {
+		return false, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return false, err
 	}

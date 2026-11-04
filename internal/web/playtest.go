@@ -38,12 +38,12 @@ func (s *Server) playtest() *play.Handler {
 			return game.New(bundle), notice, nil
 		},
 		DefaultGame: func(ctx context.Context) (string, error) {
-			games, err := s.Store.ListGames(ctx)
+			games, err := s.Store.ListGamesForUser(ctx, auth.UserID(ctx))
 			if err != nil {
 				return "", err
 			}
 			if len(games) == 0 {
-				return "", fmt.Errorf("%w: there are no games yet", app.ErrNotFound)
+				return "", fmt.Errorf("%w: you are in no games yet", app.ErrNotFound)
 			}
 			return games[0].ID, nil
 		},

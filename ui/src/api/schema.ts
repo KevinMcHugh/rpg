@@ -11,7 +11,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The api key this request acts as */
+        /** The api key this request acts as, and its user */
         get: operations["getMe"];
         put?: never;
         post?: never;
@@ -28,10 +28,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List games, oldest first */
+        /** List the caller's games, oldest first */
         get: operations["listGames"];
         put?: never;
-        /** Create a game */
+        /** Create a game, owned by the caller */
         post: operations["createGame"];
         delete?: never;
         options?: never;
@@ -52,12 +52,96 @@ export interface paths {
         get: operations["getGame"];
         put?: never;
         post?: never;
-        /** Delete a game; its content stops being listed or built */
+        /** Delete a game; its content stops being listed or built (its owner only) */
         delete: operations["deleteGame"];
         options?: never;
         head?: never;
-        /** Change a game's name, key or ruleset */
+        /** Change a game's name, key or ruleset (its owner only) */
         patch: operations["updateGame"];
+        trace?: never;
+    };
+    "/games/{gameId}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
+            cookie?: never;
+        };
+        /** The game's members, owner first */
+        get: operations["listMembers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/games/{gameId}/members/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Take a writer out of the game (the owner may remove anyone else; a writer may leave) */
+        delete: operations["removeMember"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/games/{gameId}/invites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
+            cookie?: never;
+        };
+        /** The game's unused, unexpired invites (its owner only) */
+        get: operations["listInvites"];
+        put?: never;
+        /**
+         * Make a single-use link that brings someone into the game as a writer (its owner only)
+         * @description The response carries the link, which is shown this once: only a hash
+         *     of it is stored. Whoever opens it signs in (or, with Google, signs
+         *     up) and joins the game. An invite is not a credential: it grants
+         *     nothing until someone signs in to redeem it.
+         */
+        post: operations["createInvite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/invites/{inviteId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                inviteId: components["parameters"]["InviteId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke an unused invite (its game's owner only) */
+        delete: operations["deleteInvite"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/games/{gameId}/characters": {
@@ -480,6 +564,7 @@ export interface components {
             error: string;
         };
         Me: {
+            user?: components["schemas"]["User"];
             keyId: string;
             /** @description The label the key was minted with. */
             name: string;
@@ -490,6 +575,11 @@ export interface components {
              */
             human: boolean;
         };
+        /** @description The person a key belongs to. Missing for a key minted before there were users and never given one. */
+        User: {
+            id: string;
+            name: string;
+        };
         /**
          * @description How checks resolve. classic: 2d6 plus the skill against a difficulty.
          *     srd52: d20 plus ability modifier plus proficiency (SRD 5.2). srd35: d20
@@ -499,7 +589,14 @@ export interface components {
          * @enum {string}
          */
         Ruleset: "classic" | "srd52" | "srd35" | "pf2e";
+        /**
+         * @description owner: may change or delete the game and invite people, as well as
+         *     write. writer: may write the game's content and leave notes.
+         * @enum {string}
+         */
+        Role: "owner" | "writer";
         Game: {
+            role: components["schemas"]["Role"];
             id: string;
             key: string;
             /** @description Authoring label; never ships. */
@@ -509,6 +606,36 @@ export interface components {
         };
         GameList: {
             games: components["schemas"]["Game"][];
+        };
+        Member: {
+            userId: string;
+            name: string;
+            role: components["schemas"]["Role"];
+            /** Format: date-time */
+            joinedAt: string;
+        };
+        MemberList: {
+            members: components["schemas"]["Member"][];
+        };
+        Invite: {
+            id: string;
+            gameId: string;
+            /** @description Who the invite is for, as a reminder; nobody else sees it. */
+            note: string;
+            /** Format: date-time */
+            expiresAt: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** @description The link to send. Only in the response that created the invite. */
+            url?: string;
+        };
+        InviteList: {
+            invites: components["schemas"]["Invite"][];
+        };
+        InviteCreate: {
+            note?: string;
+            /** @description How long the link works for. Defaults to 168 (a week); at most 720. */
+            expiresInHours?: number;
         };
         GameCreate: {
             name: string;
@@ -892,7 +1019,7 @@ export interface components {
                 "text/plain": string;
             };
         };
-        /** @description An agent caller tried to change the game's content */
+        /** @description An agent caller tried to change the game's content, or a writer tried something only the game's owner may do */
         Forbidden: {
             headers: {
                 [name: string]: unknown;
@@ -921,6 +1048,8 @@ export interface components {
         };
     };
     parameters: {
+        UserId: string;
+        InviteId: string;
         GameId: string;
         CharacterId: string;
         ConversationId: string;
@@ -1084,6 +1213,134 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["Unprocessable"];
+        };
+    };
+    listMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The members */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    removeMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    listInvites: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The invites */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InviteCreate"];
+            };
+        };
+        responses: {
+            /** @description The invite, with its link */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Invite"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    deleteInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                inviteId: components["parameters"]["InviteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     listCharacters: {

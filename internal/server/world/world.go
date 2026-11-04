@@ -60,6 +60,7 @@ func deref(s *string) string {
 
 // TxStore runs the writes that record a text revision beside the row.
 type TxStore interface {
+	app.AccessStore
 	InTx(ctx context.Context, fn func(q *dbgen.Queries) error) error
 }
 
@@ -131,6 +132,9 @@ type CreateFlagEndpoint struct {
 }
 
 func (e CreateFlagEndpoint) Interact(ctx context.Context, req apigen.CreateFlagRequestObject) (dbgen.Flag, error) {
+	if _, err := app.Access(ctx, e.Store, "game", req.GameId); err != nil {
+		return dbgen.Flag{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return dbgen.Flag{}, err
 	}
@@ -158,6 +162,7 @@ func (CreateFlagEndpoint) Render(vm Flag) apigen.CreateFlagResponseObject {
 }
 
 type UpdateFlagStore interface {
+	app.AccessStore
 	UpdateFlag(ctx context.Context, arg dbgen.UpdateFlagParams) (dbgen.Flag, error)
 }
 
@@ -169,6 +174,9 @@ type UpdateFlagEndpoint struct {
 }
 
 func (e UpdateFlagEndpoint) Interact(ctx context.Context, req apigen.UpdateFlagRequestObject) (dbgen.Flag, error) {
+	if _, err := app.Access(ctx, e.Store, "flag", req.FlagId); err != nil {
+		return dbgen.Flag{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return dbgen.Flag{}, err
 	}
@@ -205,6 +213,7 @@ func (UpdateFlagEndpoint) Render(vm Flag) apigen.UpdateFlagResponseObject {
 }
 
 type DeleteFlagStore interface {
+	app.AccessStore
 	DeleteFlag(ctx context.Context, id string) (int64, error)
 }
 
@@ -213,6 +222,9 @@ type DeleteFlagStore interface {
 type DeleteFlagEndpoint struct{ Store DeleteFlagStore }
 
 func (e DeleteFlagEndpoint) Interact(ctx context.Context, req apigen.DeleteFlagRequestObject) (bool, error) {
+	if _, err := app.Access(ctx, e.Store, "flag", req.FlagId); err != nil {
+		return false, err
+	}
 	return deleted(ctx, "flag", req.FlagId, e.Store.DeleteFlag)
 }
 
@@ -302,6 +314,9 @@ type CreateSkillEndpoint struct {
 }
 
 func (e CreateSkillEndpoint) Interact(ctx context.Context, req apigen.CreateSkillRequestObject) (dbgen.Skill, error) {
+	if _, err := app.Access(ctx, e.Store, "game", req.GameId); err != nil {
+		return dbgen.Skill{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return dbgen.Skill{}, err
 	}
@@ -349,6 +364,9 @@ type UpdateSkillEndpoint struct {
 }
 
 func (e UpdateSkillEndpoint) Interact(ctx context.Context, req apigen.UpdateSkillRequestObject) (dbgen.Skill, error) {
+	if _, err := app.Access(ctx, e.Store, "skill", req.SkillId); err != nil {
+		return dbgen.Skill{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return dbgen.Skill{}, err
 	}
@@ -407,6 +425,7 @@ func (UpdateSkillEndpoint) Render(vm Skill) apigen.UpdateSkillResponseObject {
 }
 
 type DeleteSkillStore interface {
+	app.AccessStore
 	DeleteSkill(ctx context.Context, id string) (int64, error)
 }
 
@@ -414,6 +433,9 @@ type DeleteSkillStore interface {
 type DeleteSkillEndpoint struct{ Store DeleteSkillStore }
 
 func (e DeleteSkillEndpoint) Interact(ctx context.Context, req apigen.DeleteSkillRequestObject) (bool, error) {
+	if _, err := app.Access(ctx, e.Store, "skill", req.SkillId); err != nil {
+		return false, err
+	}
 	return deleted(ctx, "skill", req.SkillId, e.Store.DeleteSkill)
 }
 
@@ -469,6 +491,7 @@ func questAPI(q Quest) apigen.Quest {
 }
 
 type QuestReadStore interface {
+	app.AccessStore
 	GetQuest(ctx context.Context, id string) (dbgen.Quest, error)
 	ListQuestStages(ctx context.Context, questID string) ([]dbgen.QuestStage, error)
 }
@@ -540,6 +563,9 @@ type GetQuestEndpoint struct {
 }
 
 func (e GetQuestEndpoint) Interact(ctx context.Context, req apigen.GetQuestRequestObject) (questModel, error) {
+	if _, err := app.Access(ctx, e.Store, "quest", req.QuestId); err != nil {
+		return questModel{}, err
+	}
 	return loadQuest(ctx, e.Store, req.QuestId)
 }
 
@@ -557,6 +583,9 @@ type CreateQuestEndpoint struct {
 }
 
 func (e CreateQuestEndpoint) Interact(ctx context.Context, req apigen.CreateQuestRequestObject) (questModel, error) {
+	if _, err := app.Access(ctx, e.Store, "game", req.GameId); err != nil {
+		return questModel{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return questModel{}, err
 	}
@@ -603,6 +632,9 @@ type UpdateQuestEndpoint struct {
 }
 
 func (e UpdateQuestEndpoint) Interact(ctx context.Context, req apigen.UpdateQuestRequestObject) (questModel, error) {
+	if _, err := app.Access(ctx, e.Store, "quest", req.QuestId); err != nil {
+		return questModel{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return questModel{}, err
 	}
@@ -663,6 +695,9 @@ func (UpdateQuestEndpoint) Render(vm Quest) apigen.UpdateQuestResponseObject {
 type DeleteQuestEndpoint struct{ Store TxStore }
 
 func (e DeleteQuestEndpoint) Interact(ctx context.Context, req apigen.DeleteQuestRequestObject) (bool, error) {
+	if _, err := app.Access(ctx, e.Store, "quest", req.QuestId); err != nil {
+		return false, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return false, err
 	}
@@ -713,6 +748,9 @@ type CreateStageEndpoint struct {
 }
 
 func (e CreateStageEndpoint) Interact(ctx context.Context, req apigen.CreateQuestStageRequestObject) (questModel, error) {
+	if _, err := app.Access(ctx, e.Store, "quest", req.QuestId); err != nil {
+		return questModel{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return questModel{}, err
 	}
@@ -760,6 +798,9 @@ type UpdateStageEndpoint struct {
 }
 
 func (e UpdateStageEndpoint) Interact(ctx context.Context, req apigen.UpdateQuestStageRequestObject) (questModel, error) {
+	if _, err := app.Access(ctx, e.Store, "quest_stage", req.StageId); err != nil {
+		return questModel{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return questModel{}, err
 	}
@@ -810,6 +851,7 @@ func (UpdateStageEndpoint) Render(vm Quest) apigen.UpdateQuestStageResponseObjec
 }
 
 type DeleteStageStore interface {
+	app.AccessStore
 	DeleteQuestStage(ctx context.Context, id string) (int64, error)
 }
 
@@ -818,6 +860,9 @@ type DeleteStageStore interface {
 type DeleteStageEndpoint struct{ Store DeleteStageStore }
 
 func (e DeleteStageEndpoint) Interact(ctx context.Context, req apigen.DeleteQuestStageRequestObject) (bool, error) {
+	if _, err := app.Access(ctx, e.Store, "quest_stage", req.StageId); err != nil {
+		return false, err
+	}
 	return deleted(ctx, "stage", req.StageId, e.Store.DeleteQuestStage)
 }
 

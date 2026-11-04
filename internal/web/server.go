@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -38,6 +37,9 @@ type Server struct {
 	OAuth  *oauth.Handler
 	Issuer string       // public origin, no trailing slash
 	MCP    http.Handler // the streamable MCP handler, mounted at /mcp/rpc
+	// Google turns on signing in with Google when it has a client id and
+	// secret (docs/configuration.md).
+	Google GoogleConfig
 
 	pages map[string]*template.Template
 }
@@ -65,11 +67,21 @@ func (s *Server) Handler() http.Handler {
 	denyAPI := auth.Unauthorized(s.Issuer)
 
 	r := chi.NewRouter()
+	r.Use(redactCodes)
 	r.Use(chimw.Logger)
 	r.Use(chimw.Recoverer)
 
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok\n")) })
+	if s.Google.enabled() {
+		s.OAuth.GoogleStart = "/auth/google"
+		r.With(auth.Optional(q), pageHeaders).Get("/auth/google", s.googleStart)
+		r.With(pageHeaders).Get("/auth/google/callback", s.googleCallback)
+	}
 	s.OAuth.Mount(r)
+	// A game's invite link. Anyone may open it to see what it is for;
+	// accepting it needs a person signed in.
+	r.With(auth.Optional(q), pageHeaders).Get("/join/{code}", s.joinGET)
+	r.With(s.sameOrigin, auth.Require(q, s.toLogin)).Post("/join/{code}", s.joinPOST)
 	r.Get("/login", s.loginGET)
 	r.With(s.sameOrigin).Post("/login", s.loginPOST)
 	r.With(s.sameOrigin).Post("/logout", s.logout)
@@ -99,7 +111,7 @@ func (s *Server) Handler() http.Handler {
 	r.Group(func(r chi.Router) {
 		r.Use(auth.Require(q, s.toLogin))
 		for _, path := range []string{
-			"/", "/games", "/games/{id}", "/games/{id}/world", "/games/{id}/notes", "/games/{id}/build",
+			"/", "/games", "/games/{id}", "/games/{id}/world", "/games/{id}/notes", "/games/{id}/build", "/games/{id}/members",
 			"/characters/{id}", "/conversations/{id}", "/quests/{id}",
 			// From before there were games; the app sends them to the first.
 			"/world", "/notes", "/build",
@@ -190,20 +202,10 @@ func (s *Server) loginPOST(w http.ResponseWriter, r *http.Request) {
 		s.render(w, r, status, "login", map[string]any{"Next": next, "Error": msg})
 		return
 	}
-	token, err := s.OAuth.MintSession(r.Context(), key.ID)
-	if err != nil {
+	if err := s.signIn(w, r, key.ID); err != nil {
 		http.Error(w, "session failed", http.StatusInternalServerError)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     auth.SessionCookie,
-		Value:    token,
-		Path:     "/",
-		MaxAge:   int(oauth.SessionTTL / time.Second),
-		HttpOnly: true,
-		Secure:   strings.HasPrefix(s.Issuer, "https://"),
-		SameSite: http.SameSiteLaxMode,
-	})
 	http.Redirect(w, r, next, http.StatusSeeOther)
 }
 

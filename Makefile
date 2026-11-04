@@ -38,13 +38,13 @@ new-migration: ## Create a migration file (usage: make new-migration NAME=create
 	@if [ -z "$(NAME)" ]; then echo "usage: make new-migration NAME=<description>"; exit 1; fi
 	$(DBMATE) new "$(NAME)"
 
-key: ## Mint a person's api key, which may write content (usage: make key NAME=kev)
-	@if [ -z "$(NAME)" ]; then echo "usage: make key NAME=<label>"; exit 1; fi
-	go run ./cmd/server keys create --name "$(NAME)" --human
+key: ## Mint a person's api key, which may write content; a new user unless FOR names one (usage: make key NAME=kev [FOR=kev])
+	@if [ -z "$(NAME)" ]; then echo "usage: make key NAME=<label> [FOR=<user>]"; exit 1; fi
+	go run ./cmd/server keys create --name "$(NAME)" --human $(if $(FOR),--user "$(FOR)",)
 
-agent-key: ## Mint an agent's api key, which may only read and leave notes (usage: make agent-key NAME=claude-code)
-	@if [ -z "$(NAME)" ]; then echo "usage: make agent-key NAME=<label>"; exit 1; fi
-	go run ./cmd/server keys create --name "$(NAME)"
+agent-key: ## Mint an agent's api key, which may only read and leave notes, for a user (usage: make agent-key NAME=claude-code [FOR=kev])
+	@if [ -z "$(NAME)" ]; then echo "usage: make agent-key NAME=<label> [FOR=<user>]"; exit 1; fi
+	go run ./cmd/server keys create --name "$(NAME)" $(if $(FOR),--user "$(FOR)",)
 
 invite: ## Mint a single-use invite for a newcomer (usage: make invite NOTE=ana)
 	go run ./cmd/server invites create --note "$(NOTE)"

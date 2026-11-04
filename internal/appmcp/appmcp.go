@@ -33,7 +33,7 @@ import (
 )
 
 // Instructions is sent to every client on connect.
-const Instructions = `This is the authoring tool for story-driven party RPGs. It holds several games, each with its own ruleset (how skill checks resolve) and its own characters, conversations (a graph of lines, called nodes, joined by the choices a player makes), world (flags, skills, quests with numbered stages), and notes. Start with list_games: most tools take the game's id, and anything you look up by id tells you its game.
+const Instructions = `This is the authoring tool for story-driven party RPGs. It holds several games, each with its own ruleset (how skill checks resolve) and its own characters, conversations (a graph of lines, called nodes, joined by the choices a player makes), world (flags, skills, quests with numbered stages), and notes. Start with list_games, which lists the games the person you work for belongs to (you see exactly what they see): most tools take the game's id, and anything you look up by id tells you its game.
 
 Choices and conversations carry scripts. A condition says when a choice shows or a conversation can be started ("met_mayor and skill persuasion >= 3"); effects say what a line or a choice changes ("approval aria += 5; quest find_brother = 2"). A choice can be a skill check, resolved by its game's ruleset (classic 2d6; SRD 5.2, 3.5 SRD or Pathfinder 2e on a d20, where a skill adds an ability and Pathfinder has critical successes and failures), with nodes for failure and, under Pathfinder, for the criticals. get_world lists the keys scripts use. Read scripts closely: a choice whose condition can never hold, a flag nothing sets, or a quest stage nothing reaches are the kind of thing worth a note.
 

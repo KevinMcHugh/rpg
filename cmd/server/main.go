@@ -2,9 +2,17 @@
 // process, plus the admin commands that mint credentials. See README.md.
 //
 //	server [serve]                    run the server (DATABASE_URL, PORT, PUBLIC_URL)
-//	server keys create --name NAME [--human]
+//	server keys create --name NAME [--human] [--user USER]
 //	                                  mint an api key (printed once); only a
-//	                                  --human key may write the game's text
+//	                                  --human key may write the game's text.
+//	                                  A key belongs to a user (an id or a
+//	                                  name): a --human key with no --user
+//	                                  makes a new user called NAME, and an
+//	                                  agent key goes to the only user when
+//	                                  there is just one
+//	server users list                 list users, with their sign-ins
+//	server members add --game KEY --user USER [--role writer|owner]
+//	                                  put someone in a game without an invite
 //	server import --game KEY --file FILE
 //	                                  import licensed text (an SRD's skills)
 //	                                  into a game; see docs/authorship.md
@@ -22,6 +30,9 @@
 //
 // Credentials are minted here and nowhere else: there is no API or MCP tool
 // for it, so whoever can run this binary against the database is the admin.
+// (Signing in with Google mints a web session, as pasting a key on /login
+// does, and the first time also the person's own human key, which nobody
+// ever sees: see docs/auth.md.)
 package main
 
 import (
@@ -62,12 +73,16 @@ func main() {
 		err = keys(args)
 	case "invites":
 		err = invites(args)
+	case "users":
+		err = users(args)
+	case "members":
+		err = members(args)
 	case "build":
 		err = buildContent(args)
 	case "import":
 		err = importLicensed(args)
 	default:
-		err = fmt.Errorf("unknown command %q; use serve, keys, invites, import or build", cmd)
+		err = fmt.Errorf("unknown command %q; use serve, keys, users, members, invites, import or build", cmd)
 	}
 	if err != nil {
 		slog.Error("server", "err", err)
@@ -89,6 +104,8 @@ func serve() error {
 		issuer = "http://localhost:" + port
 	}
 	srv := web.New(app.NewStore(pool), issuer)
+	// Google sign-in is on when both are set (docs/configuration.md).
+	srv.Google = web.GoogleConfig{ClientID: os.Getenv("GOOGLE_CLIENT_ID"), ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET")}
 	slog.Info("listening", "port", port, "public_url", issuer)
 	hs := &http.Server{Addr: ":" + port, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	return hs.ListenAndServe()
@@ -103,6 +120,7 @@ func keys(args []string) error {
 	name := fs.String("name", "", "label for the key (create)")
 	id := fs.String("id", "", "key id (rotate, delete)")
 	human := fs.Bool("human", false, "a person's key, which may write the game's text (create)")
+	user := fs.String("user", "", "the user the key belongs to, by id or name (create)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -123,20 +141,57 @@ func keys(args []string) error {
 		if *human {
 			kind = auth.KindHuman
 		}
-		return mint(ctx, q, *name, kind)
+		var userID string
+		switch {
+		case *user != "":
+			u, err := findUser(ctx, q, *user)
+			if err != nil {
+				return err
+			}
+			userID = u.ID
+		case *human:
+			u, err := q.CreateUser(ctx, dbgen.CreateUserParams{ID: xid.New().String(), Name: *name})
+			if err != nil {
+				return fmt.Errorf("create user: %w", err)
+			}
+			fmt.Printf("user_id: %s (new user %s)\n", u.ID, u.Name)
+			userID = u.ID
+		default:
+			all, err := q.ListUsers(ctx)
+			if err != nil {
+				return err
+			}
+			if len(all) != 1 {
+				return fmt.Errorf("say whose agent this is with --user (%s)", userNames(all))
+			}
+			userID = all[0].ID
+		}
+		return mint(ctx, q, *name, kind, &userID)
 	case "list":
 		rows, err := q.ListAPIKeys(ctx)
 		if err != nil {
 			return err
 		}
 		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "ID\tNAME\tKIND\tCREATED\tLAST USED")
+		all, err := q.ListUsers(ctx)
+		if err != nil {
+			return err
+		}
+		names := map[string]string{}
+		for _, u := range all {
+			names[u.ID] = u.Name
+		}
+		fmt.Fprintln(tw, "ID\tNAME\tKIND\tUSER\tCREATED\tLAST USED")
 		for _, r := range rows {
 			last := "-"
 			if r.LastUsedAt.Valid {
 				last = r.LastUsedAt.Time.UTC().Format(time.DateTime)
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", r.ID, r.Name, r.Kind, r.CreatedAt.Time.UTC().Format(time.DateTime), last)
+			owner := "-"
+			if r.UserID != nil {
+				owner = names[*r.UserID]
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", r.ID, r.Name, r.Kind, owner, r.CreatedAt.Time.UTC().Format(time.DateTime), last)
 		}
 		return tw.Flush()
 	case "rotate", "delete":
@@ -157,7 +212,7 @@ func keys(args []string) error {
 			return nil
 		}
 		fmt.Printf("rotated key %s (%s)\n", old.ID, old.Name)
-		return mint(ctx, q, old.Name, old.Kind)
+		return mint(ctx, q, old.Name, old.Kind, old.UserID)
 	default:
 		return fmt.Errorf("unknown keys subcommand %q", sub)
 	}
@@ -234,16 +289,128 @@ func invites(args []string) error {
 	}
 }
 
-func mint(ctx context.Context, q *dbgen.Queries, name, kind string) error {
+func mint(ctx context.Context, q *dbgen.Queries, name, kind string, userID *string) error {
 	raw, err := auth.GenerateKey()
 	if err != nil {
 		return err
 	}
-	row, err := q.CreateAPIKey(ctx, dbgen.CreateAPIKeyParams{ID: xid.New().String(), Name: name, KeyHash: auth.Hash(raw), Kind: kind})
+	row, err := q.CreateAPIKey(ctx, dbgen.CreateAPIKeyParams{ID: xid.New().String(), Name: name, KeyHash: auth.Hash(raw), Kind: kind, UserID: userID})
 	if err != nil {
 		return fmt.Errorf("create api key: %w", err)
 	}
 	fmt.Printf("key_id:  %s\nkind:    %s\napi_key: %s\n\nSave the key now; it is never shown again.\n", row.ID, row.Kind, raw)
+	return nil
+}
+
+// findUser is a user by id, or else by name, which must be unambiguous.
+func findUser(ctx context.Context, q *dbgen.Queries, idOrName string) (dbgen.User, error) {
+	all, err := q.ListUsers(ctx)
+	if err != nil {
+		return dbgen.User{}, err
+	}
+	var found []dbgen.User
+	for _, u := range all {
+		if u.ID == idOrName {
+			return u, nil
+		}
+		if strings.EqualFold(u.Name, idOrName) {
+			found = append(found, u)
+		}
+	}
+	switch len(found) {
+	case 1:
+		return found[0], nil
+	case 0:
+		return dbgen.User{}, fmt.Errorf("no user %q (%s)", idOrName, userNames(all))
+	default:
+		return dbgen.User{}, fmt.Errorf("%d users are called %q; use an id from users list", len(found), idOrName)
+	}
+}
+
+func userNames(all []dbgen.User) string {
+	if len(all) == 0 {
+		return "there are no users yet; make one with keys create --human"
+	}
+	names := make([]string, len(all))
+	for i, u := range all {
+		names[i] = u.Name
+	}
+	return "users: " + strings.Join(names, ", ")
+}
+
+// users lists the people who can sign in.
+func users(args []string) error {
+	if len(args) == 0 || args[0] != "list" {
+		return errors.New("usage: users list")
+	}
+	ctx := context.Background()
+	pool, err := openPool(ctx)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	q := dbgen.New(pool)
+	all, err := q.ListUsers(ctx)
+	if err != nil {
+		return err
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "ID\tNAME\tSIGN-INS\tCREATED")
+	for _, u := range all {
+		ids, err := q.ListUserIdentities(ctx, u.ID)
+		if err != nil {
+			return err
+		}
+		signIns := make([]string, len(ids))
+		for i, id := range ids {
+			signIns[i] = id.Provider + ":" + id.Email
+		}
+		if len(signIns) == 0 {
+			signIns = []string{"-"}
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", u.ID, u.Name, strings.Join(signIns, ", "), u.CreatedAt.Time.UTC().Format(time.DateTime))
+	}
+	return tw.Flush()
+}
+
+// members puts a user in a game directly, for an admin: a game made by a
+// binary from before there were users has no owner until someone adds one.
+func members(args []string) error {
+	if len(args) == 0 || args[0] != "add" {
+		return errors.New("usage: members add --game KEY --user USER [--role writer|owner]")
+	}
+	fs := flag.NewFlagSet("members add", flag.ExitOnError)
+	gameKey := fs.String("game", "", "the game's key")
+	user := fs.String("user", "", "the user, by id or name")
+	role := fs.String("role", app.RoleWriter, "writer or owner")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if *gameKey == "" || *user == "" {
+		return errors.New("--game and --user are required")
+	}
+	if *role != app.RoleWriter && *role != app.RoleOwner {
+		return fmt.Errorf("--role must be writer or owner, not %q", *role)
+	}
+	ctx := context.Background()
+	pool, err := openPool(ctx)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	q := dbgen.New(pool)
+	game, err := q.GetGameByKey(ctx, *gameKey)
+	if err != nil {
+		return fmt.Errorf("game %q: %w", *gameKey, err)
+	}
+	u, err := findUser(ctx, q, *user)
+	if err != nil {
+		return err
+	}
+	if err := q.AddGameMember(ctx, dbgen.AddGameMemberParams{GameID: game.ID, UserID: u.ID, Role: *role}); err != nil {
+		return fmt.Errorf("add member (a game has one owner): %w", err)
+	}
+	fmt.Printf("%s is in %s as %s (if they were already a member, their role is unchanged)\n", u.Name, game.Key, *role)
 	return nil
 }
 
@@ -256,7 +423,8 @@ func buildContent(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	ctx := context.Background()
+	// A command on the server reaches every game.
+	ctx := auth.System(context.Background())
 	pool, err := openPool(ctx)
 	if err != nil {
 		return err
@@ -356,7 +524,7 @@ func importLicensed(args []string) error {
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return fmt.Errorf("%s: %w", *file, err)
 	}
-	ctx := context.Background()
+	ctx := auth.System(context.Background())
 	pool, err := openPool(ctx)
 	if err != nil {
 		return err

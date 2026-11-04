@@ -51,7 +51,7 @@ export type { Flash };
 /** The game being worked on, which the header's links follow. Pages set it:
  *  a game's own pages from the URL, a character or conversation's page from
  *  what it belongs to. */
-export type GameRef = { id: string; name: string; ruleset: string } | null;
+export type GameRef = { id: string; name: string; ruleset: string; role: string } | null;
 export const GameContext = createContext<{ game: GameRef; setGameId: (id: string) => void }>({ game: null, setGameId: () => {} });
 export const useGame = () => useContext(GameContext).game;
 

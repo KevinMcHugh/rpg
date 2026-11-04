@@ -83,6 +83,7 @@ Create `internal/server/widgets/widgets.go`, using `characters/characters.go` as
 - validation in `Interact`, returning `fmt.Errorf("%w: …", app.ErrBadInput)` or `app.NotFound(err, "widget", id)`;
 - `auth.KeyIDPtr(ctx)` for `created_by`;
 - if the resource belongs to a game (most do): a `game_id` column, list and create under `/games/{gameId}` checked with `app.Game`, and `app.SameGame` on anything it connects to;
+- `app.Access(ctx, store, kind, id)` first in every endpoint that takes the resource's id, which keeps it private to its game's members, with a case for the kind in the `GameAccess` query (`db/queries/games.sql`) and its id parameter in `TestEveryOperationIsMembersOnly`;
 - `app.RequireHuman(ctx)` first in every write, and, for a player-facing field, a `*_revision_id` column written through `app.Revise` in the same transaction (`InTx`), plus a check in `internal/content` so the build verifies it.
 
 If a view model links to a page, add a method to `app.Links`.

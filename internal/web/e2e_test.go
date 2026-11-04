@@ -55,6 +55,7 @@ type env struct {
 	keyID   string
 	agent   string // an agent's key
 	agentID string
+	userID  string // whose both keys are, and who owns the first game
 	q       *dbgen.Queries
 	pool    *pgxpool.Pool
 	client  *http.Client // never follows redirects
@@ -76,25 +77,83 @@ func newEnv(t *testing.T) *env {
 	ts := httptest.NewServer(nil)
 	t.Cleanup(ts.Close)
 	store := app.NewStore(pool)
-	ts.Config.Handler = web.New(store, ts.URL).Handler()
+	srv := web.New(store, ts.URL)
+	srv.Google = fakeGoogle(t)
+	ts.Config.Handler = srv.Handler()
 
-	mint := func(name, kind string) (raw, id string) {
-		raw, err := auth.GenerateKey()
-		if err != nil {
-			t.Fatal(err)
-		}
-		key, err := store.CreateAPIKey(ctx, dbgen.CreateAPIKeyParams{ID: xid.New().String(), Name: name, KeyHash: auth.Hash(raw), Kind: kind})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return raw, key.ID
-	}
 	e := &env{t: t, url: ts.URL, q: store.Queries, pool: pool, client: &http.Client{
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}}
-	e.key, e.keyID = mint("test", auth.KindHuman)
-	e.agent, e.agentID = mint("claude", auth.KindAgent)
+	e.userID = e.user("test")
+	e.key, e.keyID = e.mint("test", auth.KindHuman, e.userID)
+	e.agent, e.agentID = e.mint("claude", auth.KindAgent, e.userID)
+	if err := store.AddGameMember(ctx, dbgen.AddGameMemberParams{GameID: first, UserID: e.userID, Role: app.RoleOwner}); err != nil {
+		t.Fatal(err)
+	}
 	return e
+}
+
+// user makes a user.
+func (e *env) user(name string) string {
+	e.t.Helper()
+	u, err := e.q.CreateUser(context.Background(), dbgen.CreateUserParams{ID: xid.New().String(), Name: name})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return u.ID
+}
+
+// mint makes an api key of kind for userID.
+func (e *env) mint(name, kind, userID string) (raw, id string) {
+	e.t.Helper()
+	raw, err := auth.GenerateKey()
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	key, err := e.q.CreateAPIKey(context.Background(), dbgen.CreateAPIKeyParams{ID: xid.New().String(), Name: name, KeyHash: auth.Hash(raw), Kind: kind, UserID: &userID})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return raw, key.ID
+}
+
+// person makes a user with a human key, in no game.
+func (e *env) person(name string) (key, userID string) {
+	userID = e.user(name)
+	key, _ = e.mint(name, auth.KindHuman, userID)
+	return key, userID
+}
+
+// googleAccounts are the people the fake Google knows, by the code its
+// consent screen would hand back: the test sends the browser's callback
+// itself, with one of these codes.
+var googleAccounts = map[string]map[string]any{
+	"code-bea": {"sub": "g-bea", "email": "bea@example.com", "name": "Bea", "email_verified": true},
+	"code-cal": {"sub": "g-cal", "email": "cal@example.com", "name": "Cal", "email_verified": true},
+	"code-dee": {"sub": "g-dee", "email": "dee@example.com", "name": "Dee", "email_verified": true},
+}
+
+// fakeGoogle stands in for Google's token and userinfo endpoints.
+func fakeGoogle(t *testing.T) web.GoogleConfig {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /token", func(w http.ResponseWriter, r *http.Request) {
+		if r.FormValue("client_secret") != "secret" || googleAccounts[r.FormValue("code")] == nil {
+			http.Error(w, `{"error":"invalid_grant"}`, http.StatusBadRequest)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"access_token": "at-" + r.FormValue("code")})
+	})
+	mux.HandleFunc("GET /userinfo", func(w http.ResponseWriter, r *http.Request) {
+		info := googleAccounts[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer at-")]
+		if info == nil {
+			http.Error(w, "no", http.StatusUnauthorized)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(info)
+	})
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+	return web.GoogleConfig{ClientID: "client", ClientSecret: "secret", AuthURL: ts.URL + "/auth", TokenURL: ts.URL + "/token", UserInfoURL: ts.URL + "/userinfo"}
 }
 
 // migrate rebuilds the schema from the dbmate files' up sections.
@@ -849,7 +908,7 @@ func TestRulesetsAndLicensedText(t *testing.T) {
 	}
 
 	// The build accepts the licensed name and credits its source.
-	c, err := content.Load(ctx, store, g.ID)
+	c, err := content.Load(auth.System(ctx), store, g.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -859,7 +918,7 @@ func TestRulesetsAndLicensedText(t *testing.T) {
 	}
 	// Renaming the skill makes the name a person's, and the credit goes.
 	e.do("PATCH", "/api/skills/"+sk.ID, e.key, map[string]any{"name": "Our Own Name"}, http.StatusOK, nil)
-	c, _ = content.Load(ctx, store, g.ID)
+	c, _ = content.Load(auth.System(ctx), store, g.ID)
 	if bundle, report = content.Compile(c); !report.OK() || len(bundle.Credits) != 0 {
 		t.Fatalf("after renaming: errors %+v credits %+v", report.Errors, bundle.Credits)
 	}

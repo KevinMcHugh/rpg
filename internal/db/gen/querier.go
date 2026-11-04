@@ -9,12 +9,18 @@ import (
 )
 
 type Querier interface {
+	// ---- membership -------------------------------------------------------------
+	AddGameMember(ctx context.Context, arg AddGameMemberParams) error
+	// Spends an invite in one UPDATE, so two people racing one link cannot
+	// both join on it.
+	ClaimGameInvite(ctx context.Context, arg ClaimGameInviteParams) (GameInvite, error)
 	// Marks an invite used in one UPDATE, so two redemptions racing the same
 	// code cannot both succeed.
 	ClaimInviteByHash(ctx context.Context, codeHash string) (Invite, error)
 	// Only one conversation opens a game.
 	ClearOpening(ctx context.Context, arg ClearOpeningParams) error
 	ConsumeOAuthCode(ctx context.Context, codeHash string) (OauthCode, error)
+	ConsumeSSOLoginIntent(ctx context.Context, state string) (SsoLoginIntent, error)
 	CountOpenNotes(ctx context.Context, gameID string) (int64, error)
 	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (ApiKey, error)
 	CreateCharacter(ctx context.Context, arg CreateCharacterParams) (Character, error)
@@ -24,6 +30,8 @@ type Querier interface {
 	CreateConversation(ctx context.Context, arg CreateConversationParams) (Conversation, error)
 	CreateFlag(ctx context.Context, arg CreateFlagParams) (Flag, error)
 	CreateGame(ctx context.Context, arg CreateGameParams) (Game, error)
+	// ---- game invites -----------------------------------------------------------
+	CreateGameInvite(ctx context.Context, arg CreateGameInviteParams) (GameInvite, error)
 	CreateInvite(ctx context.Context, arg CreateInviteParams) (Invite, error)
 	// Licensed text, imported by `server import`: it names its source and
 	// license notice instead of a key.
@@ -35,9 +43,13 @@ type Querier interface {
 	CreateOAuthToken(ctx context.Context, arg CreateOAuthTokenParams) error
 	CreateQuest(ctx context.Context, arg CreateQuestParams) (Quest, error)
 	CreateQuestStage(ctx context.Context, arg CreateQuestStageParams) (QuestStage, error)
+	// ---- Google sign-in ---------------------------------------------------------
+	CreateSSOLoginIntent(ctx context.Context, arg CreateSSOLoginIntentParams) error
 	CreateSave(ctx context.Context, arg CreateSaveParams) (Save, error)
 	CreateSkill(ctx context.Context, arg CreateSkillParams) (Skill, error)
 	CreateTextRevision(ctx context.Context, arg CreateTextRevisionParams) (TextRevision, error)
+	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	CreateUserIdentity(ctx context.Context, arg CreateUserIdentityParams) (UserIdentity, error)
 	DeleteAPIKey(ctx context.Context, id string) error
 	DeleteCharacter(ctx context.Context, id string) (int64, error)
 	DeleteChoice(ctx context.Context, id string) (int64, error)
@@ -49,6 +61,7 @@ type Querier interface {
 	DeleteFlag(ctx context.Context, id string) (int64, error)
 	// Its content stays, but nothing lists it any more.
 	DeleteGame(ctx context.Context, id string) (int64, error)
+	DeleteGameInvite(ctx context.Context, id string) (int64, error)
 	DeleteInvite(ctx context.Context, id string) (int64, error)
 	DeleteNode(ctx context.Context, id string) (int64, error)
 	DeleteNote(ctx context.Context, id string) (int64, error)
@@ -58,6 +71,9 @@ type Querier interface {
 	DeleteQuestStages(ctx context.Context, questID string) error
 	DeleteSave(ctx context.Context, arg DeleteSaveParams) (int64, error)
 	DeleteSkill(ctx context.Context, id string) (int64, error)
+	// The game something belongs to, and the user's role in it ('' when they
+	// are not a member). No row when the thing, or its game, does not exist.
+	GameAccess(ctx context.Context, arg GameAccessParams) (GameAccessRow, error)
 	GetAPIKey(ctx context.Context, id string) (ApiKey, error)
 	GetAPIKeyByHash(ctx context.Context, keyHash string) (ApiKey, error)
 	GetCharacter(ctx context.Context, id string) (Character, error)
@@ -66,6 +82,11 @@ type Querier interface {
 	GetFlag(ctx context.Context, id string) (Flag, error)
 	GetGame(ctx context.Context, id string) (Game, error)
 	GetGameByKey(ctx context.Context, key string) (Game, error)
+	// An invite that can still be redeemed, with its game, for the join page.
+	GetGameInviteByHash(ctx context.Context, codeHash string) (GetGameInviteByHashRow, error)
+	// A user's own human key, which their web sessions act as. Signing in with
+	// Google mints one the first time; nobody ever sees it.
+	GetHumanKeyForUser(ctx context.Context, userID *string) (ApiKey, error)
 	GetNode(ctx context.Context, id string) (Node, error)
 	// A note with the name of the key that wrote it.
 	GetNote(ctx context.Context, id string) (GetNoteRow, error)
@@ -78,6 +99,8 @@ type Querier interface {
 	GetSave(ctx context.Context, arg GetSaveParams) (Save, error)
 	GetSkill(ctx context.Context, id string) (Skill, error)
 	GetSkillByKey(ctx context.Context, arg GetSkillByKeyParams) (Skill, error)
+	GetUser(ctx context.Context, id string) (User, error)
+	GetUserIdentity(ctx context.Context, arg GetUserIdentityParams) (UserIdentity, error)
 	ListAPIKeys(ctx context.Context) ([]ApiKey, error)
 	// Unused, unexpired, undeleted invites.
 	ListActiveInvites(ctx context.Context) ([]Invite, error)
@@ -93,7 +116,11 @@ type Querier interface {
 	ListChoicesByConversation(ctx context.Context, conversationID string) ([]Choice, error)
 	ListConversations(ctx context.Context, gameID string) ([]Conversation, error)
 	ListFlags(ctx context.Context, gameID string) ([]Flag, error)
+	ListGameInvites(ctx context.Context, gameID string) ([]GameInvite, error)
+	ListGameMembers(ctx context.Context, gameID string) ([]ListGameMembersRow, error)
 	ListGames(ctx context.Context) ([]Game, error)
+	// The games a user belongs to, with their role in each.
+	ListGamesForUser(ctx context.Context, userID string) ([]ListGamesForUserRow, error)
 	ListNodesByConversation(ctx context.Context, conversationID string) ([]Node, error)
 	// Filters left NULL match everything. Oldest first, so a thread reads in
 	// order.
@@ -105,6 +132,11 @@ type Querier interface {
 	// Revisions with the kind and name of the key that wrote them, or the
 	// source and notice of licensed text, for the build's provenance check.
 	ListTextRevisionsByIDs(ctx context.Context, ids []string) ([]ListTextRevisionsByIDsRow, error)
+	ListUserIdentities(ctx context.Context, userID string) ([]UserIdentity, error)
+	ListUsers(ctx context.Context) ([]User, error)
+	PurgeExpiredSSOLoginIntents(ctx context.Context) error
+	// The owner cannot be removed: a game always has one.
+	RemoveGameMember(ctx context.Context, arg RemoveGameMemberParams) (int64, error)
 	// A token stops working when its api key is deleted. client_id is NULL for
 	// a web session, and the key's kind says whether a person holds it.
 	ResolveAccessToken(ctx context.Context, tokenHash string) (ResolveAccessTokenRow, error)
@@ -113,6 +145,7 @@ type Querier interface {
 	SetInviteKey(ctx context.Context, arg SetInviteKeyParams) error
 	SetNoteStatus(ctx context.Context, arg SetNoteStatusParams) (Note, error)
 	TouchAPIKey(ctx context.Context, id string) error
+	TouchUserIdentity(ctx context.Context, arg TouchUserIdentityParams) error
 	// A new name comes with its new revision.
 	UpdateCharacter(ctx context.Context, arg UpdateCharacterParams) (Character, error)
 	// The set_ arguments say whether to change a nullable column, so a PATCH

@@ -85,6 +85,9 @@ func cleanCheck(ctx context.Context, q *dbgen.Queries, from dbgen.Node, gameID, 
 type CreateChoiceEndpoint struct{ Store TxStore }
 
 func (e CreateChoiceEndpoint) Interact(ctx context.Context, req apigen.CreateChoiceRequestObject) (choiceModel, error) {
+	if _, err := app.Access(ctx, e.Store, "node", req.NodeId); err != nil {
+		return choiceModel{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return choiceModel{}, err
 	}
@@ -168,6 +171,9 @@ func (CreateChoiceEndpoint) Render(vm Choice) apigen.CreateChoiceResponseObject 
 type UpdateChoiceEndpoint struct{ Store TxStore }
 
 func (e UpdateChoiceEndpoint) Interact(ctx context.Context, req apigen.UpdateChoiceRequestObject) (choiceModel, error) {
+	if _, err := app.Access(ctx, e.Store, "choice", req.ChoiceId); err != nil {
+		return choiceModel{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return choiceModel{}, err
 	}
@@ -277,6 +283,7 @@ func (UpdateChoiceEndpoint) Render(vm Choice) apigen.UpdateChoiceResponseObject 
 // -----------------------------------------------------------------------------
 
 type DeleteChoiceStore interface {
+	app.AccessStore
 	DeleteChoice(ctx context.Context, id string) (int64, error)
 }
 
@@ -284,6 +291,9 @@ type DeleteChoiceStore interface {
 type DeleteChoiceEndpoint struct{ Store DeleteChoiceStore }
 
 func (e DeleteChoiceEndpoint) Interact(ctx context.Context, req apigen.DeleteChoiceRequestObject) (bool, error) {
+	if _, err := app.Access(ctx, e.Store, "choice", req.ChoiceId); err != nil {
+		return false, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return false, err
 	}

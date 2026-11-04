@@ -304,6 +304,7 @@ func clean(field, s string, limit int, required bool) (string, error) {
 
 // GraphStore is what loading a whole conversation reads.
 type GraphStore interface {
+	app.AccessStore
 	WorldStore
 	GetConversation(ctx context.Context, id string) (dbgen.Conversation, error)
 	ListNodesByConversation(ctx context.Context, conversationID string) ([]dbgen.Node, error)
@@ -390,6 +391,9 @@ type GetEndpoint struct {
 }
 
 func (e GetEndpoint) Interact(ctx context.Context, req apigen.GetConversationRequestObject) (graphModel, error) {
+	if _, err := app.Access(ctx, e.Store, "conversation", req.ConversationId); err != nil {
+		return graphModel{}, err
+	}
 	return loadGraph(ctx, e.Store, req.ConversationId)
 }
 
@@ -417,6 +421,9 @@ type CreateEndpoint struct {
 }
 
 func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateConversationRequestObject) (graphModel, error) {
+	if _, err := app.Access(ctx, e.Store, "game", req.GameId); err != nil {
+		return graphModel{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return graphModel{}, err
 	}
@@ -461,6 +468,7 @@ func (e CreateEndpoint) Render(vm Graph) apigen.CreateConversationResponseObject
 // -----------------------------------------------------------------------------
 
 type UpdateStore interface {
+	app.AccessStore
 	GraphStore
 	TxStore
 }
@@ -473,6 +481,9 @@ type UpdateEndpoint struct {
 }
 
 func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateConversationRequestObject) (graphModel, error) {
+	if _, err := app.Access(ctx, e.Store, "conversation", req.ConversationId); err != nil {
+		return graphModel{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return graphModel{}, err
 	}
@@ -587,6 +598,7 @@ func inConversation(ctx context.Context, s interface {
 // -----------------------------------------------------------------------------
 
 type DeleteStore interface {
+	app.AccessStore
 	DeleteConversation(ctx context.Context, id string) (int64, error)
 }
 
@@ -595,6 +607,9 @@ type DeleteStore interface {
 type DeleteEndpoint struct{ Store DeleteStore }
 
 func (e DeleteEndpoint) Interact(ctx context.Context, req apigen.DeleteConversationRequestObject) (bool, error) {
+	if _, err := app.Access(ctx, e.Store, "conversation", req.ConversationId); err != nil {
+		return false, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return false, err
 	}

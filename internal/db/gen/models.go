@@ -17,6 +17,7 @@ type ApiKey struct {
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
 	DeletedAt  pgtype.Timestamptz `json:"deleted_at"`
+	UserID     *string            `json:"user_id"`
 }
 
 type Character struct {
@@ -94,6 +95,29 @@ type Game struct {
 	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
 }
 
+type GameInvite struct {
+	ID        string             `json:"id"`
+	GameID    string             `json:"game_id"`
+	CodeHash  string             `json:"code_hash"`
+	Note      string             `json:"note"`
+	CreatedBy string             `json:"created_by"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+	UsedAt    pgtype.Timestamptz `json:"used_at"`
+	UsedBy    *string            `json:"used_by"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type GameMember struct {
+	GameID    string             `json:"game_id"`
+	UserID    string             `json:"user_id"`
+	Role      string             `json:"role"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
+}
+
 type Invite struct {
 	ID        string             `json:"id"`
 	CodeHash  string             `json:"code_hash"`
@@ -104,6 +128,7 @@ type Invite struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
+	UserID    *string            `json:"user_id"`
 }
 
 type Node struct {
@@ -220,6 +245,22 @@ type Skill struct {
 	Ability        *string            `json:"ability"`
 }
 
+type SsoLoginIntent struct {
+	State               string             `json:"state"`
+	Provider            string             `json:"provider"`
+	ReturnTo            *string            `json:"return_to"`
+	ClientID            *string            `json:"client_id"`
+	RedirectUri         *string            `json:"redirect_uri"`
+	CodeChallenge       *string            `json:"code_challenge"`
+	CodeChallengeMethod *string            `json:"code_challenge_method"`
+	DownstreamState     *string            `json:"downstream_state"`
+	Scope               *string            `json:"scope"`
+	InviteCode          *string            `json:"invite_code"`
+	LinkUserID          *string            `json:"link_user_id"`
+	ExpiresAt           pgtype.Timestamptz `json:"expires_at"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+}
+
 type TextRevision struct {
 	ID            string             `json:"id"`
 	TargetKind    string             `json:"target_kind"`
@@ -230,4 +271,25 @@ type TextRevision struct {
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	Source        *string            `json:"source"`
 	LicenseNotice *string            `json:"license_notice"`
+}
+
+type User struct {
+	ID        string             `json:"id"`
+	Name      string             `json:"name"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type UserIdentity struct {
+	ID          string             `json:"id"`
+	UserID      string             `json:"user_id"`
+	Provider    string             `json:"provider"`
+	Subject     string             `json:"subject"`
+	Email       string             `json:"email"`
+	DisplayName *string            `json:"display_name"`
+	LastLoginAt pgtype.Timestamptz `json:"last_login_at"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt   pgtype.Timestamptz `json:"deleted_at"`
 }

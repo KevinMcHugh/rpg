@@ -87,4 +87,4 @@ Until `SPRITE_NAME` is set, the deploy job is skipped and only the tests run. To
 ## Connect Claude
 
 - **claude.ai:** add a custom connector at `https://myapp-<org>.sprites.app/mcp/rpc` with automatic client registration, then paste an `rpg_` key when asked, or an `rpg_iv_` invite the first time.
-- **Claude Code:** mint an agent key (`server keys create --name claude-code`, no `--human`), then `claude mcp add --transport http myapp https://myapp-<org>.sprites.app/mcp/rpc --header "Authorization: Bearer rpg_…"`.
+- **Claude Code:** mint an agent key for yourself (`server keys create --name claude-code --user you`, no `--human`), then `claude mcp add --transport http myapp https://myapp-<org>.sprites.app/mcp/rpc --header "Authorization: Bearer rpg_…"`.

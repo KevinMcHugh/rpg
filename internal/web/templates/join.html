@@ -1,0 +1,22 @@
+{{define "title"}}Join · {{.AppName}}{{end}}
+{{define "content"}}
+<div class="panel" style="max-width:30rem;margin:3rem auto">
+  {{if .Invalid}}
+  <h1>This link no longer works</h1>
+  <p class="muted">{{.Invalid}}. Ask whoever sent it for a new one.</p>
+  {{else}}
+  <h1>Join {{.Game}}</h1>
+  <p class="muted">{{.Inviter}} invited you to write in this game with them. The link works once.</p>
+  {{if .Me}}
+  <form method="POST" action="/join/{{.Code}}" style="margin-top:1rem">
+    <button type="submit">Join as {{.Me}}</button>
+  </form>
+  <p class="muted" style="margin-top:1rem">Not {{.Me}}? Sign out first, then open the link again.</p>
+  {{else}}
+  {{if .Google}}<p style="margin-top:1rem"><a class="btn" href="/auth/google?invite={{.Code}}">Sign in with Google to join</a></p>
+  <p class="muted">New here? Signing in with Google makes your account.</p>{{end}}
+  <p class="muted" style="margin-top:1rem">Have an api key? <a href="/login?next={{.Next}}">Sign in with it</a>, then come back to this page.</p>
+  {{end}}
+  {{end}}
+</div>
+{{end}}

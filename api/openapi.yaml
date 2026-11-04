@@ -17,6 +17,11 @@ info:
     and each game has its own ruleset. Everything else is addressed by id,
     which is unique across games.
 
+    A game belongs to its members: an owner, who may change or delete it and
+    invite people, and writers. A caller sees only the games their user is a
+    member of (an agent's key belongs to a user too); anything in another
+    game is a 404, as if it did not exist. See docs/auth.md.
+
     Every operation that changes something needs a human caller (a human
     api key, or a web session signed in with one) unless it says
     `x-agent-writable: true`. An agent caller gets a 403. Notes are the only
@@ -35,7 +40,7 @@ paths:
   /me:
     get:
       operationId: getMe
-      summary: The api key this request acts as
+      summary: The api key this request acts as, and its user
       responses:
         "200":
           description: The caller
@@ -53,7 +58,7 @@ paths:
   /games:
     get:
       operationId: listGames
-      summary: List games, oldest first
+      summary: List the caller's games, oldest first
       responses:
         "200":
           description: The games
@@ -65,7 +70,7 @@ paths:
           $ref: "#/components/responses/Unauthorized"
     post:
       operationId: createGame
-      summary: Create a game
+      summary: Create a game, owned by the caller
       requestBody:
         required: true
         content:
@@ -107,7 +112,7 @@ paths:
           $ref: "#/components/responses/NotFound"
     patch:
       operationId: updateGame
-      summary: Change a game's name, key or ruleset
+      summary: Change a game's name, key or ruleset (its owner only)
       requestBody:
         required: true
         content:
@@ -133,10 +138,114 @@ paths:
           $ref: "#/components/responses/Unprocessable"
     delete:
       operationId: deleteGame
-      summary: Delete a game; its content stops being listed or built
+      summary: Delete a game; its content stops being listed or built (its owner only)
       responses:
         "204":
           description: Deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /games/{gameId}/members:
+    parameters:
+      - $ref: "#/components/parameters/GameId"
+    get:
+      operationId: listMembers
+      summary: The game's members, owner first
+      responses:
+        "200":
+          description: The members
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /games/{gameId}/members/{userId}:
+    parameters:
+      - $ref: "#/components/parameters/GameId"
+      - $ref: "#/components/parameters/UserId"
+    delete:
+      operationId: removeMember
+      summary: Take a writer out of the game (the owner may remove anyone else; a writer may leave)
+      responses:
+        "204":
+          description: Removed
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+
+  /games/{gameId}/invites:
+    parameters:
+      - $ref: "#/components/parameters/GameId"
+    get:
+      operationId: listInvites
+      summary: The game's unused, unexpired invites (its owner only)
+      responses:
+        "200":
+          description: The invites
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InviteList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      operationId: createInvite
+      summary: Make a single-use link that brings someone into the game as a writer (its owner only)
+      description: |
+        The response carries the link, which is shown this once: only a hash
+        of it is stored. Whoever opens it signs in (or, with Google, signs
+        up) and joins the game. An invite is not a credential: it grants
+        nothing until someone signs in to redeem it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InviteCreate"
+      responses:
+        "201":
+          description: The invite, with its link
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invite"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+
+  /invites/{inviteId}:
+    parameters:
+      - $ref: "#/components/parameters/InviteId"
+    delete:
+      operationId: deleteInvite
+      summary: Revoke an unused invite (its game's owner only)
+      responses:
+        "204":
+          description: Revoked
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1024,6 +1133,18 @@ components:
       description: The web session set by /login.
 
   parameters:
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+    InviteId:
+      name: inviteId
+      in: path
+      required: true
+      schema:
+        type: string
     GameId:
       name: gameId
       in: path
@@ -1099,7 +1220,7 @@ components:
           schema:
             type: string
     Forbidden:
-      description: An agent caller tried to change the game's content
+      description: An agent caller tried to change the game's content, or a writer tried something only the game's owner may do
       content:
         application/json:
           schema:
@@ -1129,6 +1250,10 @@ components:
       type: object
       required: [keyId, name, human]
       properties:
+        user:
+          x-go-type-skip-optional-pointer: false
+          allOf:
+            - $ref: "#/components/schemas/User"
         keyId:
           type: string
         name:
@@ -1140,6 +1265,16 @@ components:
             Whether this caller may write the game's text: a human key used
             directly or through a web session. An OAuth connector token is
             never human, whichever key approved it.
+
+    User:
+      type: object
+      description: The person a key belongs to. Missing for a key minted before there were users and never given one.
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
 
     # ---- games ----
 
@@ -1153,10 +1288,19 @@ components:
         docs/mechanics.md.
       enum: [classic, srd52, srd35, pf2e]
 
+    Role:
+      type: string
+      description: |
+        owner: may change or delete the game and invite people, as well as
+        write. writer: may write the game's content and leave notes.
+      enum: [owner, writer]
+
     Game:
       type: object
-      required: [id, key, name, ruleset, url]
+      required: [id, key, name, ruleset, role, url]
       properties:
+        role:
+          $ref: "#/components/schemas/Role"
         id:
           type: string
         key:
@@ -1177,6 +1321,68 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Game"
+
+    Member:
+      type: object
+      required: [userId, name, role, joinedAt]
+      properties:
+        userId:
+          type: string
+        name:
+          type: string
+        role:
+          $ref: "#/components/schemas/Role"
+        joinedAt:
+          type: string
+          format: date-time
+
+    MemberList:
+      type: object
+      required: [members]
+      properties:
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/Member"
+
+    Invite:
+      type: object
+      required: [id, gameId, note, expiresAt, createdAt]
+      properties:
+        id:
+          type: string
+        gameId:
+          type: string
+        note:
+          type: string
+          description: Who the invite is for, as a reminder; nobody else sees it.
+        expiresAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        url:
+          type: string
+          description: The link to send. Only in the response that created the invite.
+
+    InviteList:
+      type: object
+      required: [invites]
+      properties:
+        invites:
+          type: array
+          items:
+            $ref: "#/components/schemas/Invite"
+
+    InviteCreate:
+      type: object
+      properties:
+        note:
+          type: string
+        expiresInHours:
+          type: integer
+          description: How long the link works for. Defaults to 168 (a week); at most 720.
 
     GameCreate:
       type: object

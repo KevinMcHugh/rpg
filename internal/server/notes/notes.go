@@ -170,6 +170,7 @@ func (e ListEndpoint) Render(vms []Note) apigen.ListNotesResponseObject {
 // -----------------------------------------------------------------------------
 
 type GetStore interface {
+	app.AccessStore
 	GetNote(ctx context.Context, id string) (dbgen.GetNoteRow, error)
 }
 
@@ -180,6 +181,9 @@ type GetEndpoint struct {
 }
 
 func (e GetEndpoint) Interact(ctx context.Context, req apigen.GetNoteRequestObject) (dbgen.GetNoteRow, error) {
+	if _, err := app.Access(ctx, e.Store, "note", req.NoteId); err != nil {
+		return dbgen.GetNoteRow{}, err
+	}
 	row, err := e.Store.GetNote(ctx, req.NoteId)
 	return row, app.NotFound(err, "note", req.NoteId)
 }
@@ -218,6 +222,9 @@ type CreateEndpoint struct {
 }
 
 func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateNoteRequestObject) (dbgen.GetNoteRow, error) {
+	if _, err := app.Access(ctx, e.Store, "game", req.GameId); err != nil {
+		return dbgen.GetNoteRow{}, err
+	}
 	b := req.Body
 	body := strings.TrimSpace(b.Body)
 	if body == "" {
@@ -351,6 +358,7 @@ func (e CreateEndpoint) Render(vm Note) apigen.CreateNoteResponseObject {
 // -----------------------------------------------------------------------------
 
 type UpdateStore interface {
+	app.AccessStore
 	GetStore
 	SetNoteStatus(ctx context.Context, arg dbgen.SetNoteStatusParams) (dbgen.Note, error)
 }
@@ -363,6 +371,9 @@ type UpdateEndpoint struct {
 }
 
 func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateNoteRequestObject) (dbgen.GetNoteRow, error) {
+	if _, err := app.Access(ctx, e.Store, "note", req.NoteId); err != nil {
+		return dbgen.GetNoteRow{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return dbgen.GetNoteRow{}, err
 	}
@@ -389,6 +400,7 @@ func (e UpdateEndpoint) Render(vm Note) apigen.UpdateNoteResponseObject {
 // -----------------------------------------------------------------------------
 
 type DeleteStore interface {
+	app.AccessStore
 	DeleteNote(ctx context.Context, id string) (int64, error)
 }
 
@@ -396,6 +408,9 @@ type DeleteStore interface {
 type DeleteEndpoint struct{ Store DeleteStore }
 
 func (e DeleteEndpoint) Interact(ctx context.Context, req apigen.DeleteNoteRequestObject) (bool, error) {
+	if _, err := app.Access(ctx, e.Store, "note", req.NoteId); err != nil {
+		return false, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return false, err
 	}

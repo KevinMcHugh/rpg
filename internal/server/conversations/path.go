@@ -30,6 +30,7 @@ type PathStep struct {
 }
 
 type PathStore interface {
+	app.AccessStore
 	GraphStore
 	GetNode(ctx context.Context, id string) (dbgen.Node, error)
 }
@@ -43,6 +44,9 @@ type pathModel struct {
 }
 
 func (e PathEndpoint) Interact(ctx context.Context, req apigen.GetNodePathRequestObject) (pathModel, error) {
+	if _, err := app.Access(ctx, e.Store, "node", req.NodeId); err != nil {
+		return pathModel{}, err
+	}
 	n, err := e.Store.GetNode(ctx, req.NodeId)
 	if err != nil {
 		return pathModel{}, app.NotFound(err, "node", req.NodeId)
