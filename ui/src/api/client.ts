@@ -46,8 +46,9 @@ export function must<T>(r: { data?: T; error?: unknown; response: Response }): T
     const e = r.error as { error?: string } | string | undefined;
     const msg = typeof e === "string" ? e : (e?.error ?? `${r.response.status} ${r.response.statusText}`);
     // The server names the kind of refusal first ("bad input: …"); the
-    // rest is the part a person needs.
-    throw new ApiError(msg.trim().replace(/^(bad input|forbidden|not found): /, ""), r.response.status);
+    // rest is the part a person needs. A conflict (409) is a save over
+    // someone else's newer one, and its message asks them to reload.
+    throw new ApiError(msg.trim().replace(/^(bad input|forbidden|not found|conflict): /, ""), r.response.status);
   }
   return r.data as T;
 }

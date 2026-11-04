@@ -288,6 +288,11 @@ func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateCharacter
 	return row, err
 }
 
+// Guard refuses a change over someone else's newer one.
+func (UpdateEndpoint) Guard(req apigen.UpdateCharacterRequestObject) app.Guard {
+	return app.Guard{Kind: "character", ID: req.CharacterId, Seen: req.Body.UpdatedAt}
+}
+
 func (e UpdateEndpoint) Build(row dbgen.Character) Character { return ToViewModel(row, e.Links) }
 
 func (e UpdateEndpoint) Render(vm Character) apigen.UpdateCharacterResponseObject {

@@ -33,7 +33,7 @@ export default function QuestPage() {
       must(
         await api.PATCH("/quests/{questId}", {
           params: { path: { questId: id } },
-          body: { name: str(f, "name"), key: str(f, "key"), summary: str(f, "summary") },
+          body: { name: str(f, "name"), key: str(f, "key"), summary: str(f, "summary"), updatedAt: q.updatedAt },
         }),
       );
       setEditing(false);
@@ -129,7 +129,7 @@ function StageCard({ s, reload, focused }: { s: Stage; reload: () => void; focus
       must(
         await api.PATCH("/stages/{stageId}", {
           params: { path: { stageId: s.id } },
-          body: { number: num(f, "number"), journal: str(f, "journal"), completes: f.get("completes") === "on" },
+          body: { number: num(f, "number"), journal: str(f, "journal"), completes: f.get("completes") === "on", updatedAt: s.updatedAt },
         }),
       );
       setEditing(false);

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/rs/xid"
@@ -35,8 +36,9 @@ type Game struct {
 	Name    string `json:"name"`
 	Ruleset string `json:"ruleset"`
 	// Role is the caller's: owner or writer.
-	Role string `json:"role"`
-	URL  string `json:"url"`
+	Role      string    `json:"role"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	URL       string    `json:"url"`
 }
 
 // Model is a stored game and the caller's role in it.
@@ -47,11 +49,11 @@ type Model struct {
 
 // ToViewModel is the view of a stored game, for a caller with role.
 func ToViewModel(row dbgen.Game, role string, links app.Links) Game {
-	return Game{ID: row.ID, Key: row.Key, Name: row.Name, Ruleset: row.Ruleset, Role: role, URL: links.Game(row.ID)}
+	return Game{ID: row.ID, Key: row.Key, Name: row.Name, Ruleset: row.Ruleset, Role: role, UpdatedAt: row.UpdatedAt.Time, URL: links.Game(row.ID)}
 }
 
 func toAPI(g Game) apigen.Game {
-	return apigen.Game{Id: g.ID, Key: g.Key, Name: g.Name, Ruleset: apigen.Ruleset(g.Ruleset), Role: apigen.Role(g.Role), Url: g.URL}
+	return apigen.Game{Id: g.ID, Key: g.Key, Name: g.Name, Ruleset: apigen.Ruleset(g.Ruleset), Role: apigen.Role(g.Role), UpdatedAt: g.UpdatedAt, Url: g.URL}
 }
 
 func cleanName(s string) (string, error) {
@@ -196,7 +198,7 @@ func (CreateEndpoint) Render(vm Game) apigen.CreateGameResponseObject {
 
 type UpdateStore interface {
 	app.AccessStore
-	UpdateGame(ctx context.Context, arg dbgen.UpdateGameParams) (dbgen.Game, error)
+	InTx(ctx context.Context, fn func(q *dbgen.Queries) error) error
 }
 
 // UpdateEndpoint changes a game's name, key or ruleset. Changing the
@@ -236,8 +238,18 @@ func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateGameReque
 		}
 		arg.Ruleset = &ruleset
 	}
-	row, err := e.Store.UpdateGame(ctx, arg)
-	return row, app.NotFound(err, "game", req.GameId)
+	var row dbgen.Game
+	err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+		var err error
+		row, err = q.UpdateGame(ctx, arg)
+		return app.NotFound(err, "game", req.GameId)
+	})
+	return row, err
+}
+
+// Guard refuses a change over someone else's newer one.
+func (UpdateEndpoint) Guard(req apigen.UpdateGameRequestObject) app.Guard {
+	return app.Guard{Kind: "game", ID: req.GameId, Seen: req.Body.UpdatedAt}
 }
 
 func (e UpdateEndpoint) Build(row dbgen.Game) Game { return ToViewModel(row, app.RoleOwner, e.Links) }

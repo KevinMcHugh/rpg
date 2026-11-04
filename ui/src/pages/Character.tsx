@@ -26,7 +26,7 @@ export default function CharacterPage() {
       must(
         await api.PATCH("/characters/{characterId}", {
           params: { path: { characterId: id } },
-          body: { name: str(f, "name"), key: str(f, "key"), bible: str(f, "bible"), companion: f.get("companion") === "on" },
+          body: { name: str(f, "name"), key: str(f, "key"), bible: str(f, "bible"), companion: f.get("companion") === "on", updatedAt: c.updatedAt },
         }),
       );
       setEditing(false);

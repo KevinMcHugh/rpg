@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/rs/xid"
@@ -70,20 +71,21 @@ type TxStore interface {
 
 // Flag is a named number in the world state; 0 is false.
 type Flag struct {
-	ID           string `json:"id"`
-	GameID       string `json:"gameId"`
-	Key          string `json:"key"`
-	Description  string `json:"description"`
-	InitialValue int    `json:"initialValue"`
-	URL          string `json:"url"`
+	ID           string    `json:"id"`
+	GameID       string    `json:"gameId"`
+	Key          string    `json:"key"`
+	Description  string    `json:"description"`
+	InitialValue int       `json:"initialValue"`
+	UpdatedAt    time.Time `json:"updatedAt"`
+	URL          string    `json:"url"`
 }
 
 func flagView(row dbgen.Flag, links app.Links) Flag {
-	return Flag{ID: row.ID, GameID: row.GameID, Key: row.Key, Description: row.Description, InitialValue: int(row.InitialValue), URL: links.World(row.GameID) + "#flag-" + row.ID}
+	return Flag{ID: row.ID, GameID: row.GameID, Key: row.Key, Description: row.Description, InitialValue: int(row.InitialValue), UpdatedAt: row.UpdatedAt.Time, URL: links.World(row.GameID) + "#flag-" + row.ID}
 }
 
 func flagAPI(f Flag) apigen.Flag {
-	return apigen.Flag{Id: f.ID, GameId: f.GameID, Key: f.Key, Description: f.Description, InitialValue: f.InitialValue, Url: f.URL}
+	return apigen.Flag{Id: f.ID, GameId: f.GameID, Key: f.Key, Description: f.Description, InitialValue: f.InitialValue, UpdatedAt: f.UpdatedAt, Url: f.URL}
 }
 
 type ListFlagsStore interface {
@@ -163,7 +165,7 @@ func (CreateFlagEndpoint) Render(vm Flag) apigen.CreateFlagResponseObject {
 
 type UpdateFlagStore interface {
 	app.AccessStore
-	UpdateFlag(ctx context.Context, arg dbgen.UpdateFlagParams) (dbgen.Flag, error)
+	InTx(ctx context.Context, fn func(q *dbgen.Queries) error) error
 }
 
 // UpdateFlagEndpoint changes a flag. Scripts refer to it by id, so a new
@@ -199,11 +201,21 @@ func (e UpdateFlagEndpoint) Interact(ctx context.Context, req apigen.UpdateFlagR
 		n := int32(*v)
 		arg.InitialValue = &n
 	}
-	row, err := e.Store.UpdateFlag(ctx, arg)
-	if arg.Key != nil {
-		err = app.KeyTaken(err, "flag", *arg.Key)
-	}
-	return row, app.NotFound(err, "flag", req.FlagId)
+	var row dbgen.Flag
+	err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+		var err error
+		row, err = q.UpdateFlag(ctx, arg)
+		if arg.Key != nil {
+			err = app.KeyTaken(err, "flag", *arg.Key)
+		}
+		return app.NotFound(err, "flag", req.FlagId)
+	})
+	return row, err
+}
+
+// Guard refuses a change over someone else's newer one.
+func (UpdateFlagEndpoint) Guard(req apigen.UpdateFlagRequestObject) app.Guard {
+	return app.Guard{Kind: "flag", ID: req.FlagId, Seen: req.Body.UpdatedAt}
 }
 
 func (e UpdateFlagEndpoint) Build(row dbgen.Flag) Flag { return flagView(row, e.Links) }
@@ -255,21 +267,22 @@ func deleted(ctx context.Context, kind, id string, del func(context.Context, str
 
 // Skill is something the player is good at, at a level.
 type Skill struct {
-	ID           string `json:"id"`
-	GameID       string `json:"gameId"`
-	Key          string `json:"key"`
-	Name         string `json:"name"`
-	InitialLevel int    `json:"initialLevel"`
-	Ability      string `json:"ability"`
-	URL          string `json:"url"`
+	ID           string    `json:"id"`
+	GameID       string    `json:"gameId"`
+	Key          string    `json:"key"`
+	Name         string    `json:"name"`
+	InitialLevel int       `json:"initialLevel"`
+	Ability      string    `json:"ability"`
+	UpdatedAt    time.Time `json:"updatedAt"`
+	URL          string    `json:"url"`
 }
 
 func skillView(row dbgen.Skill, links app.Links) Skill {
-	return Skill{ID: row.ID, GameID: row.GameID, Key: row.Key, Name: row.Name, InitialLevel: int(row.InitialLevel), Ability: deref(row.Ability), URL: links.World(row.GameID) + "#skill-" + row.ID}
+	return Skill{ID: row.ID, GameID: row.GameID, Key: row.Key, Name: row.Name, InitialLevel: int(row.InitialLevel), Ability: deref(row.Ability), UpdatedAt: row.UpdatedAt.Time, URL: links.World(row.GameID) + "#skill-" + row.ID}
 }
 
 func skillAPI(s Skill) apigen.Skill {
-	return apigen.Skill{Id: s.ID, GameId: s.GameID, Key: s.Key, Name: s.Name, InitialLevel: s.InitialLevel, Ability: s.Ability, Url: s.URL}
+	return apigen.Skill{Id: s.ID, GameId: s.GameID, Key: s.Key, Name: s.Name, InitialLevel: s.InitialLevel, Ability: s.Ability, UpdatedAt: s.UpdatedAt, Url: s.URL}
 }
 
 type ListSkillsStore interface {
@@ -418,6 +431,11 @@ func (e UpdateSkillEndpoint) Interact(ctx context.Context, req apigen.UpdateSkil
 	return row, err
 }
 
+// Guard refuses a change over someone else's newer one.
+func (UpdateSkillEndpoint) Guard(req apigen.UpdateSkillRequestObject) app.Guard {
+	return app.Guard{Kind: "skill", ID: req.SkillId, Seen: req.Body.UpdatedAt}
+}
+
 func (e UpdateSkillEndpoint) Build(row dbgen.Skill) Skill { return skillView(row, e.Links) }
 
 func (UpdateSkillEndpoint) Render(vm Skill) apigen.UpdateSkillResponseObject {
@@ -451,22 +469,24 @@ func (DeleteSkillEndpoint) Render(bool) apigen.DeleteSkillResponseObject {
 
 // Quest is a quest with its stages, in order.
 type Quest struct {
-	ID      string  `json:"id"`
-	GameID  string  `json:"gameId"`
-	Key     string  `json:"key"`
-	Name    string  `json:"name"`
-	Summary string  `json:"summary"`
-	Stages  []Stage `json:"stages"`
-	URL     string  `json:"url"`
+	ID        string    `json:"id"`
+	GameID    string    `json:"gameId"`
+	Key       string    `json:"key"`
+	Name      string    `json:"name"`
+	Summary   string    `json:"summary"`
+	Stages    []Stage   `json:"stages"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	URL       string    `json:"url"`
 }
 
 // Stage is a step of a quest, with its journal entry.
 type Stage struct {
-	ID        string `json:"id"`
-	QuestID   string `json:"questId"`
-	Number    int    `json:"number"`
-	Journal   string `json:"journal"`
-	Completes bool   `json:"completes"`
+	ID        string    `json:"id"`
+	QuestID   string    `json:"questId"`
+	Number    int       `json:"number"`
+	Journal   string    `json:"journal"`
+	Completes bool      `json:"completes"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 type questModel struct {
@@ -477,17 +497,17 @@ type questModel struct {
 func questView(m questModel, links app.Links) Quest {
 	stages := make([]Stage, len(m.Stages))
 	for i, s := range m.Stages {
-		stages[i] = Stage{ID: s.ID, QuestID: s.QuestID, Number: int(s.Number), Journal: s.Journal, Completes: s.Completes}
+		stages[i] = Stage{ID: s.ID, QuestID: s.QuestID, Number: int(s.Number), Journal: s.Journal, Completes: s.Completes, UpdatedAt: s.UpdatedAt.Time}
 	}
-	return Quest{ID: m.Quest.ID, GameID: m.Quest.GameID, Key: m.Quest.Key, Name: m.Quest.Name, Summary: m.Quest.Summary, Stages: stages, URL: links.Quest(m.Quest.ID)}
+	return Quest{ID: m.Quest.ID, GameID: m.Quest.GameID, Key: m.Quest.Key, Name: m.Quest.Name, Summary: m.Quest.Summary, Stages: stages, UpdatedAt: m.Quest.UpdatedAt.Time, URL: links.Quest(m.Quest.ID)}
 }
 
 func questAPI(q Quest) apigen.Quest {
 	stages := make([]apigen.QuestStage, len(q.Stages))
 	for i, s := range q.Stages {
-		stages[i] = apigen.QuestStage{Id: s.ID, QuestId: s.QuestID, Number: s.Number, Journal: s.Journal, Completes: s.Completes}
+		stages[i] = apigen.QuestStage{Id: s.ID, QuestId: s.QuestID, Number: s.Number, Journal: s.Journal, Completes: s.Completes, UpdatedAt: s.UpdatedAt}
 	}
-	return apigen.Quest{Id: q.ID, GameId: q.GameID, Key: q.Key, Name: q.Name, Summary: q.Summary, Stages: stages, Url: q.URL}
+	return apigen.Quest{Id: q.ID, GameId: q.GameID, Key: q.Key, Name: q.Name, Summary: q.Summary, Stages: stages, UpdatedAt: q.UpdatedAt, Url: q.URL}
 }
 
 type QuestReadStore interface {
@@ -685,6 +705,11 @@ func (e UpdateQuestEndpoint) Interact(ctx context.Context, req apigen.UpdateQues
 	return m, err
 }
 
+// Guard refuses a change over someone else's newer one.
+func (UpdateQuestEndpoint) Guard(req apigen.UpdateQuestRequestObject) app.Guard {
+	return app.Guard{Kind: "quest", ID: req.QuestId, Seen: req.Body.UpdatedAt}
+}
+
 func (e UpdateQuestEndpoint) Build(m questModel) Quest { return questView(m, e.Links) }
 
 func (UpdateQuestEndpoint) Render(vm Quest) apigen.UpdateQuestResponseObject {
@@ -842,6 +867,11 @@ func (e UpdateStageEndpoint) Interact(ctx context.Context, req apigen.UpdateQues
 		return err
 	})
 	return m, err
+}
+
+// Guard refuses a change over someone else's newer one.
+func (UpdateStageEndpoint) Guard(req apigen.UpdateQuestStageRequestObject) app.Guard {
+	return app.Guard{Kind: "quest_stage", ID: req.StageId, Seen: req.Body.UpdatedAt}
 }
 
 func (e UpdateStageEndpoint) Build(m questModel) Quest { return questView(m, e.Links) }

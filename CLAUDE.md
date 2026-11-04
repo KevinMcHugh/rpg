@@ -33,6 +33,8 @@ To change something in a generated file, edit its source (the spec, a query or a
 
 Endpoints return `app.ErrNotFound`, `app.ErrBadInput` or `app.ErrForbidden` (wrapped with `%w` and a message). `internal/server/server.go` maps them to the spec's 404, 422 and 403, the app shows their message, and MCP returns them as tool errors.
 
+Every PATCH is guarded against stale writes: the body requires the `updatedAt` the caller loaded, the endpoint implements `Guard(req) app.Guard` (`server.Guarded`), `server.go` runs it with `RunGuarded` and maps `app.ErrConflict` to 409, and the write happens in `InTx`, which locks the row and compares. The app sends back the `updatedAt` of what it is editing. See "Stale writes" in @docs/architecture.md.
+
 ## Adding a resource
 
 Follow @docs/adding-a-resource.md. In short: migration → queries → spec → `make generate` → `internal/server/<resource>/` → wire into `server.go` → MCP tools in `internal/appmcp` → screens in `ui/` → a case in `e2e_test.go`.

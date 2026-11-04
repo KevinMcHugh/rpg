@@ -6,8 +6,10 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"html"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -269,14 +271,23 @@ func TestAPIFlow(t *testing.T) {
 	}
 
 	// A PATCH changes only what it sends; an empty speaker is the narrator.
+	// It sends back the updatedAt it loaded, and gets the new one.
 	var upd conversations.Node
-	e.do("PATCH", "/api/nodes/"+n1.ID, e.key, map[string]any{"text": "So. You came back."}, http.StatusOK, &upd)
-	if upd.Text != "So. You came back." || upd.SpeakerName != "Aria" || len(upd.Choices) != 2 {
+	e.do("PATCH", "/api/nodes/"+n1.ID, e.key, map[string]any{"text": "So. You came back.", "updatedAt": n1.UpdatedAt}, http.StatusOK, &upd)
+	if upd.Text != "So. You came back." || upd.SpeakerName != "Aria" || len(upd.Choices) != 2 || !upd.UpdatedAt.After(n1.UpdatedAt) {
 		t.Fatalf("updated node %+v", upd)
 	}
-	e.do("PATCH", "/api/nodes/"+n1.ID, e.key, map[string]any{"speakerId": ""}, http.StatusOK, &upd)
+	e.do("PATCH", "/api/nodes/"+n1.ID, e.key, map[string]any{"speakerId": "", "updatedAt": upd.UpdatedAt}, http.StatusOK, &upd)
 	if upd.SpeakerID != "" || upd.Text != "So. You came back." {
 		t.Fatalf("narrated node %+v", upd)
+	}
+	// A write from a copy loaded before someone else's save is refused, and
+	// changes nothing; so is one that does not say which copy it is from.
+	e.do("PATCH", "/api/nodes/"+n1.ID, e.key, map[string]any{"text": "A stale line.", "updatedAt": n1.UpdatedAt}, http.StatusConflict, nil)
+	e.do("PATCH", "/api/nodes/"+n1.ID, e.key, map[string]any{"text": "A stale line."}, http.StatusUnprocessableEntity, nil)
+	e.do("GET", "/api/nodes/"+n1.ID+"/path", e.key, nil, http.StatusOK, &path)
+	if path.Steps[len(path.Steps)-1].Text != "So. You came back." {
+		t.Fatalf("a refused write changed the line: %+v", path)
 	}
 
 	// An agent reads everything, writes none of it, and leaves notes.
@@ -308,7 +319,7 @@ func TestAPIFlow(t *testing.T) {
 	e.do("POST", "/api/games/"+first+"/notes", e.agent, map[string]any{"targetKind": "node", "targetId": "nope", "body": "x"}, http.StatusNotFound, nil)
 	e.do("POST", "/api/games/"+first+"/notes", e.agent, map[string]any{"kind": "rant", "body": "x"}, http.StatusUnprocessableEntity, nil)
 	e.do("PATCH", "/api/notes/"+note.ID, e.agent, map[string]any{"status": "resolved"}, http.StatusForbidden, nil)
-	e.do("PATCH", "/api/notes/"+note.ID, e.key, map[string]any{"status": "resolved"}, http.StatusOK, &note)
+	e.do("PATCH", "/api/notes/"+note.ID, e.key, map[string]any{"status": "resolved", "updatedAt": note.UpdatedAt}, http.StatusOK, &note)
 	var list struct{ Notes []notes.Note }
 	e.do("GET", "/api/games/"+first+"/notes?status=open", e.agent, nil, http.StatusOK, &list)
 	if len(list.Notes) != 1 || list.Notes[0].ID != reply.ID {
@@ -329,7 +340,7 @@ func TestAPIFlow(t *testing.T) {
 	if report.OK || len(report.Errors) != 1 || report.Errors[0].Code != "dangling_choice" || report.Errors[0].URL != e.url+"/choices/"+c1.ID {
 		t.Fatalf("report after delete %+v", report)
 	}
-	e.do("PATCH", "/api/choices/"+c1.ID, e.key, map[string]any{"toNodeId": ""}, http.StatusOK, nil)
+	e.do("PATCH", "/api/choices/"+c1.ID, e.key, map[string]any{"toNodeId": "", "updatedAt": c1.UpdatedAt}, http.StatusOK, nil)
 	e.do("GET", "/api/games/"+first+"/build", e.key, nil, http.StatusOK, &report)
 	if !report.OK {
 		t.Fatalf("report after repointing %+v", report)
@@ -672,14 +683,14 @@ func TestMechanics(t *testing.T) {
 	e.do("POST", "/api/nodes/"+n1.ID+"/choices", e.key, map[string]any{"text": "I'm new here.", "toNodeId": n3.ID, "condition": "not met_mayor", "sortOrder": 1}, http.StatusCreated, &stranger)
 
 	// Renaming a flag shows in every script that names it.
-	e.do("PATCH", "/api/flags/"+flag.ID, e.key, map[string]any{"key": "knows_mayor"}, http.StatusOK, nil)
+	e.do("PATCH", "/api/flags/"+flag.ID, e.key, map[string]any{"key": "knows_mayor", "updatedAt": flag.UpdatedAt}, http.StatusOK, nil)
 	e.do("GET", "/api/conversations/"+conv, e.key, nil, http.StatusOK, &g)
 	if got := g.Nodes[0].Choices[1].Condition; got != "not knows_mayor" {
 		t.Fatalf("condition after renaming the flag: %q", got)
 	}
 	// A PATCH can drop a check.
 	var plain conversations.Choice
-	e.do("PATCH", "/api/choices/"+stranger.ID, e.key, map[string]any{"checkSkillId": ""}, http.StatusOK, &plain)
+	e.do("PATCH", "/api/choices/"+stranger.ID, e.key, map[string]any{"checkSkillId": "", "updatedAt": stranger.UpdatedAt}, http.StatusOK, &plain)
 	if plain.CheckSkillID != "" || plain.Condition != "not knows_mayor" {
 		t.Fatalf("choice after dropping its check %+v", plain)
 	}
@@ -698,7 +709,7 @@ func TestMechanics(t *testing.T) {
 	}
 	var restored world.Skill
 	e.do("POST", "/api/games/"+first+"/skills", e.key, map[string]any{"name": "Persuasion", "initialLevel": 2}, http.StatusCreated, &restored)
-	e.do("PATCH", "/api/choices/"+ask.ID, e.key, map[string]any{"checkSkillId": restored.ID}, http.StatusOK, &ask)
+	e.do("PATCH", "/api/choices/"+ask.ID, e.key, map[string]any{"checkSkillId": restored.ID, "updatedAt": ask.UpdatedAt}, http.StatusOK, &ask)
 	if ask.CheckDifficulty != 2 || ask.FailNodeID != n3.ID {
 		t.Fatalf("a check keeps the parts not sent: %+v", ask)
 	}
@@ -844,7 +855,7 @@ func TestGames(t *testing.T) {
 
 	// Renaming and deleting.
 	var renamed games.Game
-	e.do("PATCH", "/api/games/"+g2.ID, e.key, map[string]any{"name": "Star Saga", "ruleset": "pf2e"}, http.StatusOK, &renamed)
+	e.do("PATCH", "/api/games/"+g2.ID, e.key, map[string]any{"name": "Star Saga", "ruleset": "pf2e", "updatedAt": g2.UpdatedAt}, http.StatusOK, &renamed)
 	if renamed.Name != "Star Saga" || renamed.Ruleset != "pf2e" || renamed.Key != "space_opera" {
 		t.Fatalf("renamed %+v", renamed)
 	}
@@ -884,7 +895,7 @@ func TestRulesetsAndLicensedText(t *testing.T) {
 		t.Fatalf("skills %+v", skills.Skills)
 	}
 	sk := skills.Skills[0]
-	e.do("PATCH", "/api/skills/"+sk.ID, e.key, map[string]any{"ability": "luck"}, http.StatusUnprocessableEntity, nil)
+	e.do("PATCH", "/api/skills/"+sk.ID, e.key, map[string]any{"ability": "luck", "updatedAt": sk.UpdatedAt}, http.StatusUnprocessableEntity, nil)
 
 	var conv conversations.Graph
 	e.do("POST", "/api/games/"+g.ID+"/conversations", e.key, map[string]any{"title": "Gate"}, http.StatusCreated, &conv)
@@ -902,7 +913,7 @@ func TestRulesetsAndLicensedText(t *testing.T) {
 		t.Fatalf("choice %+v", ch)
 	}
 	// Dropping one branch keeps the others.
-	e.do("PATCH", "/api/choices/"+ch.ID, e.key, map[string]any{"critFailNodeId": ""}, http.StatusOK, &ch)
+	e.do("PATCH", "/api/choices/"+ch.ID, e.key, map[string]any{"critFailNodeId": "", "updatedAt": ch.UpdatedAt}, http.StatusOK, &ch)
 	if ch.CritSuccessID != great.ID || ch.CritFailID != "" || ch.FailNodeID != no.ID {
 		t.Fatalf("choice after dropping a branch %+v", ch)
 	}
@@ -917,13 +928,13 @@ func TestRulesetsAndLicensedText(t *testing.T) {
 		t.Fatalf("errors %+v, bundle ruleset %q credits %+v skills %+v", report.Errors, bundle.Ruleset, bundle.Credits, bundle.Skills)
 	}
 	// Renaming the skill makes the name a person's, and the credit goes.
-	e.do("PATCH", "/api/skills/"+sk.ID, e.key, map[string]any{"name": "Our Own Name"}, http.StatusOK, nil)
+	e.do("PATCH", "/api/skills/"+sk.ID, e.key, map[string]any{"name": "Our Own Name", "updatedAt": sk.UpdatedAt}, http.StatusOK, nil)
 	c, _ = content.Load(auth.System(ctx), store, g.ID)
 	if bundle, report = content.Compile(c); !report.OK() || len(bundle.Credits) != 0 {
 		t.Fatalf("after renaming: errors %+v credits %+v", report.Errors, bundle.Credits)
 	}
 	// Under a ruleset with no critical degrees, the critical branch warns.
-	e.do("PATCH", "/api/games/"+g.ID, e.key, map[string]any{"ruleset": "srd52"}, http.StatusOK, nil)
+	e.do("PATCH", "/api/games/"+g.ID, e.key, map[string]any{"ruleset": "srd52", "updatedAt": g.UpdatedAt}, http.StatusOK, nil)
 	var r build.Report
 	e.do("GET", "/api/games/"+g.ID+"/build", e.key, nil, http.StatusOK, &r)
 	if !r.OK || len(r.Warnings) == 0 || r.Warnings[0].Code != "crit_unused" {
@@ -1067,5 +1078,103 @@ func TestMCPTools(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized || resp.Header.Get("WWW-Authenticate") == "" {
 		t.Fatalf("anonymous MCP: %d", resp.StatusCode)
+	}
+}
+
+// TestStaleWrites checks every PATCH against a stale updatedAt: a write
+// from a copy loaded before someone else's save is a 409 and changes
+// nothing, a write from the current copy goes through, and of two saves
+// racing from the same copy exactly one lands.
+func TestStaleWrites(t *testing.T) {
+	e := newEnv(t)
+	var (
+		g     games.Game
+		c     characters.Character
+		conv  conversations.Graph
+		n1    conversations.Node
+		ch    conversations.Choice
+		flag  world.Flag
+		skill world.Skill
+		quest world.Quest
+		note  notes.Note
+	)
+	e.do("GET", "/api/games/"+first, e.key, nil, http.StatusOK, &g)
+	e.do("POST", "/api/games/"+first+"/characters", e.key, map[string]any{"name": "A"}, http.StatusCreated, &c)
+	e.do("POST", "/api/games/"+first+"/conversations", e.key, map[string]any{"title": "A"}, http.StatusCreated, &conv)
+	e.do("POST", "/api/conversations/"+conv.Conversation.ID+"/nodes", e.key, map[string]any{"text": "A line."}, http.StatusCreated, &n1)
+	e.do("POST", "/api/nodes/"+n1.ID+"/choices", e.key, map[string]any{"text": "A choice."}, http.StatusCreated, &ch)
+	e.do("POST", "/api/games/"+first+"/flags", e.key, map[string]any{"key": "a"}, http.StatusCreated, &flag)
+	e.do("POST", "/api/games/"+first+"/skills", e.key, map[string]any{"name": "A"}, http.StatusCreated, &skill)
+	e.do("POST", "/api/games/"+first+"/quests", e.key, map[string]any{"name": "A"}, http.StatusCreated, &quest)
+	e.do("POST", "/api/quests/"+quest.ID+"/stages", e.key, map[string]any{"number": 1, "journal": "A"}, http.StatusCreated, &quest)
+	e.do("POST", "/api/games/"+first+"/notes", e.key, map[string]any{"targetKind": "game", "body": "A"}, http.StatusCreated, &note)
+	// Reload the conversation: adding its first line made that its start.
+	e.do("GET", "/api/conversations/"+conv.Conversation.ID, e.key, nil, http.StatusOK, &conv)
+	stage := quest.Stages[0]
+
+	for _, w := range []struct {
+		path string
+		seen time.Time
+		body map[string]any
+	}{
+		{"/api/games/" + g.ID, g.UpdatedAt, map[string]any{"name": "B"}},
+		{"/api/characters/" + c.ID, c.UpdatedAt, map[string]any{"bible": "B"}},
+		{"/api/conversations/" + conv.Conversation.ID, conv.Conversation.UpdatedAt, map[string]any{"summary": "B"}},
+		{"/api/nodes/" + n1.ID, n1.UpdatedAt, map[string]any{"effects": "a = 1"}},
+		{"/api/choices/" + ch.ID, ch.UpdatedAt, map[string]any{"sortOrder": 2}},
+		{"/api/flags/" + flag.ID, flag.UpdatedAt, map[string]any{"description": "B"}},
+		{"/api/skills/" + skill.ID, skill.UpdatedAt, map[string]any{"initialLevel": 1}},
+		{"/api/quests/" + quest.ID, quest.UpdatedAt, map[string]any{"summary": "B"}},
+		{"/api/stages/" + stage.ID, stage.UpdatedAt, map[string]any{"completes": true}},
+		{"/api/notes/" + note.ID, note.UpdatedAt, map[string]any{"status": "resolved"}},
+	} {
+		if w.seen.IsZero() {
+			t.Fatalf("%s: no updatedAt to send back", w.path)
+		}
+		with := func(seen time.Time) map[string]any {
+			b := maps.Clone(w.body)
+			b["updatedAt"] = seen
+			return b
+		}
+		e.do("PATCH", w.path, e.key, w.body, http.StatusUnprocessableEntity, nil)
+		e.do("PATCH", w.path, e.key, with(w.seen.Add(-time.Second)), http.StatusConflict, nil)
+		e.do("PATCH", w.path, e.key, with(w.seen), http.StatusOK, nil)
+		// The save moved updatedAt on, so the copy it was made from is stale.
+		e.do("PATCH", w.path, e.key, with(w.seen), http.StatusConflict, nil)
+	}
+
+	// Two saves from the same copy at once: the row lock lets one in, and
+	// the other sees its write.
+	var cur characters.Character
+	e.do("GET", "/api/characters/"+c.ID, e.key, nil, http.StatusOK, &cur)
+	const racers = 8
+	codes := make(chan int, racers)
+	for i := range racers {
+		go func() {
+			b, _ := json.Marshal(map[string]any{"bible": fmt.Sprint(i), "updatedAt": cur.UpdatedAt})
+			req, _ := http.NewRequest("PATCH", e.url+"/api/characters/"+c.ID, bytes.NewReader(b))
+			req.Header.Set("Authorization", "Bearer "+e.key)
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := e.client.Do(req)
+			if err != nil {
+				codes <- 0
+				return
+			}
+			resp.Body.Close()
+			codes <- resp.StatusCode
+		}()
+	}
+	won := 0
+	for range racers {
+		switch code := <-codes; code {
+		case http.StatusOK:
+			won++
+		case http.StatusConflict:
+		default:
+			t.Fatalf("racing save: status %d", code)
+		}
+	}
+	if won != 1 {
+		t.Fatalf("%d of %d racing saves from one copy landed, want 1", won, racers)
 	}
 }

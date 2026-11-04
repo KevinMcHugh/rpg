@@ -19,7 +19,7 @@ export default function NotesPage() {
     [gameId, status],
   );
   const set = (n: Note, s: Note["status"]) =>
-    act(async () => must(await api.PATCH("/notes/{noteId}", { params: { path: { noteId: n.id } }, body: { status: s } })), "").then(reload);
+    act(async () => must(await api.PATCH("/notes/{noteId}", { params: { path: { noteId: n.id } }, body: { status: s, updatedAt: n.updatedAt } })), "").then(reload);
   const remove = (n: Note) =>
     confirm("Delete this note?") &&
     act(async () => must(await api.DELETE("/notes/{noteId}", { params: { path: { noteId: n.id } } })), "Deleted.").then(reload);

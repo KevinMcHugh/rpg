@@ -129,6 +129,7 @@ function Header({ ctx }: { ctx: Ctx }) {
             startNodeId: str(f, "start"),
             repeatable: f.get("repeatable") === "on",
             opening: f.get("opening") === "on",
+            updatedAt: c.updatedAt,
           },
         }),
       );
@@ -267,7 +268,7 @@ function NodeCard({ n, index, ctx, focused, focus }: { n: Node; index: number; c
       must(
         await api.PATCH("/nodes/{nodeId}", {
           params: { path: { nodeId: n.id } },
-          body: { speakerId: str(f, "speaker"), text: str(f, "text"), effects: str(f, "effects") },
+          body: { speakerId: str(f, "speaker"), text: str(f, "text"), effects: str(f, "effects"), updatedAt: n.updatedAt },
         }),
       );
       setEditing(false);
@@ -409,7 +410,7 @@ function ChoiceForm({ ctx, nodeId, choice, order, onDone }: { ctx: Ctx; nodeId?:
           ? { critSuccessNodeId: check ? str(f, "critSuccess") : "", critFailNodeId: check ? str(f, "critFail") : "" }
           : {}),
       };
-      if (choice) must(await api.PATCH("/choices/{choiceId}", { params: { path: { choiceId: choice.id } }, body }));
+      if (choice) must(await api.PATCH("/choices/{choiceId}", { params: { path: { choiceId: choice.id } }, body: { ...body, updatedAt: choice.updatedAt } }));
       else must(await api.POST("/nodes/{nodeId}/choices", { params: { path: { nodeId: nodeId! } }, body }));
       onDone();
       ctx.reload();

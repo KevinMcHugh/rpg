@@ -115,7 +115,7 @@ export function Notes({
   const replies = (p: Note) => notes.filter((n) => n.parentId === p.id);
 
   const status = (n: Note, s: Note["status"]) =>
-    act(async () => must(await api.PATCH("/notes/{noteId}", { params: { path: { noteId: n.id } }, body: { status: s } })), "").then(onChange);
+    act(async () => must(await api.PATCH("/notes/{noteId}", { params: { path: { noteId: n.id } }, body: { status: s, updatedAt: n.updatedAt } })), "").then(onChange);
   const add = (f: FormData) =>
     act(async () => {
       must(
