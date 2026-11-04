@@ -77,7 +77,7 @@ func serve() error {
 		Title: envOr("TITLE", "RPG"),
 		Store: dbgen.New(pool),
 		Owner: func(context.Context) *string { return nil },
-		Load: func(context.Context) (*game.Game, string, error) {
+		Load: func(context.Context, string) (*game.Game, string, error) {
 			return g, "", nil
 		},
 	}

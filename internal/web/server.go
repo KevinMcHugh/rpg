@@ -98,7 +98,12 @@ func (s *Server) Handler() http.Handler {
 	r.Handle("/assets/*", ui.Assets())
 	r.Group(func(r chi.Router) {
 		r.Use(auth.Require(q, s.toLogin))
-		for _, path := range []string{"/", "/characters/{id}", "/conversations/{id}", "/world", "/quests/{id}", "/notes", "/build"} {
+		for _, path := range []string{
+			"/", "/games", "/games/{id}", "/games/{id}/world", "/games/{id}/notes", "/games/{id}/build",
+			"/characters/{id}", "/conversations/{id}", "/quests/{id}",
+			// From before there were games; the app sends them to the first.
+			"/world", "/notes", "/build",
+		} {
 			r.Get(path, ui.Index)
 		}
 		// Notes and build issues link to a node, choice or stage by id

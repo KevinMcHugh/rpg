@@ -12,11 +12,11 @@ SELECT * FROM nodes
 WHERE conversation_id = $1 AND deleted_at IS NULL
 ORDER BY created_at, id;
 
--- Every live node of every live conversation, for the build.
+-- Every live node of every live conversation in a game, for the build.
 -- name: ListAllNodes :many
 SELECT nodes.* FROM nodes
 JOIN conversations ON conversations.id = nodes.conversation_id AND conversations.deleted_at IS NULL
-WHERE nodes.deleted_at IS NULL
+WHERE conversations.game_id = $1 AND nodes.deleted_at IS NULL
 ORDER BY nodes.conversation_id, nodes.created_at, nodes.id;
 
 -- set_speaker says whether to change speaker_id, so a PATCH can make a

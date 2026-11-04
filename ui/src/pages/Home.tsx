@@ -1,34 +1,43 @@
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, must } from "../api/client";
-import { useAct, useLoad, useMe } from "../hooks";
+import { useAct, useGameId, useLoad, useMe } from "../hooks";
 import { Badge, Form, Key, Loading, Notes, notesFor, str } from "../components/ui";
 
 export default function Home() {
+  const { gameId = "" } = useParams();
+  useGameId(gameId);
   const me = useMe();
   const act = useAct();
   const nav = useNavigate();
   const { data, error, reload } = useLoad(async () => {
+    const path = { params: { path: { gameId } } };
     const [convs, chars, report, notes] = await Promise.all([
-      api.GET("/conversations").then(must),
-      api.GET("/characters").then(must),
-      api.GET("/build").then(must),
-      api.GET("/notes").then(must),
+      api.GET("/games/{gameId}/conversations", path).then(must),
+      api.GET("/games/{gameId}/characters", path).then(must),
+      api.GET("/games/{gameId}/build", path).then(must),
+      api.GET("/games/{gameId}/notes", path).then(must),
     ]);
     return { convs: convs.conversations, chars: chars.characters, report, notes: notes.notes };
-  }, []);
+  }, [gameId]);
   if (!data) return <Loading error={error} />;
   const { convs, chars, report, notes } = data;
   const s = report.stats;
 
   const newConversation = (f: FormData) =>
     act(async () => {
-      const g = must(await api.POST("/conversations", { body: { title: str(f, "title"), key: str(f, "key"), summary: str(f, "summary") } }));
+      const g = must(
+        await api.POST("/games/{gameId}/conversations", {
+          params: { path: { gameId } },
+          body: { title: str(f, "title"), key: str(f, "key"), summary: str(f, "summary") },
+        }),
+      );
       nav("/conversations/" + g.conversation.id);
     });
   const newCharacter = (f: FormData) =>
     act(async () => {
       const c = must(
-        await api.POST("/characters", {
+        await api.POST("/games/{gameId}/characters", {
+          params: { path: { gameId } },
           body: { name: str(f, "name"), key: str(f, "key"), bible: str(f, "bible"), companion: f.get("companion") === "on" },
         }),
       );
@@ -39,13 +48,13 @@ export default function Home() {
     <>
       <div className="row spread">
         <h1>Content</h1>
-        <Link to="/build">
+        <Link to={"/games/" + gameId + "/build"}>
           {report.ok ? <Badge tone="ok">builds</Badge> : <Badge tone="err">{report.errors.length} build errors</Badge>}
         </Link>
       </div>
       <p className="muted">
         {s.conversations} conversations · {s.nodes} lines · {s.choices} choices · {s.words} words · {s.quests} quests ·{" "}
-        <Link to="/notes">{s.openNotes} open notes</Link>
+        <Link to={"/games/" + gameId + "/notes"}>{s.openNotes} open notes</Link>
       </p>
 
       <div className="grid2">
@@ -122,7 +131,7 @@ export default function Home() {
 
       <section>
         <h2>Notes on the whole game</h2>
-        <Notes kind="game" id="" notes={notesFor(notes, "game", "")} onChange={reload} />
+        <Notes game={gameId} kind="game" id="" notes={notesFor(notes, "game", "")} onChange={reload} />
       </section>
     </>
   );

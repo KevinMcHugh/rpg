@@ -20,9 +20,9 @@ type TxStore interface {
 	InTx(ctx context.Context, fn func(q *dbgen.Queries) error) error
 }
 
-// speaker checks that a speaker id names a live character. An empty id is
-// the narrator.
-func speaker(ctx context.Context, q *dbgen.Queries, id string) (*string, error) {
+// speaker checks that a speaker id names a live character in the game. An
+// empty id is the narrator.
+func speaker(ctx context.Context, q *dbgen.Queries, id, gameID string) (*string, error) {
 	if id == "" {
 		return nil, nil
 	}
@@ -33,7 +33,19 @@ func speaker(ctx context.Context, q *dbgen.Queries, id string) (*string, error) 
 		}
 		return nil, err
 	}
+	if err := app.SameGame("character "+id, c.GameID, gameID); err != nil {
+		return nil, err
+	}
 	return &c.ID, nil
+}
+
+// gameOf is the game a node is in, through its conversation.
+func gameOf(ctx context.Context, q *dbgen.Queries, n dbgen.Node) (string, error) {
+	c, err := q.GetConversation(ctx, n.ConversationID)
+	if err != nil {
+		return "", fmt.Errorf("node %s: its conversation: %w", n.ID, err)
+	}
+	return c.GameID, nil
 }
 
 // -----------------------------------------------------------------------------
@@ -62,11 +74,11 @@ func (e CreateNodeEndpoint) Interact(ctx context.Context, req apigen.CreateNodeR
 		if err != nil {
 			return app.NotFound(err, "conversation", req.ConversationId)
 		}
-		speakerID, err := speaker(ctx, q, strings.TrimSpace(req.Body.SpeakerId))
+		speakerID, err := speaker(ctx, q, strings.TrimSpace(req.Body.SpeakerId), conv.GameID)
 		if err != nil {
 			return err
 		}
-		w, err := loadWorld(ctx, q)
+		w, err := loadWorld(ctx, q, conv.GameID)
 		if err != nil {
 			return err
 		}
@@ -135,15 +147,19 @@ func (e UpdateNodeEndpoint) Interact(ctx context.Context, req apigen.UpdateNodeR
 		if err != nil {
 			return app.NotFound(err, "node", req.NodeId)
 		}
+		game, err := gameOf(ctx, q, cur)
+		if err != nil {
+			return err
+		}
 		arg := dbgen.UpdateNodeParams{ID: cur.ID}
 		if s := req.Body.SpeakerId; s != nil {
 			arg.SetSpeaker = true
-			if arg.SpeakerID, err = speaker(ctx, q, strings.TrimSpace(*s)); err != nil {
+			if arg.SpeakerID, err = speaker(ctx, q, strings.TrimSpace(*s), game); err != nil {
 				return err
 			}
 		}
 		if ef := req.Body.Effects; ef != nil {
-			names, err := app.LoadNames(ctx, q)
+			names, err := app.LoadNames(ctx, q, game)
 			if err != nil {
 				return err
 			}
@@ -163,7 +179,7 @@ func (e UpdateNodeEndpoint) Interact(ctx context.Context, req apigen.UpdateNodeR
 		if err != nil {
 			return app.NotFound(err, "node", req.NodeId)
 		}
-		m, err = loadNode(ctx, q, row)
+		m, err = loadNode(ctx, q, row, game)
 		return err
 	})
 	return m, err
@@ -175,8 +191,8 @@ func (e UpdateNodeEndpoint) Render(vm Node) apigen.UpdateNodeResponseObject {
 	return apigen.UpdateNode200JSONResponse(toAPINode(vm))
 }
 
-// loadNode fills in a node's choices and the world its view needs.
-func loadNode(ctx context.Context, q *dbgen.Queries, row dbgen.Node) (nodeModel, error) {
+// loadNode fills in a node's choices and the world of its game.
+func loadNode(ctx context.Context, q *dbgen.Queries, row dbgen.Node, gameID string) (nodeModel, error) {
 	all, err := q.ListChoicesByConversation(ctx, row.ConversationID)
 	if err != nil {
 		return nodeModel{}, err
@@ -187,7 +203,7 @@ func loadNode(ctx context.Context, q *dbgen.Queries, row dbgen.Node) (nodeModel,
 			choices = append(choices, c)
 		}
 	}
-	w, err := loadWorld(ctx, q)
+	w, err := loadWorld(ctx, q, gameID)
 	if err != nil {
 		return nodeModel{}, err
 	}

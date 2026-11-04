@@ -30,23 +30,30 @@ type Endpoint struct {
 	Links app.Links
 }
 
-func (e Endpoint) Interact(ctx context.Context, _ apigen.GetBuildReportRequestObject) (content.Report, error) {
-	c, err := content.Load(ctx, e.Store)
-	if err != nil {
-		return content.Report{}, err
-	}
-	_, report := content.Compile(c)
-	return report, nil
+// model is a game's build report, and the game.
+type model struct {
+	GameID string
+	Report content.Report
 }
 
-func (e Endpoint) Build(r content.Report) Report {
+func (e Endpoint) Interact(ctx context.Context, req apigen.GetBuildReportRequestObject) (model, error) {
+	c, err := content.Load(ctx, e.Store, req.GameId)
+	if err != nil {
+		return model{}, err
+	}
+	_, report := content.Compile(c)
+	return model{GameID: req.GameId, Report: report}, nil
+}
+
+func (e Endpoint) Build(m model) Report {
 	issues := func(in []content.Issue) []Issue {
 		out := make([]Issue, len(in))
 		for i, is := range in {
-			out[i] = Issue{Issue: is, URL: e.Links.Target(is.TargetKind, is.TargetID)}
+			out[i] = Issue{Issue: is, URL: e.Links.Target(m.GameID, is.TargetKind, is.TargetID)}
 		}
 		return out
 	}
+	r := m.Report
 	return Report{OK: r.OK(), Errors: issues(r.Errors), Warnings: issues(r.Warnings), Stats: r.Stats}
 }
 

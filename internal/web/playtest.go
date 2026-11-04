@@ -25,8 +25,8 @@ func (s *Server) playtest() *play.Handler {
 		Back:  "/",
 		Store: s.Store,
 		Owner: auth.KeyIDPtr,
-		Load: func(ctx context.Context) (*game.Game, string, error) {
-			c, err := content.Load(ctx, s.Store)
+		Load: func(ctx context.Context, gameID string) (*game.Game, string, error) {
+			c, err := content.Load(ctx, s.Store, gameID)
 			if err != nil {
 				return nil, "", err
 			}
@@ -37,8 +37,18 @@ func (s *Server) playtest() *play.Handler {
 			}
 			return game.New(bundle), notice, nil
 		},
-		Setup: func(ctx context.Context, text string) ([]script.Effect, error) {
-			names, err := app.LoadNames(ctx, s.Store)
+		DefaultGame: func(ctx context.Context) (string, error) {
+			games, err := s.Store.ListGames(ctx)
+			if err != nil {
+				return "", err
+			}
+			if len(games) == 0 {
+				return "", fmt.Errorf("%w: there are no games yet", app.ErrNotFound)
+			}
+			return games[0].ID, nil
+		},
+		Setup: func(ctx context.Context, gameID, text string) ([]script.Effect, error) {
+			names, err := app.LoadNames(ctx, s.Store, gameID)
 			if err != nil {
 				return nil, err
 			}

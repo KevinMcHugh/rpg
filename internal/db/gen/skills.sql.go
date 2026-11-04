@@ -10,13 +10,14 @@ import (
 )
 
 const createSkill = `-- name: CreateSkill :one
-INSERT INTO skills (id, key, name, name_revision_id, initial_level, created_by)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, key, name, name_revision_id, initial_level, created_by, created_at, updated_at, deleted_at
+INSERT INTO skills (id, game_id, key, name, name_revision_id, initial_level, created_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, key, name, name_revision_id, initial_level, created_by, created_at, updated_at, deleted_at, game_id
 `
 
 type CreateSkillParams struct {
 	ID             string  `json:"id"`
+	GameID         string  `json:"game_id"`
 	Key            string  `json:"key"`
 	Name           string  `json:"name"`
 	NameRevisionID string  `json:"name_revision_id"`
@@ -27,6 +28,7 @@ type CreateSkillParams struct {
 func (q *Queries) CreateSkill(ctx context.Context, arg CreateSkillParams) (Skill, error) {
 	row := q.db.QueryRow(ctx, createSkill,
 		arg.ID,
+		arg.GameID,
 		arg.Key,
 		arg.Name,
 		arg.NameRevisionID,
@@ -44,6 +46,7 @@ func (q *Queries) CreateSkill(ctx context.Context, arg CreateSkillParams) (Skill
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.GameID,
 	)
 	return i, err
 }
@@ -62,7 +65,7 @@ func (q *Queries) DeleteSkill(ctx context.Context, id string) (int64, error) {
 }
 
 const getSkill = `-- name: GetSkill :one
-SELECT id, key, name, name_revision_id, initial_level, created_by, created_at, updated_at, deleted_at FROM skills
+SELECT id, key, name, name_revision_id, initial_level, created_by, created_at, updated_at, deleted_at, game_id FROM skills
 WHERE id = $1 AND deleted_at IS NULL
 `
 
@@ -79,18 +82,19 @@ func (q *Queries) GetSkill(ctx context.Context, id string) (Skill, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.GameID,
 	)
 	return i, err
 }
 
 const listSkills = `-- name: ListSkills :many
-SELECT id, key, name, name_revision_id, initial_level, created_by, created_at, updated_at, deleted_at FROM skills
-WHERE deleted_at IS NULL
+SELECT id, key, name, name_revision_id, initial_level, created_by, created_at, updated_at, deleted_at, game_id FROM skills
+WHERE game_id = $1 AND deleted_at IS NULL
 ORDER BY name, id
 `
 
-func (q *Queries) ListSkills(ctx context.Context) ([]Skill, error) {
-	rows, err := q.db.Query(ctx, listSkills)
+func (q *Queries) ListSkills(ctx context.Context, gameID string) ([]Skill, error) {
+	rows, err := q.db.Query(ctx, listSkills, gameID)
 	if err != nil {
 		return nil, err
 	}
@@ -108,6 +112,7 @@ func (q *Queries) ListSkills(ctx context.Context) ([]Skill, error) {
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.GameID,
 		); err != nil {
 			return nil, err
 		}
@@ -127,7 +132,7 @@ UPDATE skills SET
     initial_level = COALESCE($5, initial_level),
     updated_at = NOW()
 WHERE id = $1 AND deleted_at IS NULL
-RETURNING id, key, name, name_revision_id, initial_level, created_by, created_at, updated_at, deleted_at
+RETURNING id, key, name, name_revision_id, initial_level, created_by, created_at, updated_at, deleted_at, game_id
 `
 
 type UpdateSkillParams struct {
@@ -158,6 +163,7 @@ func (q *Queries) UpdateSkill(ctx context.Context, arg UpdateSkillParams) (Skill
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.GameID,
 	)
 	return i, err
 }

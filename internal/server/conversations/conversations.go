@@ -40,6 +40,7 @@ const (
 // Conversation is a conversation without its nodes.
 type Conversation struct {
 	ID          string    `json:"id"`
+	GameID      string    `json:"gameId"`
 	Key         string    `json:"key"`
 	Title       string    `json:"title"`
 	Summary     string    `json:"summary"`
@@ -90,6 +91,7 @@ type Graph struct {
 func ToViewModel(row dbgen.Conversation, w world, links app.Links) Conversation {
 	return Conversation{
 		ID:          row.ID,
+		GameID:      row.GameID,
 		Key:         row.Key,
 		Title:       row.Title,
 		Summary:     row.Summary,
@@ -134,21 +136,21 @@ type world struct {
 	Skills   map[string]string // skill id → name
 }
 
-// WorldStore is what loading a world reads.
+// WorldStore is what loading a game's world reads.
 type WorldStore interface {
 	app.NamesStore
 }
 
-func loadWorld(ctx context.Context, s WorldStore) (world, error) {
-	names, err := app.LoadNames(ctx, s)
+func loadWorld(ctx context.Context, s WorldStore, gameID string) (world, error) {
+	names, err := app.LoadNames(ctx, s, gameID)
 	if err != nil {
 		return world{}, err
 	}
-	chars, err := s.ListCharacters(ctx)
+	chars, err := s.ListCharacters(ctx, gameID)
 	if err != nil {
 		return world{}, err
 	}
-	skills, err := s.ListSkills(ctx)
+	skills, err := s.ListSkills(ctx, gameID)
 	if err != nil {
 		return world{}, err
 	}
@@ -219,6 +221,7 @@ func speakerName(speakers map[string]string, id *string) string {
 func toAPIConversation(c Conversation) apigen.Conversation {
 	return apigen.Conversation{
 		Id:          c.ID,
+		GameId:      c.GameID,
 		Key:         c.Key,
 		Title:       c.Title,
 		Summary:     c.Summary,
@@ -315,7 +318,7 @@ func loadGraph(ctx context.Context, s GraphStore, id string) (graphModel, error)
 	if err != nil {
 		return graphModel{}, err
 	}
-	w, err := loadWorld(ctx, s)
+	w, err := loadWorld(ctx, s, conv.GameID)
 	if err != nil {
 		return graphModel{}, err
 	}
@@ -328,9 +331,11 @@ func loadGraph(ctx context.Context, s GraphStore, id string) (graphModel, error)
 
 type ListStore interface {
 	WorldStore
+	app.GameStore
 }
 
-// ListEndpoint is every conversation, newest first, without nodes.
+// ListEndpoint is every conversation in a game, newest first, without
+// nodes.
 type ListEndpoint struct {
 	Store ListStore
 	Links app.Links
@@ -341,12 +346,15 @@ type listModel struct {
 	World world
 }
 
-func (e ListEndpoint) Interact(ctx context.Context, _ apigen.ListConversationsRequestObject) (listModel, error) {
-	rows, err := e.Store.ListConversations(ctx)
+func (e ListEndpoint) Interact(ctx context.Context, req apigen.ListConversationsRequestObject) (listModel, error) {
+	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
+		return listModel{}, err
+	}
+	rows, err := e.Store.ListConversations(ctx, req.GameId)
 	if err != nil {
 		return listModel{}, err
 	}
-	w, err := loadWorld(ctx, e.Store)
+	w, err := loadWorld(ctx, e.Store, req.GameId)
 	return listModel{Rows: rows, World: w}, err
 }
 
@@ -392,11 +400,12 @@ func (e GetEndpoint) Render(vm Graph) apigen.GetConversationResponseObject {
 
 type CreateStore interface {
 	WorldStore
+	app.GameStore
 	CreateConversation(ctx context.Context, arg dbgen.CreateConversationParams) (dbgen.Conversation, error)
 }
 
-// CreateEndpoint saves a new, empty conversation; the first one opens the
-// game. People only: an agent suggests a conversation in a note.
+// CreateEndpoint saves a new, empty conversation in a game; the game's
+// first one opens it. People only: an agent suggests a conversation in a note.
 type CreateEndpoint struct {
 	Store CreateStore
 	Links app.Links
@@ -418,8 +427,12 @@ func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateConversat
 	if err != nil {
 		return graphModel{}, err
 	}
+	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
+		return graphModel{}, err
+	}
 	row, err := e.Store.CreateConversation(ctx, dbgen.CreateConversationParams{
 		ID:        xid.New().String(),
+		GameID:    req.GameId,
 		Key:       key,
 		Title:     title,
 		Summary:   summary,
@@ -428,7 +441,7 @@ func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateConversat
 	if err != nil {
 		return graphModel{}, app.KeyTaken(err, "conversation", key)
 	}
-	w, err := loadWorld(ctx, e.Store)
+	w, err := loadWorld(ctx, e.Store, row.GameID)
 	return graphModel{Conversation: row, World: w}, err
 }
 
@@ -503,7 +516,7 @@ func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateConversat
 			}
 		}
 		if c := b.Condition; c != nil {
-			names, err := app.LoadNames(ctx, q)
+			names, err := app.LoadNames(ctx, q, cur.GameID)
 			if err != nil {
 				return err
 			}
@@ -524,7 +537,7 @@ func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateConversat
 			}
 		}
 		if b.Opening != nil && *b.Opening {
-			if err := q.ClearOpening(ctx, cur.ID); err != nil {
+			if err := q.ClearOpening(ctx, dbgen.ClearOpeningParams{ID: cur.ID, GameID: cur.GameID}); err != nil {
 				return err
 			}
 		}

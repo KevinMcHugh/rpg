@@ -19,9 +19,10 @@ import (
 	"github.com/KevinMcHugh/rpg/internal/script"
 )
 
-// Content is everything the build reads: every live row, and the revisions
-// the rows point at.
+// Content is everything the build reads for one game: its every live row,
+// and the revisions the rows point at.
 type Content struct {
+	Game          dbgen.Game
 	Characters    []dbgen.Character
 	Conversations []dbgen.Conversation
 	Nodes         []dbgen.Node
@@ -86,6 +87,7 @@ const (
 // graph, and nothing authoring-only (no bibles, titles, summaries or
 // notes).
 type Bundle struct {
+	Ruleset       string         `json:"ruleset"` // how checks resolve (package rules)
 	Opening       string         `json:"opening"` // the conversation the game opens with
 	Characters    []Character    `json:"characters"`
 	Conversations []Conversation `json:"conversations"`
@@ -185,7 +187,10 @@ func Compile(c Content) (Bundle, Report) {
 		}
 	}
 
-	b := Bundle{Characters: []Character{}, Conversations: []Conversation{}, Flags: []Flag{}, Skills: []Skill{}, Quests: []Quest{}}
+	b := Bundle{Ruleset: c.Game.Ruleset, Characters: []Character{}, Conversations: []Conversation{}, Flags: []Flag{}, Skills: []Skill{}, Quests: []Quest{}}
+	if b.Ruleset == "" {
+		b.Ruleset = "classic"
+	}
 	speakers := map[string]bool{}
 	for _, ch := range c.Characters {
 		attest("character", ch.ID, "name", ch.Name, ch.NameRevisionID)
@@ -410,44 +415,48 @@ func deref(s *string) string {
 
 // LoadStore is what Load reads.
 type LoadStore interface {
-	ListFlags(ctx context.Context) ([]dbgen.Flag, error)
-	ListSkills(ctx context.Context) ([]dbgen.Skill, error)
-	ListQuests(ctx context.Context) ([]dbgen.Quest, error)
-	ListAllQuestStages(ctx context.Context) ([]dbgen.QuestStage, error)
-	ListCharacters(ctx context.Context) ([]dbgen.Character, error)
-	ListConversations(ctx context.Context) ([]dbgen.Conversation, error)
-	ListAllNodes(ctx context.Context) ([]dbgen.Node, error)
-	ListAllChoices(ctx context.Context) ([]dbgen.Choice, error)
+	app.GameStore
+	ListFlags(ctx context.Context, gameID string) ([]dbgen.Flag, error)
+	ListSkills(ctx context.Context, gameID string) ([]dbgen.Skill, error)
+	ListQuests(ctx context.Context, gameID string) ([]dbgen.Quest, error)
+	ListAllQuestStages(ctx context.Context, gameID string) ([]dbgen.QuestStage, error)
+	ListCharacters(ctx context.Context, gameID string) ([]dbgen.Character, error)
+	ListConversations(ctx context.Context, gameID string) ([]dbgen.Conversation, error)
+	ListAllNodes(ctx context.Context, gameID string) ([]dbgen.Node, error)
+	ListAllChoices(ctx context.Context, gameID string) ([]dbgen.Choice, error)
 	ListTextRevisionsByIDs(ctx context.Context, ids []string) ([]dbgen.ListTextRevisionsByIDsRow, error)
-	CountOpenNotes(ctx context.Context) (int64, error)
+	CountOpenNotes(ctx context.Context, gameID string) (int64, error)
 }
 
-// Load reads everything Compile needs.
-func Load(ctx context.Context, s LoadStore) (Content, error) {
+// Load reads everything Compile needs for a game.
+func Load(ctx context.Context, s LoadStore, gameID string) (Content, error) {
 	var c Content
 	var err error
-	if c.Characters, err = s.ListCharacters(ctx); err != nil {
+	if c.Game, err = app.Game(ctx, s, gameID); err != nil {
 		return Content{}, err
 	}
-	if c.Conversations, err = s.ListConversations(ctx); err != nil {
+	if c.Characters, err = s.ListCharacters(ctx, gameID); err != nil {
 		return Content{}, err
 	}
-	if c.Nodes, err = s.ListAllNodes(ctx); err != nil {
+	if c.Conversations, err = s.ListConversations(ctx, gameID); err != nil {
 		return Content{}, err
 	}
-	if c.Choices, err = s.ListAllChoices(ctx); err != nil {
+	if c.Nodes, err = s.ListAllNodes(ctx, gameID); err != nil {
 		return Content{}, err
 	}
-	if c.Flags, err = s.ListFlags(ctx); err != nil {
+	if c.Choices, err = s.ListAllChoices(ctx, gameID); err != nil {
 		return Content{}, err
 	}
-	if c.Skills, err = s.ListSkills(ctx); err != nil {
+	if c.Flags, err = s.ListFlags(ctx, gameID); err != nil {
 		return Content{}, err
 	}
-	if c.Quests, err = s.ListQuests(ctx); err != nil {
+	if c.Skills, err = s.ListSkills(ctx, gameID); err != nil {
 		return Content{}, err
 	}
-	if c.Stages, err = s.ListAllQuestStages(ctx); err != nil {
+	if c.Quests, err = s.ListQuests(ctx, gameID); err != nil {
+		return Content{}, err
+	}
+	if c.Stages, err = s.ListAllQuestStages(ctx, gameID); err != nil {
 		return Content{}, err
 	}
 	var ids []string
@@ -482,7 +491,7 @@ func Load(ctx context.Context, s LoadStore) (Content, error) {
 	for _, r := range revs {
 		c.Revisions[r.ID] = r
 	}
-	open, err := s.CountOpenNotes(ctx)
+	open, err := s.CountOpenNotes(ctx, gameID)
 	if err != nil {
 		return Content{}, err
 	}

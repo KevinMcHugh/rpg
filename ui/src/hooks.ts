@@ -47,3 +47,42 @@ export function useAct() {
 }
 
 export type { Flash };
+
+/** The game being worked on, which the header's links follow. Pages set it:
+ *  a game's own pages from the URL, a character or conversation's page from
+ *  what it belongs to. */
+export type GameRef = { id: string; name: string; ruleset: string } | null;
+export const GameContext = createContext<{ game: GameRef; setGameId: (id: string) => void }>({ game: null, setGameId: () => {} });
+export const useGame = () => useContext(GameContext).game;
+
+/** useGameId makes id the current game. */
+export function useGameId(id: string | undefined) {
+  const { setGameId } = useContext(GameContext);
+  useEffect(() => {
+    if (id) setGameId(id);
+  }, [id, setGameId]);
+}
+
+const lastGameKey = "rpg.lastGame";
+/** The game last worked on in this browser, for "/" to return to. */
+export function lastGame(): string | null {
+  try {
+    return localStorage.getItem(lastGameKey);
+  } catch {
+    return null;
+  }
+}
+export function rememberGame(id: string) {
+  try {
+    localStorage.setItem(lastGameKey, id);
+  } catch {
+    /* private window: nothing to remember */
+  }
+}
+
+export const rulesetNames: Record<string, string> = {
+  classic: "Classic (2d6)",
+  srd52: "SRD 5.2",
+  srd35: "3.5 SRD",
+  pf2e: "Pathfinder 2e",
+};

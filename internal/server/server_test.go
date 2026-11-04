@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/KevinMcHugh/rpg/internal/app"
 	"github.com/KevinMcHugh/rpg/internal/auth"
@@ -27,7 +28,14 @@ type fakeStore struct {
 	notes     []dbgen.Note
 }
 
-func (f *fakeStore) ListCharacters(context.Context) ([]dbgen.Character, error) {
+func (f *fakeStore) GetGame(_ context.Context, id string) (dbgen.Game, error) {
+	if id != "g1" {
+		return dbgen.Game{}, pgx.ErrNoRows
+	}
+	return dbgen.Game{ID: "g1", Key: "first", Name: "First", Ruleset: "classic"}, nil
+}
+
+func (f *fakeStore) ListCharacters(context.Context, string) ([]dbgen.Character, error) {
 	return []dbgen.Character{f.character}, nil
 }
 
@@ -36,7 +44,7 @@ func (f *fakeStore) GetCharacter(context.Context, string) (dbgen.Character, erro
 }
 
 func (f *fakeStore) CreateNote(_ context.Context, arg dbgen.CreateNoteParams) (dbgen.Note, error) {
-	n := dbgen.Note{ID: arg.ID, TargetKind: arg.TargetKind, TargetID: arg.TargetID, Kind: arg.Kind, Body: arg.Body, Status: "open", ByHuman: arg.ByHuman}
+	n := dbgen.Note{ID: arg.ID, GameID: arg.GameID, TargetKind: arg.TargetKind, TargetID: arg.TargetID, Kind: arg.Kind, Body: arg.Body, Status: "open", ByHuman: arg.ByHuman}
 	f.notes = append(f.notes, n)
 	return n, nil
 }
@@ -65,7 +73,7 @@ func TestPublicOperations(t *testing.T) {
 // spec marks a write `x-agent-writable: true`, and think twice first.
 func TestAgentWritableOperations(t *testing.T) {
 	got := slices.Sorted(maps.Keys(server.AgentWritableOperations()))
-	want := []string{"POST /notes"}
+	want := []string{"POST /games/{gameId}/notes"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("agent-writable operations %v, want %v", got, want)
 	}
@@ -76,12 +84,13 @@ func TestAgentWritableOperations(t *testing.T) {
 func TestHumanOnlyOperations(t *testing.T) {
 	human, agent := server.HumanOnlyOperations(), server.AgentWritableOperations()
 	for _, op := range []string{
-		"POST /characters", "PATCH /characters/{characterId}", "DELETE /characters/{characterId}",
-		"POST /conversations", "PATCH /conversations/{conversationId}", "DELETE /conversations/{conversationId}",
+		"POST /games", "PATCH /games/{gameId}", "DELETE /games/{gameId}",
+		"POST /games/{gameId}/characters", "PATCH /characters/{characterId}", "DELETE /characters/{characterId}",
+		"POST /games/{gameId}/conversations", "PATCH /conversations/{conversationId}", "DELETE /conversations/{conversationId}",
 		"POST /conversations/{conversationId}/nodes", "PATCH /nodes/{nodeId}", "DELETE /nodes/{nodeId}",
 		"POST /nodes/{nodeId}/choices", "PATCH /choices/{choiceId}", "DELETE /choices/{choiceId}",
 		"PATCH /notes/{noteId}", "DELETE /notes/{noteId}",
-		"POST /flags", "PATCH /flags/{flagId}", "POST /skills", "POST /quests",
+		"POST /games/{gameId}/flags", "PATCH /flags/{flagId}", "POST /games/{gameId}/skills", "POST /games/{gameId}/quests",
 		"POST /quests/{questId}/stages", "PATCH /stages/{stageId}", "DELETE /stages/{stageId}",
 	} {
 		if !human[op] {
@@ -132,12 +141,13 @@ func (c call) run(t *testing.T, h http.Handler) *httptest.ResponseRecorder {
 func TestAnonymousCallers(t *testing.T) {
 	h := mount(&fakeStore{}, nil)
 	for _, c := range []call{
-		{"GET", "/api/characters", "", 401},
+		{"GET", "/api/games", "", 401},
+		{"GET", "/api/games/g1/characters", "", 401},
 		{"GET", "/api/conversations/c1", "", 401},
-		{"GET", "/api/notes", "", 401},
-		{"GET", "/api/build", "", 401},
-		{"POST", "/api/notes", `{"body":"x"}`, 401},
-		{"POST", "/api/characters", `{"name":"x"}`, 401},
+		{"GET", "/api/games/g1/notes", "", 401},
+		{"GET", "/api/games/g1/build", "", 401},
+		{"POST", "/api/games/g1/notes", `{"body":"x"}`, 401},
+		{"POST", "/api/games/g1/characters", `{"name":"x"}`, 401},
 		{"GET", "/api/me", "", 401},
 	} {
 		c.run(t, h)
@@ -147,13 +157,14 @@ func TestAnonymousCallers(t *testing.T) {
 // An agent may read everything and leave notes, and nothing else. Its
 // writes are refused before they reach the store (which would panic).
 func TestAgentCallers(t *testing.T) {
-	store := &fakeStore{character: dbgen.Character{ID: "c1", Name: "Aria"}}
+	store := &fakeStore{character: dbgen.Character{ID: "c1", GameID: "g1", Name: "Aria"}}
 	h := mount(store, &auth.Caller{KeyID: "k1", Human: false})
 	for _, c := range []call{
-		{"POST", "/api/characters", `{"name":"Mallory"}`, 403},
+		{"POST", "/api/games", `{"name":"Second"}`, 403},
+		{"POST", "/api/games/g1/characters", `{"name":"Mallory"}`, 403},
 		{"PATCH", "/api/characters/c1", `{"name":"Mallory"}`, 403},
 		{"DELETE", "/api/characters/c1", "", 403},
-		{"POST", "/api/conversations", `{"title":"x"}`, 403},
+		{"POST", "/api/games/g1/conversations", `{"title":"x"}`, 403},
 		{"POST", "/api/conversations/v1/nodes", `{"text":"Hello."}`, 403},
 		{"PATCH", "/api/nodes/n1", `{"text":"Hello."}`, 403},
 		{"POST", "/api/nodes/n1/choices", `{"text":"Goodbye."}`, 403},
@@ -161,13 +172,14 @@ func TestAgentCallers(t *testing.T) {
 		{"PATCH", "/api/notes/n1", `{"status":"resolved"}`, 403},
 		{"DELETE", "/api/notes/n1", "", 403},
 		// A bad body is still a 403, not a 400: the guard runs first.
-		{"POST", "/api/characters", `not json`, 403},
-		{"GET", "/api/characters", "", 200},
+		{"POST", "/api/games/g1/characters", `not json`, 403},
+		{"GET", "/api/games/g1/characters", "", 200},
+		{"GET", "/api/games/nope/characters", "", 404},
 	} {
 		c.run(t, h)
 	}
 
-	rec := call{"POST", "/api/notes", `{"targetKind":"character","targetId":"c1","kind":"gap","body":"Her bible never says what she wants."}`, 201}.run(t, h)
+	rec := call{"POST", "/api/games/g1/notes", `{"targetKind":"character","targetId":"c1","kind":"gap","body":"Her bible never says what she wants."}`, 201}.run(t, h)
 	var note struct {
 		Kind, Body, URL string
 		ByHuman         bool

@@ -1,6 +1,6 @@
-import { Link } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { api, must, type S } from "../api/client";
-import { useLoad } from "../hooks";
+import { useGameId, useLoad } from "../hooks";
 import { Badge, Loading, TargetLink, label } from "../components/ui";
 
 
@@ -22,7 +22,9 @@ function Issues({ title, issues, tone }: { title: string; issues: S["BuildIssue"
 }
 
 export default function BuildPage() {
-  const { data, error } = useLoad(async () => must(await api.GET("/build")), []);
+  const { gameId = "" } = useParams();
+  useGameId(gameId);
+  const { data, error } = useLoad(async () => must(await api.GET("/games/{gameId}/build", { params: { path: { gameId } } })), [gameId]);
   if (!data) return <Loading error={error} />;
   const s = data.stats;
   return (
@@ -37,12 +39,12 @@ export default function BuildPage() {
       )}
       <p className="muted">
         {s.characters} characters · {s.conversations} conversations · {s.nodes} lines · {s.choices} choices · {s.flags} flags ·{" "}
-        {s.skills} skills · {s.quests} quests · {s.words} words · <Link to="/notes">{s.openNotes} open notes</Link>
+        {s.skills} skills · {s.quests} quests · {s.words} words · <Link to={"/games/" + gameId + "/notes"}>{s.openNotes} open notes</Link>
       </p>
       <Issues title="Errors" issues={data.errors} tone="err" />
       <Issues title="Warnings" issues={data.warnings} />
       <p className="muted">
-        Write the bundle the game runs on with <code>make bundle</code>. It refuses while there are errors.
+        Write the bundle the game runs on with <code>make bundle GAME=key</code>. It refuses while there are errors.
       </p>
     </>
   );

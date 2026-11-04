@@ -1,23 +1,26 @@
 import { useEffect, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, must, type Flag, type Note, type Skill } from "../api/client";
-import { useAct, useLoad, useMe } from "../hooks";
+import { useAct, useGameId, useLoad, useMe } from "../hooks";
 import { Form, Key, Loading, Notes, notesFor, num, str } from "../components/ui";
 
 export default function WorldPage() {
+  const { gameId = "" } = useParams();
+  useGameId(gameId);
   const me = useMe();
   const act = useAct();
   const nav = useNavigate();
   const loc = useLocation();
   const { data, error, reload } = useLoad(async () => {
+    const path = { params: { path: { gameId } } };
     const [flags, skills, quests, notes] = await Promise.all([
-      api.GET("/flags").then(must),
-      api.GET("/skills").then(must),
-      api.GET("/quests").then(must),
-      api.GET("/notes").then(must),
+      api.GET("/games/{gameId}/flags", path).then(must),
+      api.GET("/games/{gameId}/skills", path).then(must),
+      api.GET("/games/{gameId}/quests", path).then(must),
+      api.GET("/games/{gameId}/notes", path).then(must),
     ]);
     return { flags: flags.flags, skills: skills.skills, quests: quests.quests, notes: notes.notes };
-  }, []);
+  }, [gameId]);
   useEffect(() => {
     if (data && loc.hash) document.getElementById(loc.hash.slice(1))?.scrollIntoView({ block: "center" });
   }, [data, loc.hash]);
@@ -25,17 +28,17 @@ export default function WorldPage() {
 
   const addFlag = (f: FormData) =>
     act(async () => {
-      must(await api.POST("/flags", { body: { key: str(f, "key"), description: str(f, "description"), initialValue: num(f, "initial") } }));
+      must(await api.POST("/games/{gameId}/flags", { params: { path: { gameId } }, body: { key: str(f, "key"), description: str(f, "description"), initialValue: num(f, "initial") } }));
       reload();
     });
   const addSkill = (f: FormData) =>
     act(async () => {
-      must(await api.POST("/skills", { body: { name: str(f, "name"), key: str(f, "key"), initialLevel: num(f, "initial") } }));
+      must(await api.POST("/games/{gameId}/skills", { params: { path: { gameId } }, body: { name: str(f, "name"), key: str(f, "key"), initialLevel: num(f, "initial") } }));
       reload();
     });
   const addQuest = (f: FormData) =>
     act(async () => {
-      const q = must(await api.POST("/quests", { body: { name: str(f, "name"), key: str(f, "key"), summary: str(f, "summary") } }));
+      const q = must(await api.POST("/games/{gameId}/quests", { params: { path: { gameId } }, body: { name: str(f, "name"), key: str(f, "key"), summary: str(f, "summary") } }));
       nav("/quests/" + q.id);
     });
 
@@ -216,7 +219,7 @@ function FlagRow({ f, notes, reload, focused }: { f: Flag; notes: Note[]; reload
             </button>
           )}
         </div>
-        <Notes kind="flag" id={f.id} notes={notesFor(notes, "flag", f.id)} onChange={reload} compact />
+        <Notes game={f.gameId} kind="flag" id={f.id} notes={notesFor(notes, "flag", f.id)} onChange={reload} compact />
       </td>
     </tr>
   );

@@ -1,6 +1,6 @@
 -- name: CreateSkill :one
-INSERT INTO skills (id, key, name, name_revision_id, initial_level, created_by)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO skills (id, game_id, key, name, name_revision_id, initial_level, created_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING *;
 
 -- name: GetSkill :one
@@ -9,7 +9,7 @@ WHERE id = $1 AND deleted_at IS NULL;
 
 -- name: ListSkills :many
 SELECT * FROM skills
-WHERE deleted_at IS NULL
+WHERE game_id = $1 AND deleted_at IS NULL
 ORDER BY name, id;
 
 -- A new name comes with its new revision.

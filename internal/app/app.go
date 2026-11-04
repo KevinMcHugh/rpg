@@ -156,9 +156,13 @@ func (l Links) NodeByID(id string) string { return l.Base + "/nodes/" + id }
 // ChoiceByID is the place of a choice's node, by way of a redirect.
 func (l Links) ChoiceByID(id string) string { return l.Base + "/choices/" + id }
 
-// Target is the page of a character, conversation, node or choice by kind,
-// and the notes page for anything else (a note on the whole game).
-func (l Links) Target(kind, id string) string {
+// Game is a game's page.
+func (l Links) Game(id string) string { return l.Base + "/games/" + id }
+
+// Target is the page of what a note or build issue in a game is about:
+// a character, conversation, node, choice, flag, skill or quest, or the
+// game itself.
+func (l Links) Target(gameID, kind, id string) string {
 	switch kind {
 	case "character":
 		return l.Character(id)
@@ -169,29 +173,51 @@ func (l Links) Target(kind, id string) string {
 	case "choice":
 		return l.ChoiceByID(id)
 	case "flag":
-		return l.World() + "#flag-" + id
+		return l.World(gameID) + "#flag-" + id
 	case "skill":
-		return l.World() + "#skill-" + id
+		return l.World(gameID) + "#skill-" + id
 	case "quest":
 		return l.Quest(id)
 	case "quest_stage":
 		return l.Base + "/stages/" + id
 	default:
-		return l.Notes()
+		return l.Game(gameID)
 	}
 }
 
-// World is the page of flags, skills and quests.
-func (l Links) World() string { return l.Base + "/world" }
+// World is a game's page of flags, skills and quests.
+func (l Links) World(gameID string) string { return l.Game(gameID) + "/world" }
 
 // Quest is a quest's page.
 func (l Links) Quest(id string) string { return l.Base + "/quests/" + id }
 
-// Notes is the page of every open note.
-func (l Links) Notes() string { return l.Base + "/notes" }
+// Notes is a game's page of notes.
+func (l Links) Notes(gameID string) string { return l.Game(gameID) + "/notes" }
 
-// Build is the build report's page.
-func (l Links) Build() string { return l.Base + "/build" }
+// Build is a game's build report.
+func (l Links) Build(gameID string) string { return l.Game(gameID) + "/build" }
+
+// GameStore is what checking a game exists reads.
+type GameStore interface {
+	GetGame(ctx context.Context, id string) (dbgen.Game, error)
+}
+
+// Game is a live game, or ErrNotFound. Endpoints that list or create in a
+// game call it first, so an unknown game is a 404 rather than an empty
+// list.
+func Game(ctx context.Context, s GameStore, id string) (dbgen.Game, error) {
+	g, err := s.GetGame(ctx, id)
+	return g, NotFound(err, "game", id)
+}
+
+// SameGame refuses to connect things in different games: a speaker, a
+// check's skill, a note's target.
+func SameGame(what, gameID, want string) error {
+	if gameID != want {
+		return fmt.Errorf("%w: %s is in another game", ErrBadInput, what)
+	}
+	return nil
+}
 
 // NotFound turns pgx's no-rows into ErrNotFound, naming what was missing.
 func NotFound(err error, what, id string) error {

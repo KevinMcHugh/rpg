@@ -1,20 +1,22 @@
-import { useSearchParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { api, must, type Note } from "../api/client";
-import { useAct, useLoad, useMe } from "../hooks";
+import { useAct, useGameId, useLoad, useMe } from "../hooks";
 import { Badge, Loading, TargetLink, label } from "../components/ui";
 
 const statuses = ["open", "resolved", "dismissed", "all"] as const;
 
 
 export default function NotesPage() {
+  const { gameId = "" } = useParams();
+  useGameId(gameId);
   const me = useMe();
   const act = useAct();
   const [params, setParams] = useSearchParams();
   const status = (params.get("status") ?? "open") as (typeof statuses)[number];
   const { data, error, reload } = useLoad(
     async () =>
-      must(await api.GET("/notes", { params: { query: status === "all" ? {} : { status } } })).notes,
-    [status],
+      must(await api.GET("/games/{gameId}/notes", { params: { path: { gameId }, query: status === "all" ? {} : { status } } })).notes,
+    [gameId, status],
   );
   const set = (n: Note, s: Note["status"]) =>
     act(async () => must(await api.PATCH("/notes/{noteId}", { params: { path: { noteId: n.id } }, body: { status: s } })), "").then(reload);

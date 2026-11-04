@@ -32,10 +32,11 @@ type check struct {
 	fail       *string
 }
 
-// cleanCheck validates a skill check on a choice from node from. No skill
-// is no check; a check needs a difficulty, and its failure node (optional:
-// none ends the conversation) must be in the same conversation.
-func cleanCheck(ctx context.Context, q *dbgen.Queries, from dbgen.Node, skillID string, difficulty int, failID string) (check, error) {
+// cleanCheck validates a skill check on a choice from node from, in game
+// gameID. No skill is no check; a check needs a difficulty and a skill in
+// the same game, and its failure node (optional: none ends the
+// conversation) must be in the same conversation.
+func cleanCheck(ctx context.Context, q *dbgen.Queries, from dbgen.Node, gameID, skillID string, difficulty int, failID string) (check, error) {
 	skillID, failID = strings.TrimSpace(skillID), strings.TrimSpace(failID)
 	if skillID == "" {
 		if failID != "" {
@@ -43,10 +44,14 @@ func cleanCheck(ctx context.Context, q *dbgen.Queries, from dbgen.Node, skillID 
 		}
 		return check{}, nil
 	}
-	if _, err := q.GetSkill(ctx, skillID); err != nil {
+	sk, err := q.GetSkill(ctx, skillID)
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return check{}, fmt.Errorf("%w: no skill %s", app.ErrBadInput, skillID)
 		}
+		return check{}, err
+	}
+	if err := app.SameGame("skill "+skillID, sk.GameID, gameID); err != nil {
 		return check{}, err
 	}
 	if difficulty < 1 || difficulty > MaxDifficulty {
@@ -93,11 +98,15 @@ func (e CreateChoiceEndpoint) Interact(ctx context.Context, req apigen.CreateCho
 			}
 			to = &id
 		}
-		chk, err := cleanCheck(ctx, q, from, b.CheckSkillId, b.CheckDifficulty, b.FailNodeId)
+		game, err := gameOf(ctx, q, from)
 		if err != nil {
 			return err
 		}
-		w, err := loadWorld(ctx, q)
+		chk, err := cleanCheck(ctx, q, from, game, b.CheckSkillId, b.CheckDifficulty, b.FailNodeId)
+		if err != nil {
+			return err
+		}
+		w, err := loadWorld(ctx, q, game)
 		if err != nil {
 			return err
 		}
@@ -170,7 +179,11 @@ func (e UpdateChoiceEndpoint) Interact(ctx context.Context, req apigen.UpdateCho
 		if err != nil {
 			return fmt.Errorf("choice %s: its node: %w", cur.ID, err)
 		}
-		w, err := loadWorld(ctx, q)
+		game, err := gameOf(ctx, q, from)
+		if err != nil {
+			return err
+		}
+		w, err := loadWorld(ctx, q, game)
 		if err != nil {
 			return err
 		}
@@ -215,7 +228,7 @@ func (e UpdateChoiceEndpoint) Interact(ctx context.Context, req apigen.UpdateCho
 			if strings.TrimSpace(skill) == "" {
 				fail = "" // no check, so nothing to fail to
 			}
-			chk, err := cleanCheck(ctx, q, from, skill, difficulty, fail)
+			chk, err := cleanCheck(ctx, q, from, game, skill, difficulty, fail)
 			if err != nil {
 				return err
 			}

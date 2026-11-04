@@ -15,14 +15,14 @@ JOIN nodes ON nodes.id = choices.from_node_id AND nodes.deleted_at IS NULL
 WHERE nodes.conversation_id = $1 AND choices.deleted_at IS NULL
 ORDER BY choices.from_node_id, choices.sort_order, choices.created_at, choices.id;
 
--- Every live choice from a live node of a live conversation, for the
--- build. A choice whose target was deleted is still listed, so the build
+-- Every live choice from a live node of a live conversation in a game,
+-- for the build. A choice whose target was deleted is still listed, so the build
 -- can report it.
 -- name: ListAllChoices :many
 SELECT choices.* FROM choices
 JOIN nodes ON nodes.id = choices.from_node_id AND nodes.deleted_at IS NULL
 JOIN conversations ON conversations.id = nodes.conversation_id AND conversations.deleted_at IS NULL
-WHERE choices.deleted_at IS NULL
+WHERE conversations.game_id = $1 AND choices.deleted_at IS NULL
 ORDER BY choices.from_node_id, choices.sort_order, choices.created_at, choices.id;
 
 -- The set_ arguments say whether to change a nullable column, so a PATCH

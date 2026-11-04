@@ -4,6 +4,7 @@
   <h1 style="font-family:Georgia,serif;font-weight:400">New game</h1>
   {{if and (not .HasOpening) (not .Node)}}<p class="muted">No conversation opens the game yet{{if .Playtest}}; mark one as the opening, or start from a line{{end}}.</p>{{end}}
   <form method="POST" action="{{.Base}}/new" style="display:grid;gap:.6rem">
+    {{if .Game}}<input type="hidden" name="game" value="{{.Game}}">{{end}}
     <input name="name" placeholder="Name this game" aria-label="Name" maxlength="100">
     {{if .Playtest}}
     <input name="node" value="{{.Node}}" placeholder="Start at line (an id; empty for the opening)" aria-label="Start at line">

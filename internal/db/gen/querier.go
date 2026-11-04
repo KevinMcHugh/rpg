@@ -12,10 +12,10 @@ type Querier interface {
 	// Marks an invite used in one UPDATE, so two redemptions racing the same
 	// code cannot both succeed.
 	ClaimInviteByHash(ctx context.Context, codeHash string) (Invite, error)
-	// Only one conversation opens the game.
-	ClearOpening(ctx context.Context, id string) error
+	// Only one conversation opens a game.
+	ClearOpening(ctx context.Context, arg ClearOpeningParams) error
 	ConsumeOAuthCode(ctx context.Context, codeHash string) (OauthCode, error)
-	CountOpenNotes(ctx context.Context) (int64, error)
+	CountOpenNotes(ctx context.Context, gameID string) (int64, error)
 	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (ApiKey, error)
 	CreateCharacter(ctx context.Context, arg CreateCharacterParams) (Character, error)
 	CreateChoice(ctx context.Context, arg CreateChoiceParams) (Choice, error)
@@ -23,6 +23,7 @@ type Querier interface {
 	// conversation becomes its start.
 	CreateConversation(ctx context.Context, arg CreateConversationParams) (Conversation, error)
 	CreateFlag(ctx context.Context, arg CreateFlagParams) (Flag, error)
+	CreateGame(ctx context.Context, arg CreateGameParams) (Game, error)
 	CreateInvite(ctx context.Context, arg CreateInviteParams) (Invite, error)
 	CreateNode(ctx context.Context, arg CreateNodeParams) (Node, error)
 	CreateNote(ctx context.Context, arg CreateNoteParams) (Note, error)
@@ -43,6 +44,8 @@ type Querier interface {
 	// only live conversations.
 	DeleteConversation(ctx context.Context, id string) (int64, error)
 	DeleteFlag(ctx context.Context, id string) (int64, error)
+	// Its content stays, but nothing lists it any more.
+	DeleteGame(ctx context.Context, id string) (int64, error)
 	DeleteInvite(ctx context.Context, id string) (int64, error)
 	DeleteNode(ctx context.Context, id string) (int64, error)
 	DeleteNote(ctx context.Context, id string) (int64, error)
@@ -58,6 +61,8 @@ type Querier interface {
 	GetChoice(ctx context.Context, id string) (Choice, error)
 	GetConversation(ctx context.Context, id string) (Conversation, error)
 	GetFlag(ctx context.Context, id string) (Flag, error)
+	GetGame(ctx context.Context, id string) (Game, error)
+	GetGameByKey(ctx context.Context, key string) (Game, error)
 	GetNode(ctx context.Context, id string) (Node, error)
 	// A note with the name of the key that wrote it.
 	GetNote(ctx context.Context, id string) (GetNoteRow, error)
@@ -72,26 +77,27 @@ type Querier interface {
 	ListAPIKeys(ctx context.Context) ([]ApiKey, error)
 	// Unused, unexpired, undeleted invites.
 	ListActiveInvites(ctx context.Context) ([]Invite, error)
-	// Every live choice from a live node of a live conversation, for the
-	// build. A choice whose target was deleted is still listed, so the build
+	// Every live choice from a live node of a live conversation in a game,
+	// for the build. A choice whose target was deleted is still listed, so the build
 	// can report it.
-	ListAllChoices(ctx context.Context) ([]Choice, error)
-	// Every live node of every live conversation, for the build.
-	ListAllNodes(ctx context.Context) ([]Node, error)
-	// Every live stage of every live quest, for the build.
-	ListAllQuestStages(ctx context.Context) ([]QuestStage, error)
-	ListCharacters(ctx context.Context) ([]Character, error)
+	ListAllChoices(ctx context.Context, gameID string) ([]Choice, error)
+	// Every live node of every live conversation in a game, for the build.
+	ListAllNodes(ctx context.Context, gameID string) ([]Node, error)
+	// Every live stage of every live quest in a game, for the build.
+	ListAllQuestStages(ctx context.Context, gameID string) ([]QuestStage, error)
+	ListCharacters(ctx context.Context, gameID string) ([]Character, error)
 	ListChoicesByConversation(ctx context.Context, conversationID string) ([]Choice, error)
-	ListConversations(ctx context.Context) ([]Conversation, error)
-	ListFlags(ctx context.Context) ([]Flag, error)
+	ListConversations(ctx context.Context, gameID string) ([]Conversation, error)
+	ListFlags(ctx context.Context, gameID string) ([]Flag, error)
+	ListGames(ctx context.Context) ([]Game, error)
 	ListNodesByConversation(ctx context.Context, conversationID string) ([]Node, error)
 	// Filters left NULL match everything. Oldest first, so a thread reads in
 	// order.
 	ListNotes(ctx context.Context, arg ListNotesParams) ([]ListNotesRow, error)
 	ListQuestStages(ctx context.Context, questID string) ([]QuestStage, error)
-	ListQuests(ctx context.Context) ([]Quest, error)
-	ListSaves(ctx context.Context, createdBy *string) ([]Save, error)
-	ListSkills(ctx context.Context) ([]Skill, error)
+	ListQuests(ctx context.Context, gameID string) ([]Quest, error)
+	ListSaves(ctx context.Context, arg ListSavesParams) ([]Save, error)
+	ListSkills(ctx context.Context, gameID string) ([]Skill, error)
 	// Revisions with the kind and name of the key that wrote them, for the
 	// build's provenance check.
 	ListTextRevisionsByIDs(ctx context.Context, ids []string) ([]ListTextRevisionsByIDsRow, error)
@@ -114,6 +120,7 @@ type Querier interface {
 	// PATCH can clear them. A new label comes with its new revision.
 	UpdateConversation(ctx context.Context, arg UpdateConversationParams) (Conversation, error)
 	UpdateFlag(ctx context.Context, arg UpdateFlagParams) (Flag, error)
+	UpdateGame(ctx context.Context, arg UpdateGameParams) (Game, error)
 	// set_speaker says whether to change speaker_id, so a PATCH can make a
 	// line the narrator's. A new text comes with its new revision.
 	UpdateNode(ctx context.Context, arg UpdateNodeParams) (Node, error)

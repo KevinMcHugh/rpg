@@ -5,8 +5,10 @@
 //	server keys create --name NAME [--human]
 //	                                  mint an api key (printed once); only a
 //	                                  --human key may write the game's text
-//	server build [--out FILE]         check the content and write the bundle
-//	                                  the game runs on (stdout by default)
+//	server build [--game KEY] [--out FILE]
+//	                                  check a game's content and write the
+//	                                  bundle it runs on (stdout by default);
+//	                                  --game may be left out when there is one
 //	server keys list                  list live api keys
 //	server keys rotate --id ID        replace a key, keeping its name
 //	server keys delete --id ID        revoke a key and every token it approved
@@ -245,6 +247,7 @@ func mint(ctx context.Context, q *dbgen.Queries, name, kind string) error {
 func buildContent(args []string) error {
 	fs := flag.NewFlagSet("build", flag.ExitOnError)
 	out := fs.String("out", "", "file to write the bundle to (default stdout)")
+	gameKey := fs.String("game", "", "the game's key (default: the only game)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -255,7 +258,27 @@ func buildContent(args []string) error {
 	}
 	defer pool.Close()
 
-	c, err := content.Load(ctx, dbgen.New(pool))
+	q := dbgen.New(pool)
+	var game dbgen.Game
+	if *gameKey != "" {
+		if game, err = q.GetGameByKey(ctx, *gameKey); err != nil {
+			return fmt.Errorf("game %q: %w", *gameKey, err)
+		}
+	} else {
+		games, err := q.ListGames(ctx)
+		if err != nil {
+			return err
+		}
+		if len(games) != 1 {
+			keys := make([]string, len(games))
+			for i, g := range games {
+				keys[i] = g.Key
+			}
+			return fmt.Errorf("there are %d games; say which with --game (%s)", len(games), strings.Join(keys, ", "))
+		}
+		game = games[0]
+	}
+	c, err := content.Load(ctx, q, game.ID)
 	if err != nil {
 		return err
 	}

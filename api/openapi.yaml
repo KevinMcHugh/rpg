@@ -13,6 +13,10 @@ info:
     whose WWW-Authenticate header points at OAuth discovery, which is how an
     MCP client such as claude.ai starts the connector flow.
 
+    Content belongs to a game: lists and creates are under /games/{gameId},
+    and each game has its own ruleset. Everything else is addressed by id,
+    which is unique across games.
+
     Every operation that changes something needs a human caller (a human
     api key, or a web session signed in with one) unless it says
     `x-agent-writable: true`. An agent caller gets a 403. Notes are the only
@@ -43,10 +47,110 @@ paths:
           $ref: "#/components/responses/Unauthorized"
 
   # ---------------------------------------------------------------------------
+  # Games: each holds its own content and has its own ruleset
+  # ---------------------------------------------------------------------------
+
+  /games:
+    get:
+      operationId: listGames
+      summary: List games, oldest first
+      responses:
+        "200":
+          description: The games
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GameList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      operationId: createGame
+      summary: Create a game
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GameCreate"
+      responses:
+        "201":
+          description: The created game
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Game"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+
+  /games/{gameId}:
+    parameters:
+      - $ref: "#/components/parameters/GameId"
+    get:
+      operationId: getGame
+      summary: One game
+      responses:
+        "200":
+          description: The game
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Game"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      operationId: updateGame
+      summary: Change a game's name, key or ruleset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GameUpdate"
+      responses:
+        "200":
+          description: The updated game
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Game"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+    delete:
+      operationId: deleteGame
+      summary: Delete a game; its content stops being listed or built
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ---------------------------------------------------------------------------
   # Characters
   # ---------------------------------------------------------------------------
 
-  /characters:
+  /games/{gameId}/characters:
+    parameters:
+      - $ref: "#/components/parameters/GameId"
     get:
       operationId: listCharacters
       summary: List characters by name
@@ -59,6 +163,8 @@ paths:
                 $ref: "#/components/schemas/CharacterList"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
     post:
       operationId: createCharacter
       summary: Create a character
@@ -79,6 +185,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "403":
           $ref: "#/components/responses/Forbidden"
         "422":
@@ -144,7 +252,9 @@ paths:
   # Conversations, nodes and choices
   # ---------------------------------------------------------------------------
 
-  /conversations:
+  /games/{gameId}/conversations:
+    parameters:
+      - $ref: "#/components/parameters/GameId"
     get:
       operationId: listConversations
       summary: List conversations, newest first
@@ -157,6 +267,8 @@ paths:
                 $ref: "#/components/schemas/ConversationList"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
     post:
       operationId: createConversation
       summary: Create an empty conversation
@@ -177,6 +289,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "403":
           $ref: "#/components/responses/Forbidden"
         "422":
@@ -408,7 +522,9 @@ paths:
   # World: flags, skills and quests
   # ---------------------------------------------------------------------------
 
-  /flags:
+  /games/{gameId}/flags:
+    parameters:
+      - $ref: "#/components/parameters/GameId"
     get:
       operationId: listFlags
       summary: List flags by key
@@ -421,6 +537,8 @@ paths:
                 $ref: "#/components/schemas/FlagList"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
     post:
       operationId: createFlag
       summary: Create a flag
@@ -441,6 +559,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "403":
           $ref: "#/components/responses/Forbidden"
         "422":
@@ -488,7 +608,9 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
-  /skills:
+  /games/{gameId}/skills:
+    parameters:
+      - $ref: "#/components/parameters/GameId"
     get:
       operationId: listSkills
       summary: List skills by name
@@ -501,6 +623,8 @@ paths:
                 $ref: "#/components/schemas/SkillList"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
     post:
       operationId: createSkill
       summary: Create a skill
@@ -521,6 +645,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "403":
           $ref: "#/components/responses/Forbidden"
         "422":
@@ -568,7 +694,9 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
-  /quests:
+  /games/{gameId}/quests:
+    parameters:
+      - $ref: "#/components/parameters/GameId"
     get:
       operationId: listQuests
       summary: List quests by name, with their stages
@@ -581,6 +709,8 @@ paths:
                 $ref: "#/components/schemas/QuestList"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
     post:
       operationId: createQuest
       summary: Create a quest
@@ -601,6 +731,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "403":
           $ref: "#/components/responses/Forbidden"
         "422":
@@ -738,7 +870,9 @@ paths:
   # Notes: feedback on the content, the one thing an agent may write
   # ---------------------------------------------------------------------------
 
-  /notes:
+  /games/{gameId}/notes:
+    parameters:
+      - $ref: "#/components/parameters/GameId"
     get:
       operationId: listNotes
       summary: List notes, oldest first
@@ -764,6 +898,8 @@ paths:
                 $ref: "#/components/schemas/NoteList"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "422":
           $ref: "#/components/responses/Unprocessable"
     post:
@@ -852,7 +988,9 @@ paths:
   # Build
   # ---------------------------------------------------------------------------
 
-  /build:
+  /games/{gameId}/build:
+    parameters:
+      - $ref: "#/components/parameters/GameId"
     get:
       operationId: getBuildReport
       summary: Check the content as the build would, without writing a bundle
@@ -870,6 +1008,8 @@ paths:
                 $ref: "#/components/schemas/BuildReport"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
 components:
   securitySchemes:
@@ -884,6 +1024,12 @@ components:
       description: The web session set by /login.
 
   parameters:
+    GameId:
+      name: gameId
+      in: path
+      required: true
+      schema:
+        type: string
     CharacterId:
       name: characterId
       in: path
@@ -995,13 +1141,79 @@ components:
             directly or through a web session. An OAuth connector token is
             never human, whichever key approved it.
 
+    # ---- games ----
+
+    Ruleset:
+      type: string
+      description: |
+        How checks resolve. classic: 2d6 plus the skill against a difficulty.
+        srd52: d20 plus ability modifier plus proficiency (SRD 5.2). srd35: d20
+        plus skill ranks plus ability modifier (3.5 SRD). pf2e: d20 plus
+        modifier with four degrees of success (Pathfinder 2e). See
+        docs/mechanics.md.
+      enum: [classic, srd52, srd35, pf2e]
+
+    Game:
+      type: object
+      required: [id, key, name, ruleset, url]
+      properties:
+        id:
+          type: string
+        key:
+          type: string
+        name:
+          type: string
+          description: Authoring label; never ships.
+        ruleset:
+          $ref: "#/components/schemas/Ruleset"
+        url:
+          type: string
+
+    GameList:
+      type: object
+      required: [games]
+      properties:
+        games:
+          type: array
+          items:
+            $ref: "#/components/schemas/Game"
+
+    GameCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        key:
+          type: string
+          description: Leave out to make one from the name.
+        ruleset:
+          $ref: "#/components/schemas/Ruleset"
+
+    GameUpdate:
+      type: object
+      description: Fields left out are left alone.
+      properties:
+        name:
+          type: string
+          x-go-type-skip-optional-pointer: false
+        key:
+          type: string
+          x-go-type-skip-optional-pointer: false
+        ruleset:
+          allOf:
+            - $ref: "#/components/schemas/Ruleset"
+          x-go-type-skip-optional-pointer: false
+
     # ---- characters ----
 
     Character:
       type: object
-      required: [id, key, name, bible, companion, createdAt, updatedAt, url]
+      required: [id, gameId, key, name, bible, companion, createdAt, updatedAt, url]
       properties:
         id:
+          type: string
+        gameId:
           type: string
         key:
           type: string
@@ -1068,9 +1280,11 @@ components:
 
     Conversation:
       type: object
-      required: [id, key, title, summary, startNodeId, label, condition, repeatable, opening, createdAt, updatedAt, url]
+      required: [id, gameId, key, title, summary, startNodeId, label, condition, repeatable, opening, createdAt, updatedAt, url]
       properties:
         id:
+          type: string
+        gameId:
           type: string
         key:
           type: string
@@ -1339,9 +1553,11 @@ components:
 
     Flag:
       type: object
-      required: [id, key, description, initialValue, url]
+      required: [id, gameId, key, description, initialValue, url]
       properties:
         id:
+          type: string
+        gameId:
           type: string
         key:
           type: string
@@ -1390,9 +1606,11 @@ components:
 
     Skill:
       type: object
-      required: [id, key, name, initialLevel, url]
+      required: [id, gameId, key, name, initialLevel, url]
       properties:
         id:
+          type: string
+        gameId:
           type: string
         key:
           type: string
@@ -1442,9 +1660,11 @@ components:
 
     Quest:
       type: object
-      required: [id, key, name, summary, stages, url]
+      required: [id, gameId, key, name, summary, stages, url]
       properties:
         id:
+          type: string
+        gameId:
           type: string
         key:
           type: string
@@ -1554,9 +1774,11 @@ components:
 
     Note:
       type: object
-      required: [id, targetKind, targetId, kind, body, status, parentId, authorName, byHuman, createdAt, updatedAt, url]
+      required: [id, gameId, targetKind, targetId, kind, body, status, parentId, authorName, byHuman, createdAt, updatedAt, url]
       properties:
         id:
+          type: string
+        gameId:
           type: string
         targetKind:
           $ref: "#/components/schemas/NoteTargetKind"

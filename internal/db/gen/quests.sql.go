@@ -10,13 +10,14 @@ import (
 )
 
 const createQuest = `-- name: CreateQuest :one
-INSERT INTO quests (id, key, name, name_revision_id, summary, created_by)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, key, name, name_revision_id, summary, created_by, created_at, updated_at, deleted_at
+INSERT INTO quests (id, game_id, key, name, name_revision_id, summary, created_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, key, name, name_revision_id, summary, created_by, created_at, updated_at, deleted_at, game_id
 `
 
 type CreateQuestParams struct {
 	ID             string  `json:"id"`
+	GameID         string  `json:"game_id"`
 	Key            string  `json:"key"`
 	Name           string  `json:"name"`
 	NameRevisionID string  `json:"name_revision_id"`
@@ -27,6 +28,7 @@ type CreateQuestParams struct {
 func (q *Queries) CreateQuest(ctx context.Context, arg CreateQuestParams) (Quest, error) {
 	row := q.db.QueryRow(ctx, createQuest,
 		arg.ID,
+		arg.GameID,
 		arg.Key,
 		arg.Name,
 		arg.NameRevisionID,
@@ -44,6 +46,7 @@ func (q *Queries) CreateQuest(ctx context.Context, arg CreateQuestParams) (Quest
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.GameID,
 	)
 	return i, err
 }
@@ -128,7 +131,7 @@ func (q *Queries) DeleteQuestStages(ctx context.Context, questID string) error {
 }
 
 const getQuest = `-- name: GetQuest :one
-SELECT id, key, name, name_revision_id, summary, created_by, created_at, updated_at, deleted_at FROM quests
+SELECT id, key, name, name_revision_id, summary, created_by, created_at, updated_at, deleted_at, game_id FROM quests
 WHERE id = $1 AND deleted_at IS NULL
 `
 
@@ -145,6 +148,7 @@ func (q *Queries) GetQuest(ctx context.Context, id string) (Quest, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.GameID,
 	)
 	return i, err
 }
@@ -175,13 +179,13 @@ func (q *Queries) GetQuestStage(ctx context.Context, id string) (QuestStage, err
 const listAllQuestStages = `-- name: ListAllQuestStages :many
 SELECT quest_stages.id, quest_stages.quest_id, quest_stages.number, quest_stages.journal, quest_stages.journal_revision_id, quest_stages.completes, quest_stages.created_by, quest_stages.created_at, quest_stages.updated_at, quest_stages.deleted_at FROM quest_stages
 JOIN quests ON quests.id = quest_stages.quest_id AND quests.deleted_at IS NULL
-WHERE quest_stages.deleted_at IS NULL
+WHERE quests.game_id = $1 AND quest_stages.deleted_at IS NULL
 ORDER BY quest_stages.quest_id, quest_stages.number
 `
 
-// Every live stage of every live quest, for the build.
-func (q *Queries) ListAllQuestStages(ctx context.Context) ([]QuestStage, error) {
-	rows, err := q.db.Query(ctx, listAllQuestStages)
+// Every live stage of every live quest in a game, for the build.
+func (q *Queries) ListAllQuestStages(ctx context.Context, gameID string) ([]QuestStage, error) {
+	rows, err := q.db.Query(ctx, listAllQuestStages, gameID)
 	if err != nil {
 		return nil, err
 	}
@@ -249,13 +253,13 @@ func (q *Queries) ListQuestStages(ctx context.Context, questID string) ([]QuestS
 }
 
 const listQuests = `-- name: ListQuests :many
-SELECT id, key, name, name_revision_id, summary, created_by, created_at, updated_at, deleted_at FROM quests
-WHERE deleted_at IS NULL
+SELECT id, key, name, name_revision_id, summary, created_by, created_at, updated_at, deleted_at, game_id FROM quests
+WHERE game_id = $1 AND deleted_at IS NULL
 ORDER BY name, id
 `
 
-func (q *Queries) ListQuests(ctx context.Context) ([]Quest, error) {
-	rows, err := q.db.Query(ctx, listQuests)
+func (q *Queries) ListQuests(ctx context.Context, gameID string) ([]Quest, error) {
+	rows, err := q.db.Query(ctx, listQuests, gameID)
 	if err != nil {
 		return nil, err
 	}
@@ -273,6 +277,7 @@ func (q *Queries) ListQuests(ctx context.Context) ([]Quest, error) {
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.GameID,
 		); err != nil {
 			return nil, err
 		}
@@ -292,7 +297,7 @@ UPDATE quests SET
     summary = COALESCE($5, summary),
     updated_at = NOW()
 WHERE id = $1 AND deleted_at IS NULL
-RETURNING id, key, name, name_revision_id, summary, created_by, created_at, updated_at, deleted_at
+RETURNING id, key, name, name_revision_id, summary, created_by, created_at, updated_at, deleted_at, game_id
 `
 
 type UpdateQuestParams struct {
@@ -323,6 +328,7 @@ func (q *Queries) UpdateQuest(ctx context.Context, arg UpdateQuestParams) (Quest
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.GameID,
 	)
 	return i, err
 }

@@ -21,11 +21,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/characters": {
+    "/games": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
+            cookie?: never;
+        };
+        /** List games, oldest first */
+        get: operations["listGames"];
+        put?: never;
+        /** Create a game */
+        post: operations["createGame"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/games/{gameId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
+            cookie?: never;
+        };
+        /** One game */
+        get: operations["getGame"];
+        put?: never;
+        post?: never;
+        /** Delete a game; its content stops being listed or built */
+        delete: operations["deleteGame"];
+        options?: never;
+        head?: never;
+        /** Change a game's name, key or ruleset */
+        patch: operations["updateGame"];
+        trace?: never;
+    };
+    "/games/{gameId}/characters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         /** List characters by name */
@@ -60,11 +101,13 @@ export interface paths {
         patch: operations["updateCharacter"];
         trace?: never;
     };
-    "/conversations": {
+    "/games/{gameId}/conversations": {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         /** List conversations, newest first */
@@ -203,11 +246,13 @@ export interface paths {
         patch: operations["updateChoice"];
         trace?: never;
     };
-    "/flags": {
+    "/games/{gameId}/flags": {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         /** List flags by key */
@@ -241,11 +286,13 @@ export interface paths {
         patch: operations["updateFlag"];
         trace?: never;
     };
-    "/skills": {
+    "/games/{gameId}/skills": {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         /** List skills by name */
@@ -279,11 +326,13 @@ export interface paths {
         patch: operations["updateSkill"];
         trace?: never;
     };
-    "/quests": {
+    "/games/{gameId}/quests": {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         /** List quests by name, with their stages */
@@ -357,11 +406,13 @@ export interface paths {
         patch: operations["updateQuestStage"];
         trace?: never;
     };
-    "/notes": {
+    "/games/{gameId}/notes": {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         /** List notes, oldest first */
@@ -396,11 +447,13 @@ export interface paths {
         patch: operations["updateNote"];
         trace?: never;
     };
-    "/build": {
+    "/games/{gameId}/build": {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         /**
@@ -437,8 +490,41 @@ export interface components {
              */
             human: boolean;
         };
+        /**
+         * @description How checks resolve. classic: 2d6 plus the skill against a difficulty.
+         *     srd52: d20 plus ability modifier plus proficiency (SRD 5.2). srd35: d20
+         *     plus skill ranks plus ability modifier (3.5 SRD). pf2e: d20 plus
+         *     modifier with four degrees of success (Pathfinder 2e). See
+         *     docs/mechanics.md.
+         * @enum {string}
+         */
+        Ruleset: "classic" | "srd52" | "srd35" | "pf2e";
+        Game: {
+            id: string;
+            key: string;
+            /** @description Authoring label; never ships. */
+            name: string;
+            ruleset: components["schemas"]["Ruleset"];
+            url: string;
+        };
+        GameList: {
+            games: components["schemas"]["Game"][];
+        };
+        GameCreate: {
+            name: string;
+            /** @description Leave out to make one from the name. */
+            key?: string;
+            ruleset?: components["schemas"]["Ruleset"];
+        };
+        /** @description Fields left out are left alone. */
+        GameUpdate: {
+            name?: string;
+            key?: string;
+            ruleset?: components["schemas"]["Ruleset"];
+        };
         Character: {
             id: string;
+            gameId: string;
             /** @description What scripts call the character (approval aria > 5). Authoring only. */
             key: string;
             /** @description Can join the party; the journal shows a companion's approval. */
@@ -472,6 +558,7 @@ export interface components {
         };
         Conversation: {
             id: string;
+            gameId: string;
             /** @description What scripts call the conversation (done docks). Authoring only. */
             key: string;
             /** @description Player-facing. What the player picks to start this conversation between others; empty when it is only reached from another. */
@@ -602,6 +689,7 @@ export interface components {
         };
         Flag: {
             id: string;
+            gameId: string;
             /** @description What scripts call it. A flag is a number; 0 is false. */
             key: string;
             /** @description What it means. Authoring only. */
@@ -625,6 +713,7 @@ export interface components {
         };
         Skill: {
             id: string;
+            gameId: string;
             key: string;
             /** @description Player-facing; shown on skill checks. */
             name: string;
@@ -649,6 +738,7 @@ export interface components {
         };
         Quest: {
             id: string;
+            gameId: string;
             key: string;
             /** @description Player-facing; shown in the journal. */
             name: string;
@@ -700,6 +790,7 @@ export interface components {
         NoteStatus: "open" | "resolved" | "dismissed";
         Note: {
             id: string;
+            gameId: string;
             targetKind: components["schemas"]["NoteTargetKind"];
             /** @description Empty when targetKind is game. */
             targetId: string;
@@ -806,6 +897,7 @@ export interface components {
         };
     };
     parameters: {
+        GameId: string;
         CharacterId: string;
         ConversationId: string;
         NodeId: string;
@@ -843,11 +935,140 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
         };
     };
-    listCharacters: {
+    listGames: {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The games */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GameList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createGame: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GameCreate"];
+            };
+        };
+        responses: {
+            /** @description The created game */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Game"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    getGame: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The game */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Game"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteGame: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateGame: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GameUpdate"];
+            };
+        };
+        responses: {
+            /** @description The updated game */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Game"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    listCharacters: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -862,13 +1083,16 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
         };
     };
     createCharacter: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         requestBody: {
@@ -889,6 +1113,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             422: components["responses"]["Unprocessable"];
         };
     };
@@ -974,7 +1199,9 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -989,13 +1216,16 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
         };
     };
     createConversation: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         requestBody: {
@@ -1016,6 +1246,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             422: components["responses"]["Unprocessable"];
         };
     };
@@ -1295,7 +1526,9 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -1310,13 +1543,16 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
         };
     };
     createFlag: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         requestBody: {
@@ -1337,6 +1573,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             422: components["responses"]["Unprocessable"];
         };
     };
@@ -1398,7 +1635,9 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -1413,13 +1652,16 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
         };
     };
     createSkill: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         requestBody: {
@@ -1440,6 +1682,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             422: components["responses"]["Unprocessable"];
         };
     };
@@ -1501,7 +1744,9 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -1516,13 +1761,16 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
         };
     };
     createQuest: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         requestBody: {
@@ -1543,6 +1791,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             422: components["responses"]["Unprocessable"];
         };
     };
@@ -1717,7 +1966,9 @@ export interface operations {
                 targetId?: string;
             };
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -1732,6 +1983,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
             422: components["responses"]["Unprocessable"];
         };
     };
@@ -1739,7 +1991,9 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         requestBody: {
@@ -1845,7 +2099,9 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -1860,6 +2116,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
         };
     };
 }

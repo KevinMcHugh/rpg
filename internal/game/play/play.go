@@ -39,7 +39,7 @@ const Shown = 120
 type Store interface {
 	CreateSave(ctx context.Context, arg dbgen.CreateSaveParams) (dbgen.Save, error)
 	GetSave(ctx context.Context, arg dbgen.GetSaveParams) (dbgen.Save, error)
-	ListSaves(ctx context.Context, createdBy *string) ([]dbgen.Save, error)
+	ListSaves(ctx context.Context, arg dbgen.ListSavesParams) ([]dbgen.Save, error)
 	UpdateSave(ctx context.Context, arg dbgen.UpdateSaveParams) (dbgen.Save, error)
 	DeleteSave(ctx context.Context, arg dbgen.DeleteSaveParams) (int64, error)
 }
@@ -51,9 +51,11 @@ type Handler struct {
 	// Base is the path the handler is mounted at ("/play", or "" at the
 	// root), for the links and forms it writes.
 	Base string
-	// Load is the game to play. Notice, if not empty, is shown above it:
-	// a playtest says when the content has build errors.
-	Load func(ctx context.Context) (g *game.Game, notice string, err error)
+	// Load is the game to play: in the authoring tool, the game with this
+	// id; in the game binary, which plays one bundle, the id is empty.
+	// Notice, if not empty, is shown above it: a playtest says when the
+	// content has build errors.
+	Load func(ctx context.Context, gameID string) (g *game.Game, notice string, err error)
 	// Store keeps the saves.
 	Store Store
 	// Owner is whose saves a request sees: the playtester's api key, or nil
@@ -62,9 +64,12 @@ type Handler struct {
 	// Setup, when set, offers a playtest's extra options when starting: a
 	// node to start at, and effects to run first (script.ParseEffects). The
 	// game leaves it nil.
-	Setup func(ctx context.Context, effects string) ([]script.Effect, error)
+	Setup func(ctx context.Context, gameID, effects string) ([]script.Effect, error)
 	// Back, when set, is a link out of the game ("← Authoring").
 	Back string
+	// DefaultGame, when set, is the game a request that names none plays
+	// (the authoring tool's first game). The game binary leaves it nil.
+	DefaultGame func(ctx context.Context) (string, error)
 
 	pages map[string]*template.Template
 }
@@ -147,7 +152,11 @@ func (h *Handler) fail(w http.ResponseWriter, r *http.Request, err error) {
 
 func (h *Handler) to(w http.ResponseWriter, r *http.Request, path, msg string) {
 	if msg != "" {
-		path += "?msg=" + url.QueryEscape(msg)
+		sep := "?"
+		if strings.Contains(path, "?") {
+			sep = "&"
+		}
+		path += sep + "msg=" + url.QueryEscape(msg)
 	}
 	http.Redirect(w, r, h.Base+path, http.StatusSeeOther)
 }
@@ -158,13 +167,40 @@ type saveRow struct {
 	ID, Name, Updated string
 }
 
+// gameParam is the game a request names (?game= or a form field), or nil.
+func gameParam(r *http.Request) *string {
+	if id := strings.TrimSpace(r.FormValue("game")); id != "" {
+		return &id
+	}
+	return nil
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
 func (h *Handler) saves(w http.ResponseWriter, r *http.Request) {
-	g, notice, err := h.Load(r.Context())
+	game := gameParam(r)
+	if game == nil && h.DefaultGame != nil {
+		id, err := h.DefaultGame(r.Context())
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		q := r.URL.Query()
+		q.Set("game", id)
+		http.Redirect(w, r, h.Base+"/?"+q.Encode(), http.StatusSeeOther)
+		return
+	}
+	g, notice, err := h.Load(r.Context(), deref(game))
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	rows, err := h.Store.ListSaves(r.Context(), h.Owner(r.Context()))
+	rows, err := h.Store.ListSaves(r.Context(), dbgen.ListSavesParams{CreatedBy: h.Owner(r.Context()), GameID: game})
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -174,14 +210,19 @@ func (h *Handler) saves(w http.ResponseWriter, r *http.Request) {
 		saves[i] = saveRow{ID: s.ID, Name: s.Name, Updated: s.UpdatedAt.Time.Format("Jan 2 15:04")}
 	}
 	h.render(w, r, "saves", map[string]any{
-		"Saves": saves, "Notice": notice, "Playtest": h.Setup != nil,
+		"Saves": saves, "Notice": notice, "Playtest": h.Setup != nil, "Game": deref(game),
 		"Node": r.URL.Query().Get("node"), "HasOpening": g.Bundle().Opening != "",
 	})
 }
 
 func (h *Handler) newGame(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	g, _, err := h.Load(ctx)
+	game := gameParam(r)
+	back := "/"
+	if game != nil {
+		back = "/?game=" + url.QueryEscape(*game)
+	}
+	g, _, err := h.Load(ctx, deref(game))
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -191,9 +232,9 @@ func (h *Handler) newGame(w http.ResponseWriter, r *http.Request) {
 	if h.Setup != nil {
 		// A playtest can set the world up first, and start at any line in
 		// place of the opening.
-		effects, err := h.Setup(ctx, r.FormValue("setup"))
+		effects, err := h.Setup(ctx, deref(game), r.FormValue("setup"))
 		if err != nil {
-			h.to(w, r, "/", err.Error())
+			h.to(w, r, back, err.Error())
 			return
 		}
 		g.Apply(s, effects)
@@ -203,7 +244,7 @@ func (h *Handler) newGame(w http.ResponseWriter, r *http.Request) {
 	if node == "" {
 		g.Open(s)
 	} else if err := g.StartAt(s, node); err != nil {
-		h.to(w, r, "/", "There is no line "+node+" in the content as it stands.")
+		h.to(w, r, back, "There is no line "+node+" in the content as it stands.")
 		return
 	}
 	name := strings.TrimSpace(r.FormValue("name"))
@@ -215,7 +256,7 @@ func (h *Handler) newGame(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	row, err := h.Store.CreateSave(ctx, dbgen.CreateSaveParams{ID: xid.New().String(), Name: name, State: state, CreatedBy: h.Owner(ctx)})
+	row, err := h.Store.CreateSave(ctx, dbgen.CreateSaveParams{ID: xid.New().String(), GameID: game, Name: name, State: state, CreatedBy: h.Owner(ctx)})
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -228,11 +269,11 @@ func (h *Handler) newGame(w http.ResponseWriter, r *http.Request) {
 // load is a save, its State, and the game it is played in.
 func (h *Handler) load(r *http.Request) (*game.Game, string, dbgen.Save, *game.State, error) {
 	ctx := r.Context()
-	g, notice, err := h.Load(ctx)
+	row, err := h.Store.GetSave(ctx, dbgen.GetSaveParams{ID: chi.URLParam(r, "id"), CreatedBy: h.Owner(ctx)})
 	if err != nil {
 		return nil, "", dbgen.Save{}, nil, err
 	}
-	row, err := h.Store.GetSave(ctx, dbgen.GetSaveParams{ID: chi.URLParam(r, "id"), CreatedBy: h.Owner(ctx)})
+	g, notice, err := h.Load(ctx, deref(row.GameID))
 	if err != nil {
 		return nil, "", dbgen.Save{}, nil, err
 	}
@@ -263,7 +304,7 @@ func (h *Handler) play(w http.ResponseWriter, r *http.Request) {
 		log = log[len(log)-Shown:]
 	}
 	h.render(w, r, "play", map[string]any{
-		"Save": row, "Notice": notice, "Log": log, "Options": g.Options(s), "Available": g.Available(s),
+		"Game": deref(row.GameID), "Save": row, "Notice": notice, "Log": log, "Options": g.Options(s), "Available": g.Available(s),
 		"Over": g.Over(s), "Journal": g.Journal(s), "Party": g.Party(s), "Abilities": g.Abilities(s),
 	})
 }
@@ -308,9 +349,18 @@ func (h *Handler) begin(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	if _, err := h.Store.DeleteSave(ctx, dbgen.DeleteSaveParams{ID: chi.URLParam(r, "id"), CreatedBy: h.Owner(ctx)}); err != nil {
+	row, err := h.Store.GetSave(ctx, dbgen.GetSaveParams{ID: chi.URLParam(r, "id"), CreatedBy: h.Owner(ctx)})
+	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	h.to(w, r, "/", "Deleted.")
+	if _, err := h.Store.DeleteSave(ctx, dbgen.DeleteSaveParams{ID: row.ID, CreatedBy: h.Owner(ctx)}); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	back := "/"
+	if row.GameID != nil {
+		back = "/?game=" + url.QueryEscape(*row.GameID)
+	}
+	h.to(w, r, back, "Deleted.")
 }

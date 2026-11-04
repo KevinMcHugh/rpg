@@ -112,6 +112,30 @@ func (e NoteTargetKind) Valid() bool {
 	}
 }
 
+// Defines values for Ruleset.
+const (
+	Classic Ruleset = "classic"
+	Pf2e    Ruleset = "pf2e"
+	Srd35   Ruleset = "srd35"
+	Srd52   Ruleset = "srd52"
+)
+
+// Valid indicates whether the value is a known member of the Ruleset enum.
+func (e Ruleset) Valid() bool {
+	switch e {
+	case Classic:
+		return true
+	case Pf2e:
+		return true
+	case Srd35:
+		return true
+	case Srd52:
+		return true
+	default:
+		return false
+	}
+}
+
 // BuildIssue defines model for BuildIssue.
 type BuildIssue struct {
 	Code       string `json:"code"`
@@ -154,6 +178,7 @@ type Character struct {
 	// Companion Can join the party; the journal shows a companion's approval.
 	Companion bool      `json:"companion"`
 	CreatedAt time.Time `json:"createdAt"`
+	GameId    string    `json:"gameId"`
 	Id        string    `json:"id"`
 
 	// Key What scripts call the character (approval aria > 5). Authoring only.
@@ -246,6 +271,7 @@ type Conversation struct {
 	// Condition When the player may start it, in the script language; empty is always.
 	Condition string    `json:"condition"`
 	CreatedAt time.Time `json:"createdAt"`
+	GameId    string    `json:"gameId"`
 	Id        string    `json:"id"`
 
 	// Key What scripts call the conversation (done docks). Authoring only.
@@ -314,6 +340,7 @@ type Error struct {
 type Flag struct {
 	// Description What it means. Authoring only.
 	Description  string `json:"description"`
+	GameId       string `json:"gameId"`
 	Id           string `json:"id"`
 	InitialValue int    `json:"initialValue"`
 
@@ -339,6 +366,49 @@ type FlagUpdate struct {
 	Description  *string `json:"description,omitempty"`
 	InitialValue *int    `json:"initialValue,omitempty"`
 	Key          *string `json:"key,omitempty"`
+}
+
+// Game defines model for Game.
+type Game struct {
+	Id  string `json:"id"`
+	Key string `json:"key"`
+
+	// Name Authoring label; never ships.
+	Name string `json:"name"`
+
+	// Ruleset How checks resolve. classic: 2d6 plus the skill against a difficulty.
+	// srd52: d20 plus ability modifier plus proficiency (SRD 5.2). srd35: d20
+	// plus skill ranks plus ability modifier (3.5 SRD). pf2e: d20 plus
+	// modifier with four degrees of success (Pathfinder 2e). See
+	// docs/mechanics.md.
+	Ruleset Ruleset `json:"ruleset"`
+	Url     string  `json:"url"`
+}
+
+// GameCreate defines model for GameCreate.
+type GameCreate struct {
+	// Key Leave out to make one from the name.
+	Key  string `json:"key,omitempty"`
+	Name string `json:"name"`
+
+	// Ruleset How checks resolve. classic: 2d6 plus the skill against a difficulty.
+	// srd52: d20 plus ability modifier plus proficiency (SRD 5.2). srd35: d20
+	// plus skill ranks plus ability modifier (3.5 SRD). pf2e: d20 plus
+	// modifier with four degrees of success (Pathfinder 2e). See
+	// docs/mechanics.md.
+	Ruleset Ruleset `json:"ruleset,omitempty"`
+}
+
+// GameList defines model for GameList.
+type GameList struct {
+	Games []Game `json:"games"`
+}
+
+// GameUpdate Fields left out are left alone.
+type GameUpdate struct {
+	Key     *string  `json:"key,omitempty"`
+	Name    *string  `json:"name,omitempty"`
+	Ruleset *Ruleset `json:"ruleset,omitempty"`
 }
 
 // Me defines model for Me.
@@ -405,6 +475,7 @@ type Note struct {
 	Body       string    `json:"body"`
 	ByHuman    bool      `json:"byHuman"`
 	CreatedAt  time.Time `json:"createdAt"`
+	GameId     string    `json:"gameId"`
 	Id         string    `json:"id"`
 	Kind       NoteKind  `json:"kind"`
 
@@ -462,8 +533,9 @@ type PathStep struct {
 
 // Quest defines model for Quest.
 type Quest struct {
-	Id  string `json:"id"`
-	Key string `json:"key"`
+	GameId string `json:"gameId"`
+	Id     string `json:"id"`
+	Key    string `json:"key"`
 
 	// Name Player-facing; shown in the journal.
 	Name   string       `json:"name"`
@@ -521,9 +593,17 @@ type QuestUpdate struct {
 	Summary *string `json:"summary,omitempty"`
 }
 
+// Ruleset How checks resolve. classic: 2d6 plus the skill against a difficulty.
+// srd52: d20 plus ability modifier plus proficiency (SRD 5.2). srd35: d20
+// plus skill ranks plus ability modifier (3.5 SRD). pf2e: d20 plus
+// modifier with four degrees of success (Pathfinder 2e). See
+// docs/mechanics.md.
+type Ruleset string
+
 // Skill defines model for Skill.
 type Skill struct {
-	Id string `json:"id"`
+	GameId string `json:"gameId"`
+	Id     string `json:"id"`
 
 	// InitialLevel The player's level at the start of the game.
 	InitialLevel int    `json:"initialLevel"`
@@ -567,6 +647,9 @@ type ConversationId = string
 // FlagId defines model for FlagId.
 type FlagId = string
 
+// GameId defines model for GameId.
+type GameId = string
+
 // NodeId defines model for NodeId.
 type NodeId = string
 
@@ -601,17 +684,11 @@ type ListNotesParams struct {
 	TargetId   string         `form:"targetId,omitempty" json:"targetId,omitempty"`
 }
 
-// CreateCharacterJSONRequestBody defines body for CreateCharacter for application/json ContentType.
-type CreateCharacterJSONRequestBody = CharacterCreate
-
 // UpdateCharacterJSONRequestBody defines body for UpdateCharacter for application/json ContentType.
 type UpdateCharacterJSONRequestBody = CharacterUpdate
 
 // UpdateChoiceJSONRequestBody defines body for UpdateChoice for application/json ContentType.
 type UpdateChoiceJSONRequestBody = ChoiceUpdate
-
-// CreateConversationJSONRequestBody defines body for CreateConversation for application/json ContentType.
-type CreateConversationJSONRequestBody = ConversationCreate
 
 // UpdateConversationJSONRequestBody defines body for UpdateConversation for application/json ContentType.
 type UpdateConversationJSONRequestBody = ConversationUpdate
@@ -619,11 +696,32 @@ type UpdateConversationJSONRequestBody = ConversationUpdate
 // CreateNodeJSONRequestBody defines body for CreateNode for application/json ContentType.
 type CreateNodeJSONRequestBody = NodeCreate
 
+// UpdateFlagJSONRequestBody defines body for UpdateFlag for application/json ContentType.
+type UpdateFlagJSONRequestBody = FlagUpdate
+
+// CreateGameJSONRequestBody defines body for CreateGame for application/json ContentType.
+type CreateGameJSONRequestBody = GameCreate
+
+// UpdateGameJSONRequestBody defines body for UpdateGame for application/json ContentType.
+type UpdateGameJSONRequestBody = GameUpdate
+
+// CreateCharacterJSONRequestBody defines body for CreateCharacter for application/json ContentType.
+type CreateCharacterJSONRequestBody = CharacterCreate
+
+// CreateConversationJSONRequestBody defines body for CreateConversation for application/json ContentType.
+type CreateConversationJSONRequestBody = ConversationCreate
+
 // CreateFlagJSONRequestBody defines body for CreateFlag for application/json ContentType.
 type CreateFlagJSONRequestBody = FlagCreate
 
-// UpdateFlagJSONRequestBody defines body for UpdateFlag for application/json ContentType.
-type UpdateFlagJSONRequestBody = FlagUpdate
+// CreateNoteJSONRequestBody defines body for CreateNote for application/json ContentType.
+type CreateNoteJSONRequestBody = NoteCreate
+
+// CreateQuestJSONRequestBody defines body for CreateQuest for application/json ContentType.
+type CreateQuestJSONRequestBody = QuestCreate
+
+// CreateSkillJSONRequestBody defines body for CreateSkill for application/json ContentType.
+type CreateSkillJSONRequestBody = SkillCreate
 
 // UpdateNodeJSONRequestBody defines body for UpdateNode for application/json ContentType.
 type UpdateNodeJSONRequestBody = NodeUpdate
@@ -631,23 +729,14 @@ type UpdateNodeJSONRequestBody = NodeUpdate
 // CreateChoiceJSONRequestBody defines body for CreateChoice for application/json ContentType.
 type CreateChoiceJSONRequestBody = ChoiceCreate
 
-// CreateNoteJSONRequestBody defines body for CreateNote for application/json ContentType.
-type CreateNoteJSONRequestBody = NoteCreate
-
 // UpdateNoteJSONRequestBody defines body for UpdateNote for application/json ContentType.
 type UpdateNoteJSONRequestBody = NoteUpdate
-
-// CreateQuestJSONRequestBody defines body for CreateQuest for application/json ContentType.
-type CreateQuestJSONRequestBody = QuestCreate
 
 // UpdateQuestJSONRequestBody defines body for UpdateQuest for application/json ContentType.
 type UpdateQuestJSONRequestBody = QuestUpdate
 
 // CreateQuestStageJSONRequestBody defines body for CreateQuestStage for application/json ContentType.
 type CreateQuestStageJSONRequestBody = QuestStageCreate
-
-// CreateSkillJSONRequestBody defines body for CreateSkill for application/json ContentType.
-type CreateSkillJSONRequestBody = SkillCreate
 
 // UpdateSkillJSONRequestBody defines body for UpdateSkill for application/json ContentType.
 type UpdateSkillJSONRequestBody = SkillUpdate
@@ -657,15 +746,6 @@ type UpdateQuestStageJSONRequestBody = QuestStageUpdate
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
-	// GetBuildReport Check the content as the build would, without writing a bundle
-	// (GET /build)
-	GetBuildReport(w http.ResponseWriter, r *http.Request)
-	// ListCharacters List characters by name
-	// (GET /characters)
-	ListCharacters(w http.ResponseWriter, r *http.Request)
-	// CreateCharacter Create a character
-	// (POST /characters)
-	CreateCharacter(w http.ResponseWriter, r *http.Request)
 	// DeleteCharacter Delete a character
 	// (DELETE /characters/{characterId})
 	DeleteCharacter(w http.ResponseWriter, r *http.Request, characterId CharacterId)
@@ -681,12 +761,6 @@ type ServerInterface interface {
 	// UpdateChoice Change a choice's text, target or order
 	// (PATCH /choices/{choiceId})
 	UpdateChoice(w http.ResponseWriter, r *http.Request, choiceId ChoiceId)
-	// ListConversations List conversations, newest first
-	// (GET /conversations)
-	ListConversations(w http.ResponseWriter, r *http.Request)
-	// CreateConversation Create an empty conversation
-	// (POST /conversations)
-	CreateConversation(w http.ResponseWriter, r *http.Request)
 	// DeleteConversation Delete a conversation
 	// (DELETE /conversations/{conversationId})
 	DeleteConversation(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
@@ -699,18 +773,66 @@ type ServerInterface interface {
 	// CreateNode Add a line to a conversation
 	// (POST /conversations/{conversationId}/nodes)
 	CreateNode(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
-	// ListFlags List flags by key
-	// (GET /flags)
-	ListFlags(w http.ResponseWriter, r *http.Request)
-	// CreateFlag Create a flag
-	// (POST /flags)
-	CreateFlag(w http.ResponseWriter, r *http.Request)
 	// DeleteFlag Delete a flag
 	// (DELETE /flags/{flagId})
 	DeleteFlag(w http.ResponseWriter, r *http.Request, flagId FlagId)
 	// UpdateFlag Change a flag's key, description or initial value
 	// (PATCH /flags/{flagId})
 	UpdateFlag(w http.ResponseWriter, r *http.Request, flagId FlagId)
+	// ListGames List games, oldest first
+	// (GET /games)
+	ListGames(w http.ResponseWriter, r *http.Request)
+	// CreateGame Create a game
+	// (POST /games)
+	CreateGame(w http.ResponseWriter, r *http.Request)
+	// DeleteGame Delete a game; its content stops being listed or built
+	// (DELETE /games/{gameId})
+	DeleteGame(w http.ResponseWriter, r *http.Request, gameId GameId)
+	// GetGame One game
+	// (GET /games/{gameId})
+	GetGame(w http.ResponseWriter, r *http.Request, gameId GameId)
+	// UpdateGame Change a game's name, key or ruleset
+	// (PATCH /games/{gameId})
+	UpdateGame(w http.ResponseWriter, r *http.Request, gameId GameId)
+	// GetBuildReport Check the content as the build would, without writing a bundle
+	// (GET /games/{gameId}/build)
+	GetBuildReport(w http.ResponseWriter, r *http.Request, gameId GameId)
+	// ListCharacters List characters by name
+	// (GET /games/{gameId}/characters)
+	ListCharacters(w http.ResponseWriter, r *http.Request, gameId GameId)
+	// CreateCharacter Create a character
+	// (POST /games/{gameId}/characters)
+	CreateCharacter(w http.ResponseWriter, r *http.Request, gameId GameId)
+	// ListConversations List conversations, newest first
+	// (GET /games/{gameId}/conversations)
+	ListConversations(w http.ResponseWriter, r *http.Request, gameId GameId)
+	// CreateConversation Create an empty conversation
+	// (POST /games/{gameId}/conversations)
+	CreateConversation(w http.ResponseWriter, r *http.Request, gameId GameId)
+	// ListFlags List flags by key
+	// (GET /games/{gameId}/flags)
+	ListFlags(w http.ResponseWriter, r *http.Request, gameId GameId)
+	// CreateFlag Create a flag
+	// (POST /games/{gameId}/flags)
+	CreateFlag(w http.ResponseWriter, r *http.Request, gameId GameId)
+	// ListNotes List notes, oldest first
+	// (GET /games/{gameId}/notes)
+	ListNotes(w http.ResponseWriter, r *http.Request, gameId GameId, params ListNotesParams)
+	// CreateNote Leave a note on the game, a character, a conversation, a node, a choice, a flag, a skill or a quest
+	// (POST /games/{gameId}/notes)
+	CreateNote(w http.ResponseWriter, r *http.Request, gameId GameId)
+	// ListQuests List quests by name, with their stages
+	// (GET /games/{gameId}/quests)
+	ListQuests(w http.ResponseWriter, r *http.Request, gameId GameId)
+	// CreateQuest Create a quest
+	// (POST /games/{gameId}/quests)
+	CreateQuest(w http.ResponseWriter, r *http.Request, gameId GameId)
+	// ListSkills List skills by name
+	// (GET /games/{gameId}/skills)
+	ListSkills(w http.ResponseWriter, r *http.Request, gameId GameId)
+	// CreateSkill Create a skill
+	// (POST /games/{gameId}/skills)
+	CreateSkill(w http.ResponseWriter, r *http.Request, gameId GameId)
 	// GetMe The api key this request acts as
 	// (GET /me)
 	GetMe(w http.ResponseWriter, r *http.Request)
@@ -726,12 +848,6 @@ type ServerInterface interface {
 	// GetNodePath The shortest route from the conversation's start to this node
 	// (GET /nodes/{nodeId}/path)
 	GetNodePath(w http.ResponseWriter, r *http.Request, nodeId NodeId)
-	// ListNotes List notes, oldest first
-	// (GET /notes)
-	ListNotes(w http.ResponseWriter, r *http.Request, params ListNotesParams)
-	// CreateNote Leave a note on the game, a character, a conversation, a node, a choice, a flag, a skill or a quest
-	// (POST /notes)
-	CreateNote(w http.ResponseWriter, r *http.Request)
 	// DeleteNote Delete a note
 	// (DELETE /notes/{noteId})
 	DeleteNote(w http.ResponseWriter, r *http.Request, noteId NoteId)
@@ -741,12 +857,6 @@ type ServerInterface interface {
 	// UpdateNote Resolve, dismiss or reopen a note
 	// (PATCH /notes/{noteId})
 	UpdateNote(w http.ResponseWriter, r *http.Request, noteId NoteId)
-	// ListQuests List quests by name, with their stages
-	// (GET /quests)
-	ListQuests(w http.ResponseWriter, r *http.Request)
-	// CreateQuest Create a quest
-	// (POST /quests)
-	CreateQuest(w http.ResponseWriter, r *http.Request)
 	// DeleteQuest Delete a quest and its stages
 	// (DELETE /quests/{questId})
 	DeleteQuest(w http.ResponseWriter, r *http.Request, questId QuestId)
@@ -759,12 +869,6 @@ type ServerInterface interface {
 	// CreateQuestStage Add a stage to a quest
 	// (POST /quests/{questId}/stages)
 	CreateQuestStage(w http.ResponseWriter, r *http.Request, questId QuestId)
-	// ListSkills List skills by name
-	// (GET /skills)
-	ListSkills(w http.ResponseWriter, r *http.Request)
-	// CreateSkill Create a skill
-	// (POST /skills)
-	CreateSkill(w http.ResponseWriter, r *http.Request)
 	// DeleteSkill Delete a skill
 	// (DELETE /skills/{skillId})
 	DeleteSkill(w http.ResponseWriter, r *http.Request, skillId SkillId)
@@ -782,24 +886,6 @@ type ServerInterface interface {
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
-
-// GetBuildReport Check the content as the build would, without writing a bundle
-// (GET /build)
-func (_ Unimplemented) GetBuildReport(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// ListCharacters List characters by name
-// (GET /characters)
-func (_ Unimplemented) ListCharacters(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// CreateCharacter Create a character
-// (POST /characters)
-func (_ Unimplemented) CreateCharacter(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
 
 // DeleteCharacter Delete a character
 // (DELETE /characters/{characterId})
@@ -831,18 +917,6 @@ func (_ Unimplemented) UpdateChoice(w http.ResponseWriter, r *http.Request, choi
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// ListConversations List conversations, newest first
-// (GET /conversations)
-func (_ Unimplemented) ListConversations(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// CreateConversation Create an empty conversation
-// (POST /conversations)
-func (_ Unimplemented) CreateConversation(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
 // DeleteConversation Delete a conversation
 // (DELETE /conversations/{conversationId})
 func (_ Unimplemented) DeleteConversation(w http.ResponseWriter, r *http.Request, conversationId ConversationId) {
@@ -867,18 +941,6 @@ func (_ Unimplemented) CreateNode(w http.ResponseWriter, r *http.Request, conver
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// ListFlags List flags by key
-// (GET /flags)
-func (_ Unimplemented) ListFlags(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// CreateFlag Create a flag
-// (POST /flags)
-func (_ Unimplemented) CreateFlag(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
 // DeleteFlag Delete a flag
 // (DELETE /flags/{flagId})
 func (_ Unimplemented) DeleteFlag(w http.ResponseWriter, r *http.Request, flagId FlagId) {
@@ -888,6 +950,114 @@ func (_ Unimplemented) DeleteFlag(w http.ResponseWriter, r *http.Request, flagId
 // UpdateFlag Change a flag's key, description or initial value
 // (PATCH /flags/{flagId})
 func (_ Unimplemented) UpdateFlag(w http.ResponseWriter, r *http.Request, flagId FlagId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListGames List games, oldest first
+// (GET /games)
+func (_ Unimplemented) ListGames(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateGame Create a game
+// (POST /games)
+func (_ Unimplemented) CreateGame(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DeleteGame Delete a game; its content stops being listed or built
+// (DELETE /games/{gameId})
+func (_ Unimplemented) DeleteGame(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetGame One game
+// (GET /games/{gameId})
+func (_ Unimplemented) GetGame(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// UpdateGame Change a game's name, key or ruleset
+// (PATCH /games/{gameId})
+func (_ Unimplemented) UpdateGame(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetBuildReport Check the content as the build would, without writing a bundle
+// (GET /games/{gameId}/build)
+func (_ Unimplemented) GetBuildReport(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListCharacters List characters by name
+// (GET /games/{gameId}/characters)
+func (_ Unimplemented) ListCharacters(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateCharacter Create a character
+// (POST /games/{gameId}/characters)
+func (_ Unimplemented) CreateCharacter(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListConversations List conversations, newest first
+// (GET /games/{gameId}/conversations)
+func (_ Unimplemented) ListConversations(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateConversation Create an empty conversation
+// (POST /games/{gameId}/conversations)
+func (_ Unimplemented) CreateConversation(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListFlags List flags by key
+// (GET /games/{gameId}/flags)
+func (_ Unimplemented) ListFlags(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateFlag Create a flag
+// (POST /games/{gameId}/flags)
+func (_ Unimplemented) CreateFlag(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListNotes List notes, oldest first
+// (GET /games/{gameId}/notes)
+func (_ Unimplemented) ListNotes(w http.ResponseWriter, r *http.Request, gameId GameId, params ListNotesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateNote Leave a note on the game, a character, a conversation, a node, a choice, a flag, a skill or a quest
+// (POST /games/{gameId}/notes)
+func (_ Unimplemented) CreateNote(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListQuests List quests by name, with their stages
+// (GET /games/{gameId}/quests)
+func (_ Unimplemented) ListQuests(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateQuest Create a quest
+// (POST /games/{gameId}/quests)
+func (_ Unimplemented) CreateQuest(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListSkills List skills by name
+// (GET /games/{gameId}/skills)
+func (_ Unimplemented) ListSkills(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateSkill Create a skill
+// (POST /games/{gameId}/skills)
+func (_ Unimplemented) CreateSkill(w http.ResponseWriter, r *http.Request, gameId GameId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -921,18 +1091,6 @@ func (_ Unimplemented) GetNodePath(w http.ResponseWriter, r *http.Request, nodeI
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// ListNotes List notes, oldest first
-// (GET /notes)
-func (_ Unimplemented) ListNotes(w http.ResponseWriter, r *http.Request, params ListNotesParams) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// CreateNote Leave a note on the game, a character, a conversation, a node, a choice, a flag, a skill or a quest
-// (POST /notes)
-func (_ Unimplemented) CreateNote(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
 // DeleteNote Delete a note
 // (DELETE /notes/{noteId})
 func (_ Unimplemented) DeleteNote(w http.ResponseWriter, r *http.Request, noteId NoteId) {
@@ -948,18 +1106,6 @@ func (_ Unimplemented) GetNote(w http.ResponseWriter, r *http.Request, noteId No
 // UpdateNote Resolve, dismiss or reopen a note
 // (PATCH /notes/{noteId})
 func (_ Unimplemented) UpdateNote(w http.ResponseWriter, r *http.Request, noteId NoteId) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// ListQuests List quests by name, with their stages
-// (GET /quests)
-func (_ Unimplemented) ListQuests(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// CreateQuest Create a quest
-// (POST /quests)
-func (_ Unimplemented) CreateQuest(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -984,18 +1130,6 @@ func (_ Unimplemented) UpdateQuest(w http.ResponseWriter, r *http.Request, quest
 // CreateQuestStage Add a stage to a quest
 // (POST /quests/{questId}/stages)
 func (_ Unimplemented) CreateQuestStage(w http.ResponseWriter, r *http.Request, questId QuestId) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// ListSkills List skills by name
-// (GET /skills)
-func (_ Unimplemented) ListSkills(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// CreateSkill Create a skill
-// (POST /skills)
-func (_ Unimplemented) CreateSkill(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1031,48 +1165,6 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
-
-// GetBuildReport operation middleware
-func (siw *ServerInterfaceWrapper) GetBuildReport(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetBuildReport(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ListCharacters operation middleware
-func (siw *ServerInterfaceWrapper) ListCharacters(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListCharacters(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CreateCharacter operation middleware
-func (siw *ServerInterfaceWrapper) CreateCharacter(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateCharacter(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
 
 // DeleteCharacter operation middleware
 func (siw *ServerInterfaceWrapper) DeleteCharacter(w http.ResponseWriter, r *http.Request) {
@@ -1204,34 +1296,6 @@ func (siw *ServerInterfaceWrapper) UpdateChoice(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
-// ListConversations operation middleware
-func (siw *ServerInterfaceWrapper) ListConversations(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListConversations(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CreateConversation operation middleware
-func (siw *ServerInterfaceWrapper) CreateConversation(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateConversation(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // DeleteConversation operation middleware
 func (siw *ServerInterfaceWrapper) DeleteConversation(w http.ResponseWriter, r *http.Request) {
 
@@ -1336,34 +1400,6 @@ func (siw *ServerInterfaceWrapper) CreateNode(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
-// ListFlags operation middleware
-func (siw *ServerInterfaceWrapper) ListFlags(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListFlags(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CreateFlag operation middleware
-func (siw *ServerInterfaceWrapper) CreateFlag(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateFlag(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // DeleteFlag operation middleware
 func (siw *ServerInterfaceWrapper) DeleteFlag(w http.ResponseWriter, r *http.Request) {
 
@@ -1407,6 +1443,492 @@ func (siw *ServerInterfaceWrapper) UpdateFlag(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateFlag(w, r, flagId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListGames operation middleware
+func (siw *ServerInterfaceWrapper) ListGames(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListGames(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateGame operation middleware
+func (siw *ServerInterfaceWrapper) CreateGame(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateGame(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteGame operation middleware
+func (siw *ServerInterfaceWrapper) DeleteGame(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "gameId" -------------
+	var gameId GameId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "gameId", chi.URLParam(r, "gameId"), &gameId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "gameId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteGame(w, r, gameId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetGame operation middleware
+func (siw *ServerInterfaceWrapper) GetGame(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "gameId" -------------
+	var gameId GameId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "gameId", chi.URLParam(r, "gameId"), &gameId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "gameId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetGame(w, r, gameId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateGame operation middleware
+func (siw *ServerInterfaceWrapper) UpdateGame(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "gameId" -------------
+	var gameId GameId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "gameId", chi.URLParam(r, "gameId"), &gameId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "gameId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateGame(w, r, gameId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetBuildReport operation middleware
+func (siw *ServerInterfaceWrapper) GetBuildReport(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "gameId" -------------
+	var gameId GameId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "gameId", chi.URLParam(r, "gameId"), &gameId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "gameId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetBuildReport(w, r, gameId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListCharacters operation middleware
+func (siw *ServerInterfaceWrapper) ListCharacters(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "gameId" -------------
+	var gameId GameId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "gameId", chi.URLParam(r, "gameId"), &gameId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "gameId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListCharacters(w, r, gameId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateCharacter operation middleware
+func (siw *ServerInterfaceWrapper) CreateCharacter(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "gameId" -------------
+	var gameId GameId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "gameId", chi.URLParam(r, "gameId"), &gameId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "gameId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateCharacter(w, r, gameId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListConversations operation middleware
+func (siw *ServerInterfaceWrapper) ListConversations(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "gameId" -------------
+	var gameId GameId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "gameId", chi.URLParam(r, "gameId"), &gameId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "gameId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListConversations(w, r, gameId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateConversation operation middleware
+func (siw *ServerInterfaceWrapper) CreateConversation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "gameId" -------------
+	var gameId GameId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "gameId", chi.URLParam(r, "gameId"), &gameId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "gameId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateConversation(w, r, gameId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListFlags operation middleware
+func (siw *ServerInterfaceWrapper) ListFlags(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "gameId" -------------
+	var gameId GameId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "gameId", chi.URLParam(r, "gameId"), &gameId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "gameId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListFlags(w, r, gameId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateFlag operation middleware
+func (siw *ServerInterfaceWrapper) CreateFlag(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "gameId" -------------
+	var gameId GameId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "gameId", chi.URLParam(r, "gameId"), &gameId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "gameId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateFlag(w, r, gameId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListNotes operation middleware
+func (siw *ServerInterfaceWrapper) ListNotes(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "gameId" -------------
+	var gameId GameId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "gameId", chi.URLParam(r, "gameId"), &gameId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "gameId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListNotesParams
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "targetKind" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "targetKind", r.URL.Query(), &params.TargetKind, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "targetKind"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "targetKind", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "targetId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "targetId", r.URL.Query(), &params.TargetId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "targetId"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "targetId", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListNotes(w, r, gameId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateNote operation middleware
+func (siw *ServerInterfaceWrapper) CreateNote(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "gameId" -------------
+	var gameId GameId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "gameId", chi.URLParam(r, "gameId"), &gameId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "gameId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateNote(w, r, gameId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListQuests operation middleware
+func (siw *ServerInterfaceWrapper) ListQuests(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "gameId" -------------
+	var gameId GameId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "gameId", chi.URLParam(r, "gameId"), &gameId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "gameId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListQuests(w, r, gameId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateQuest operation middleware
+func (siw *ServerInterfaceWrapper) CreateQuest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "gameId" -------------
+	var gameId GameId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "gameId", chi.URLParam(r, "gameId"), &gameId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "gameId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateQuest(w, r, gameId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListSkills operation middleware
+func (siw *ServerInterfaceWrapper) ListSkills(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "gameId" -------------
+	var gameId GameId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "gameId", chi.URLParam(r, "gameId"), &gameId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "gameId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSkills(w, r, gameId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateSkill operation middleware
+func (siw *ServerInterfaceWrapper) CreateSkill(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "gameId" -------------
+	var gameId GameId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "gameId", chi.URLParam(r, "gameId"), &gameId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "gameId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateSkill(w, r, gameId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1534,79 +2056,6 @@ func (siw *ServerInterfaceWrapper) GetNodePath(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
-// ListNotes operation middleware
-func (siw *ServerInterfaceWrapper) ListNotes(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params ListNotesParams
-
-	// ------------- Optional query parameter "status" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "targetKind" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "targetKind", r.URL.Query(), &params.TargetKind, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "targetKind"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "targetKind", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "targetId" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "targetId", r.URL.Query(), &params.TargetId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "targetId"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "targetId", Err: err})
-		}
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListNotes(w, r, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CreateNote operation middleware
-func (siw *ServerInterfaceWrapper) CreateNote(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateNote(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // DeleteNote operation middleware
 func (siw *ServerInterfaceWrapper) DeleteNote(w http.ResponseWriter, r *http.Request) {
 
@@ -1676,34 +2125,6 @@ func (siw *ServerInterfaceWrapper) UpdateNote(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateNote(w, r, noteId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ListQuests operation middleware
-func (siw *ServerInterfaceWrapper) ListQuests(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListQuests(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CreateQuest operation middleware
-func (siw *ServerInterfaceWrapper) CreateQuest(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateQuest(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1808,34 +2229,6 @@ func (siw *ServerInterfaceWrapper) CreateQuestStage(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateQuestStage(w, r, questId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ListSkills operation middleware
-func (siw *ServerInterfaceWrapper) ListSkills(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListSkills(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CreateSkill operation middleware
-func (siw *ServerInterfaceWrapper) CreateSkill(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateSkill(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2066,10 +2459,25 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/me", wrapper.GetMe)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/characters", wrapper.ListCharacters)
+		r.Get(options.BaseURL+"/games", wrapper.ListGames)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/characters", wrapper.CreateCharacter)
+		r.Post(options.BaseURL+"/games", wrapper.CreateGame)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/games/{gameId}", wrapper.DeleteGame)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/games/{gameId}", wrapper.GetGame)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/games/{gameId}", wrapper.UpdateGame)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/games/{gameId}/characters", wrapper.ListCharacters)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/games/{gameId}/characters", wrapper.CreateCharacter)
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/characters/{characterId}", wrapper.DeleteCharacter)
@@ -2081,10 +2489,10 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/characters/{characterId}", wrapper.UpdateCharacter)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/conversations", wrapper.ListConversations)
+		r.Get(options.BaseURL+"/games/{gameId}/conversations", wrapper.ListConversations)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/conversations", wrapper.CreateConversation)
+		r.Post(options.BaseURL+"/games/{gameId}/conversations", wrapper.CreateConversation)
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/conversations/{conversationId}", wrapper.DeleteConversation)
@@ -2117,10 +2525,10 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/choices/{choiceId}", wrapper.UpdateChoice)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/flags", wrapper.ListFlags)
+		r.Get(options.BaseURL+"/games/{gameId}/flags", wrapper.ListFlags)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/flags", wrapper.CreateFlag)
+		r.Post(options.BaseURL+"/games/{gameId}/flags", wrapper.CreateFlag)
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/flags/{flagId}", wrapper.DeleteFlag)
@@ -2129,10 +2537,10 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/flags/{flagId}", wrapper.UpdateFlag)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/skills", wrapper.ListSkills)
+		r.Get(options.BaseURL+"/games/{gameId}/skills", wrapper.ListSkills)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/skills", wrapper.CreateSkill)
+		r.Post(options.BaseURL+"/games/{gameId}/skills", wrapper.CreateSkill)
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/skills/{skillId}", wrapper.DeleteSkill)
@@ -2141,10 +2549,10 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/skills/{skillId}", wrapper.UpdateSkill)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/quests", wrapper.ListQuests)
+		r.Get(options.BaseURL+"/games/{gameId}/quests", wrapper.ListQuests)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/quests", wrapper.CreateQuest)
+		r.Post(options.BaseURL+"/games/{gameId}/quests", wrapper.CreateQuest)
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/quests/{questId}", wrapper.DeleteQuest)
@@ -2165,10 +2573,10 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/stages/{stageId}", wrapper.UpdateQuestStage)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/notes", wrapper.ListNotes)
+		r.Get(options.BaseURL+"/games/{gameId}/notes", wrapper.ListNotes)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/notes", wrapper.CreateNote)
+		r.Post(options.BaseURL+"/games/{gameId}/notes", wrapper.CreateNote)
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/notes/{noteId}", wrapper.DeleteNote)
@@ -2180,7 +2588,7 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/notes/{noteId}", wrapper.UpdateNote)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/build", wrapper.GetBuildReport)
+		r.Get(options.BaseURL+"/games/{gameId}/build", wrapper.GetBuildReport)
 	})
 
 	return r
@@ -2195,145 +2603,6 @@ type NotFoundJSONResponse Error
 type UnauthorizedTextResponse string
 
 type UnprocessableJSONResponse Error
-
-type GetBuildReportRequestObject struct {
-}
-
-type GetBuildReportResponseObject interface {
-	VisitGetBuildReportResponse(w http.ResponseWriter) error
-}
-
-type GetBuildReport200JSONResponse BuildReport
-
-func (response GetBuildReport200JSONResponse) VisitGetBuildReportResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetBuildReport401TextResponse UnauthorizedTextResponse
-
-func (response GetBuildReport401TextResponse) VisitGetBuildReportResponse(w http.ResponseWriter) error {
-
-	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(401)
-
-	_, err := w.Write([]byte(fmt.Sprint(response)))
-	return err
-}
-
-type ListCharactersRequestObject struct {
-}
-
-type ListCharactersResponseObject interface {
-	VisitListCharactersResponse(w http.ResponseWriter) error
-}
-
-type ListCharacters200JSONResponse CharacterList
-
-func (response ListCharacters200JSONResponse) VisitListCharactersResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type ListCharacters401TextResponse UnauthorizedTextResponse
-
-func (response ListCharacters401TextResponse) VisitListCharactersResponse(w http.ResponseWriter) error {
-
-	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(401)
-
-	_, err := w.Write([]byte(fmt.Sprint(response)))
-	return err
-}
-
-type CreateCharacterRequestObject struct {
-	Body *CreateCharacterJSONRequestBody
-}
-
-type CreateCharacterResponseObject interface {
-	VisitCreateCharacterResponse(w http.ResponseWriter) error
-}
-
-type CreateCharacter201JSONResponse Character
-
-func (response CreateCharacter201JSONResponse) VisitCreateCharacterResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(201)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateCharacter400JSONResponse struct{ BadRequestJSONResponse }
-
-func (response CreateCharacter400JSONResponse) VisitCreateCharacterResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(400)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateCharacter401TextResponse UnauthorizedTextResponse
-
-func (response CreateCharacter401TextResponse) VisitCreateCharacterResponse(w http.ResponseWriter) error {
-
-	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(401)
-
-	_, err := w.Write([]byte(fmt.Sprint(response)))
-	return err
-}
-
-type CreateCharacter403JSONResponse struct{ ForbiddenJSONResponse }
-
-func (response CreateCharacter403JSONResponse) VisitCreateCharacterResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateCharacter422JSONResponse struct{ UnprocessableJSONResponse }
-
-func (response CreateCharacter422JSONResponse) VisitCreateCharacterResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(422)
-	_, err := buf.WriteTo(w)
-	return err
-}
 
 type DeleteCharacterRequestObject struct {
 	CharacterId CharacterId `json:"characterId"`
@@ -2672,113 +2941,6 @@ func (response UpdateChoice422JSONResponse) VisitUpdateChoiceResponse(w http.Res
 	return err
 }
 
-type ListConversationsRequestObject struct {
-}
-
-type ListConversationsResponseObject interface {
-	VisitListConversationsResponse(w http.ResponseWriter) error
-}
-
-type ListConversations200JSONResponse ConversationList
-
-func (response ListConversations200JSONResponse) VisitListConversationsResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type ListConversations401TextResponse UnauthorizedTextResponse
-
-func (response ListConversations401TextResponse) VisitListConversationsResponse(w http.ResponseWriter) error {
-
-	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(401)
-
-	_, err := w.Write([]byte(fmt.Sprint(response)))
-	return err
-}
-
-type CreateConversationRequestObject struct {
-	Body *CreateConversationJSONRequestBody
-}
-
-type CreateConversationResponseObject interface {
-	VisitCreateConversationResponse(w http.ResponseWriter) error
-}
-
-type CreateConversation201JSONResponse ConversationGraph
-
-func (response CreateConversation201JSONResponse) VisitCreateConversationResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(201)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateConversation400JSONResponse struct{ BadRequestJSONResponse }
-
-func (response CreateConversation400JSONResponse) VisitCreateConversationResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(400)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateConversation401TextResponse UnauthorizedTextResponse
-
-func (response CreateConversation401TextResponse) VisitCreateConversationResponse(w http.ResponseWriter) error {
-
-	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(401)
-
-	_, err := w.Write([]byte(fmt.Sprint(response)))
-	return err
-}
-
-type CreateConversation403JSONResponse struct{ ForbiddenJSONResponse }
-
-func (response CreateConversation403JSONResponse) VisitCreateConversationResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateConversation422JSONResponse struct{ UnprocessableJSONResponse }
-
-func (response CreateConversation422JSONResponse) VisitCreateConversationResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(422)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type DeleteConversationRequestObject struct {
 	ConversationId ConversationId `json:"conversationId"`
 }
@@ -3061,113 +3223,6 @@ func (response CreateNode422JSONResponse) VisitCreateNodeResponse(w http.Respons
 	return err
 }
 
-type ListFlagsRequestObject struct {
-}
-
-type ListFlagsResponseObject interface {
-	VisitListFlagsResponse(w http.ResponseWriter) error
-}
-
-type ListFlags200JSONResponse FlagList
-
-func (response ListFlags200JSONResponse) VisitListFlagsResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type ListFlags401TextResponse UnauthorizedTextResponse
-
-func (response ListFlags401TextResponse) VisitListFlagsResponse(w http.ResponseWriter) error {
-
-	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(401)
-
-	_, err := w.Write([]byte(fmt.Sprint(response)))
-	return err
-}
-
-type CreateFlagRequestObject struct {
-	Body *CreateFlagJSONRequestBody
-}
-
-type CreateFlagResponseObject interface {
-	VisitCreateFlagResponse(w http.ResponseWriter) error
-}
-
-type CreateFlag201JSONResponse Flag
-
-func (response CreateFlag201JSONResponse) VisitCreateFlagResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(201)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateFlag400JSONResponse struct{ BadRequestJSONResponse }
-
-func (response CreateFlag400JSONResponse) VisitCreateFlagResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(400)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateFlag401TextResponse UnauthorizedTextResponse
-
-func (response CreateFlag401TextResponse) VisitCreateFlagResponse(w http.ResponseWriter) error {
-
-	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(401)
-
-	_, err := w.Write([]byte(fmt.Sprint(response)))
-	return err
-}
-
-type CreateFlag403JSONResponse struct{ ForbiddenJSONResponse }
-
-func (response CreateFlag403JSONResponse) VisitCreateFlagResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateFlag422JSONResponse struct{ UnprocessableJSONResponse }
-
-func (response CreateFlag422JSONResponse) VisitCreateFlagResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(422)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type DeleteFlagRequestObject struct {
 	FlagId FlagId `json:"flagId"`
 }
@@ -3302,6 +3357,1175 @@ func (response UpdateFlag404JSONResponse) VisitUpdateFlagResponse(w http.Respons
 type UpdateFlag422JSONResponse struct{ UnprocessableJSONResponse }
 
 func (response UpdateFlag422JSONResponse) VisitUpdateFlagResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListGamesRequestObject struct {
+}
+
+type ListGamesResponseObject interface {
+	VisitListGamesResponse(w http.ResponseWriter) error
+}
+
+type ListGames200JSONResponse GameList
+
+func (response ListGames200JSONResponse) VisitListGamesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListGames401TextResponse UnauthorizedTextResponse
+
+func (response ListGames401TextResponse) VisitListGamesResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type CreateGameRequestObject struct {
+	Body *CreateGameJSONRequestBody
+}
+
+type CreateGameResponseObject interface {
+	VisitCreateGameResponse(w http.ResponseWriter) error
+}
+
+type CreateGame201JSONResponse Game
+
+func (response CreateGame201JSONResponse) VisitCreateGameResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGame400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateGame400JSONResponse) VisitCreateGameResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGame401TextResponse UnauthorizedTextResponse
+
+func (response CreateGame401TextResponse) VisitCreateGameResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type CreateGame403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateGame403JSONResponse) VisitCreateGameResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGame422JSONResponse struct{ UnprocessableJSONResponse }
+
+func (response CreateGame422JSONResponse) VisitCreateGameResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteGameRequestObject struct {
+	GameId GameId `json:"gameId"`
+}
+
+type DeleteGameResponseObject interface {
+	VisitDeleteGameResponse(w http.ResponseWriter) error
+}
+
+type DeleteGame204Response struct {
+}
+
+func (response DeleteGame204Response) VisitDeleteGameResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteGame401TextResponse UnauthorizedTextResponse
+
+func (response DeleteGame401TextResponse) VisitDeleteGameResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type DeleteGame403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteGame403JSONResponse) VisitDeleteGameResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteGame404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteGame404JSONResponse) VisitDeleteGameResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetGameRequestObject struct {
+	GameId GameId `json:"gameId"`
+}
+
+type GetGameResponseObject interface {
+	VisitGetGameResponse(w http.ResponseWriter) error
+}
+
+type GetGame200JSONResponse Game
+
+func (response GetGame200JSONResponse) VisitGetGameResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetGame401TextResponse UnauthorizedTextResponse
+
+func (response GetGame401TextResponse) VisitGetGameResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type GetGame404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetGame404JSONResponse) VisitGetGameResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateGameRequestObject struct {
+	GameId GameId `json:"gameId"`
+	Body   *UpdateGameJSONRequestBody
+}
+
+type UpdateGameResponseObject interface {
+	VisitUpdateGameResponse(w http.ResponseWriter) error
+}
+
+type UpdateGame200JSONResponse Game
+
+func (response UpdateGame200JSONResponse) VisitUpdateGameResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateGame400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdateGame400JSONResponse) VisitUpdateGameResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateGame401TextResponse UnauthorizedTextResponse
+
+func (response UpdateGame401TextResponse) VisitUpdateGameResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type UpdateGame403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateGame403JSONResponse) VisitUpdateGameResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateGame404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateGame404JSONResponse) VisitUpdateGameResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateGame422JSONResponse struct{ UnprocessableJSONResponse }
+
+func (response UpdateGame422JSONResponse) VisitUpdateGameResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBuildReportRequestObject struct {
+	GameId GameId `json:"gameId"`
+}
+
+type GetBuildReportResponseObject interface {
+	VisitGetBuildReportResponse(w http.ResponseWriter) error
+}
+
+type GetBuildReport200JSONResponse BuildReport
+
+func (response GetBuildReport200JSONResponse) VisitGetBuildReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBuildReport401TextResponse UnauthorizedTextResponse
+
+func (response GetBuildReport401TextResponse) VisitGetBuildReportResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type GetBuildReport404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetBuildReport404JSONResponse) VisitGetBuildReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCharactersRequestObject struct {
+	GameId GameId `json:"gameId"`
+}
+
+type ListCharactersResponseObject interface {
+	VisitListCharactersResponse(w http.ResponseWriter) error
+}
+
+type ListCharacters200JSONResponse CharacterList
+
+func (response ListCharacters200JSONResponse) VisitListCharactersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCharacters401TextResponse UnauthorizedTextResponse
+
+func (response ListCharacters401TextResponse) VisitListCharactersResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type ListCharacters404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListCharacters404JSONResponse) VisitListCharactersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCharacterRequestObject struct {
+	GameId GameId `json:"gameId"`
+	Body   *CreateCharacterJSONRequestBody
+}
+
+type CreateCharacterResponseObject interface {
+	VisitCreateCharacterResponse(w http.ResponseWriter) error
+}
+
+type CreateCharacter201JSONResponse Character
+
+func (response CreateCharacter201JSONResponse) VisitCreateCharacterResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCharacter400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateCharacter400JSONResponse) VisitCreateCharacterResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCharacter401TextResponse UnauthorizedTextResponse
+
+func (response CreateCharacter401TextResponse) VisitCreateCharacterResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type CreateCharacter403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateCharacter403JSONResponse) VisitCreateCharacterResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCharacter404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateCharacter404JSONResponse) VisitCreateCharacterResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCharacter422JSONResponse struct{ UnprocessableJSONResponse }
+
+func (response CreateCharacter422JSONResponse) VisitCreateCharacterResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListConversationsRequestObject struct {
+	GameId GameId `json:"gameId"`
+}
+
+type ListConversationsResponseObject interface {
+	VisitListConversationsResponse(w http.ResponseWriter) error
+}
+
+type ListConversations200JSONResponse ConversationList
+
+func (response ListConversations200JSONResponse) VisitListConversationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListConversations401TextResponse UnauthorizedTextResponse
+
+func (response ListConversations401TextResponse) VisitListConversationsResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type ListConversations404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListConversations404JSONResponse) VisitListConversationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateConversationRequestObject struct {
+	GameId GameId `json:"gameId"`
+	Body   *CreateConversationJSONRequestBody
+}
+
+type CreateConversationResponseObject interface {
+	VisitCreateConversationResponse(w http.ResponseWriter) error
+}
+
+type CreateConversation201JSONResponse ConversationGraph
+
+func (response CreateConversation201JSONResponse) VisitCreateConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateConversation400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateConversation400JSONResponse) VisitCreateConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateConversation401TextResponse UnauthorizedTextResponse
+
+func (response CreateConversation401TextResponse) VisitCreateConversationResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type CreateConversation403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateConversation403JSONResponse) VisitCreateConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateConversation404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateConversation404JSONResponse) VisitCreateConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateConversation422JSONResponse struct{ UnprocessableJSONResponse }
+
+func (response CreateConversation422JSONResponse) VisitCreateConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListFlagsRequestObject struct {
+	GameId GameId `json:"gameId"`
+}
+
+type ListFlagsResponseObject interface {
+	VisitListFlagsResponse(w http.ResponseWriter) error
+}
+
+type ListFlags200JSONResponse FlagList
+
+func (response ListFlags200JSONResponse) VisitListFlagsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListFlags401TextResponse UnauthorizedTextResponse
+
+func (response ListFlags401TextResponse) VisitListFlagsResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type ListFlags404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListFlags404JSONResponse) VisitListFlagsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateFlagRequestObject struct {
+	GameId GameId `json:"gameId"`
+	Body   *CreateFlagJSONRequestBody
+}
+
+type CreateFlagResponseObject interface {
+	VisitCreateFlagResponse(w http.ResponseWriter) error
+}
+
+type CreateFlag201JSONResponse Flag
+
+func (response CreateFlag201JSONResponse) VisitCreateFlagResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateFlag400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateFlag400JSONResponse) VisitCreateFlagResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateFlag401TextResponse UnauthorizedTextResponse
+
+func (response CreateFlag401TextResponse) VisitCreateFlagResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type CreateFlag403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateFlag403JSONResponse) VisitCreateFlagResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateFlag404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateFlag404JSONResponse) VisitCreateFlagResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateFlag422JSONResponse struct{ UnprocessableJSONResponse }
+
+func (response CreateFlag422JSONResponse) VisitCreateFlagResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListNotesRequestObject struct {
+	GameId GameId `json:"gameId"`
+	Params ListNotesParams
+}
+
+type ListNotesResponseObject interface {
+	VisitListNotesResponse(w http.ResponseWriter) error
+}
+
+type ListNotes200JSONResponse NoteList
+
+func (response ListNotes200JSONResponse) VisitListNotesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListNotes401TextResponse UnauthorizedTextResponse
+
+func (response ListNotes401TextResponse) VisitListNotesResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type ListNotes404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListNotes404JSONResponse) VisitListNotesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListNotes422JSONResponse struct{ UnprocessableJSONResponse }
+
+func (response ListNotes422JSONResponse) VisitListNotesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNoteRequestObject struct {
+	GameId GameId `json:"gameId"`
+	Body   *CreateNoteJSONRequestBody
+}
+
+type CreateNoteResponseObject interface {
+	VisitCreateNoteResponse(w http.ResponseWriter) error
+}
+
+type CreateNote201JSONResponse Note
+
+func (response CreateNote201JSONResponse) VisitCreateNoteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNote400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateNote400JSONResponse) VisitCreateNoteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNote401TextResponse UnauthorizedTextResponse
+
+func (response CreateNote401TextResponse) VisitCreateNoteResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type CreateNote404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateNote404JSONResponse) VisitCreateNoteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNote422JSONResponse struct{ UnprocessableJSONResponse }
+
+func (response CreateNote422JSONResponse) VisitCreateNoteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListQuestsRequestObject struct {
+	GameId GameId `json:"gameId"`
+}
+
+type ListQuestsResponseObject interface {
+	VisitListQuestsResponse(w http.ResponseWriter) error
+}
+
+type ListQuests200JSONResponse QuestList
+
+func (response ListQuests200JSONResponse) VisitListQuestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListQuests401TextResponse UnauthorizedTextResponse
+
+func (response ListQuests401TextResponse) VisitListQuestsResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type ListQuests404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListQuests404JSONResponse) VisitListQuestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateQuestRequestObject struct {
+	GameId GameId `json:"gameId"`
+	Body   *CreateQuestJSONRequestBody
+}
+
+type CreateQuestResponseObject interface {
+	VisitCreateQuestResponse(w http.ResponseWriter) error
+}
+
+type CreateQuest201JSONResponse Quest
+
+func (response CreateQuest201JSONResponse) VisitCreateQuestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateQuest400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateQuest400JSONResponse) VisitCreateQuestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateQuest401TextResponse UnauthorizedTextResponse
+
+func (response CreateQuest401TextResponse) VisitCreateQuestResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type CreateQuest403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateQuest403JSONResponse) VisitCreateQuestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateQuest404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateQuest404JSONResponse) VisitCreateQuestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateQuest422JSONResponse struct{ UnprocessableJSONResponse }
+
+func (response CreateQuest422JSONResponse) VisitCreateQuestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSkillsRequestObject struct {
+	GameId GameId `json:"gameId"`
+}
+
+type ListSkillsResponseObject interface {
+	VisitListSkillsResponse(w http.ResponseWriter) error
+}
+
+type ListSkills200JSONResponse SkillList
+
+func (response ListSkills200JSONResponse) VisitListSkillsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSkills401TextResponse UnauthorizedTextResponse
+
+func (response ListSkills401TextResponse) VisitListSkillsResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type ListSkills404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListSkills404JSONResponse) VisitListSkillsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSkillRequestObject struct {
+	GameId GameId `json:"gameId"`
+	Body   *CreateSkillJSONRequestBody
+}
+
+type CreateSkillResponseObject interface {
+	VisitCreateSkillResponse(w http.ResponseWriter) error
+}
+
+type CreateSkill201JSONResponse Skill
+
+func (response CreateSkill201JSONResponse) VisitCreateSkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSkill400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateSkill400JSONResponse) VisitCreateSkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSkill401TextResponse UnauthorizedTextResponse
+
+func (response CreateSkill401TextResponse) VisitCreateSkillResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type CreateSkill403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateSkill403JSONResponse) VisitCreateSkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSkill404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateSkill404JSONResponse) VisitCreateSkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSkill422JSONResponse struct{ UnprocessableJSONResponse }
+
+func (response CreateSkill422JSONResponse) VisitCreateSkillResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -3627,128 +4851,6 @@ func (response GetNodePath404JSONResponse) VisitGetNodePathResponse(w http.Respo
 	return err
 }
 
-type ListNotesRequestObject struct {
-	Params ListNotesParams
-}
-
-type ListNotesResponseObject interface {
-	VisitListNotesResponse(w http.ResponseWriter) error
-}
-
-type ListNotes200JSONResponse NoteList
-
-func (response ListNotes200JSONResponse) VisitListNotesResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type ListNotes401TextResponse UnauthorizedTextResponse
-
-func (response ListNotes401TextResponse) VisitListNotesResponse(w http.ResponseWriter) error {
-
-	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(401)
-
-	_, err := w.Write([]byte(fmt.Sprint(response)))
-	return err
-}
-
-type ListNotes422JSONResponse struct{ UnprocessableJSONResponse }
-
-func (response ListNotes422JSONResponse) VisitListNotesResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(422)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateNoteRequestObject struct {
-	Body *CreateNoteJSONRequestBody
-}
-
-type CreateNoteResponseObject interface {
-	VisitCreateNoteResponse(w http.ResponseWriter) error
-}
-
-type CreateNote201JSONResponse Note
-
-func (response CreateNote201JSONResponse) VisitCreateNoteResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(201)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateNote400JSONResponse struct{ BadRequestJSONResponse }
-
-func (response CreateNote400JSONResponse) VisitCreateNoteResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(400)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateNote401TextResponse UnauthorizedTextResponse
-
-func (response CreateNote401TextResponse) VisitCreateNoteResponse(w http.ResponseWriter) error {
-
-	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(401)
-
-	_, err := w.Write([]byte(fmt.Sprint(response)))
-	return err
-}
-
-type CreateNote404JSONResponse struct{ NotFoundJSONResponse }
-
-func (response CreateNote404JSONResponse) VisitCreateNoteResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateNote422JSONResponse struct{ UnprocessableJSONResponse }
-
-func (response CreateNote422JSONResponse) VisitCreateNoteResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(422)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type DeleteNoteRequestObject struct {
 	NoteId NoteId `json:"noteId"`
 }
@@ -3930,113 +5032,6 @@ func (response UpdateNote404JSONResponse) VisitUpdateNoteResponse(w http.Respons
 type UpdateNote422JSONResponse struct{ UnprocessableJSONResponse }
 
 func (response UpdateNote422JSONResponse) VisitUpdateNoteResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(422)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type ListQuestsRequestObject struct {
-}
-
-type ListQuestsResponseObject interface {
-	VisitListQuestsResponse(w http.ResponseWriter) error
-}
-
-type ListQuests200JSONResponse QuestList
-
-func (response ListQuests200JSONResponse) VisitListQuestsResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type ListQuests401TextResponse UnauthorizedTextResponse
-
-func (response ListQuests401TextResponse) VisitListQuestsResponse(w http.ResponseWriter) error {
-
-	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(401)
-
-	_, err := w.Write([]byte(fmt.Sprint(response)))
-	return err
-}
-
-type CreateQuestRequestObject struct {
-	Body *CreateQuestJSONRequestBody
-}
-
-type CreateQuestResponseObject interface {
-	VisitCreateQuestResponse(w http.ResponseWriter) error
-}
-
-type CreateQuest201JSONResponse Quest
-
-func (response CreateQuest201JSONResponse) VisitCreateQuestResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(201)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateQuest400JSONResponse struct{ BadRequestJSONResponse }
-
-func (response CreateQuest400JSONResponse) VisitCreateQuestResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(400)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateQuest401TextResponse UnauthorizedTextResponse
-
-func (response CreateQuest401TextResponse) VisitCreateQuestResponse(w http.ResponseWriter) error {
-
-	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(401)
-
-	_, err := w.Write([]byte(fmt.Sprint(response)))
-	return err
-}
-
-type CreateQuest403JSONResponse struct{ ForbiddenJSONResponse }
-
-func (response CreateQuest403JSONResponse) VisitCreateQuestResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateQuest422JSONResponse struct{ UnprocessableJSONResponse }
-
-func (response CreateQuest422JSONResponse) VisitCreateQuestResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -4319,113 +5314,6 @@ func (response CreateQuestStage404JSONResponse) VisitCreateQuestStageResponse(w 
 type CreateQuestStage422JSONResponse struct{ UnprocessableJSONResponse }
 
 func (response CreateQuestStage422JSONResponse) VisitCreateQuestStageResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(422)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type ListSkillsRequestObject struct {
-}
-
-type ListSkillsResponseObject interface {
-	VisitListSkillsResponse(w http.ResponseWriter) error
-}
-
-type ListSkills200JSONResponse SkillList
-
-func (response ListSkills200JSONResponse) VisitListSkillsResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type ListSkills401TextResponse UnauthorizedTextResponse
-
-func (response ListSkills401TextResponse) VisitListSkillsResponse(w http.ResponseWriter) error {
-
-	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(401)
-
-	_, err := w.Write([]byte(fmt.Sprint(response)))
-	return err
-}
-
-type CreateSkillRequestObject struct {
-	Body *CreateSkillJSONRequestBody
-}
-
-type CreateSkillResponseObject interface {
-	VisitCreateSkillResponse(w http.ResponseWriter) error
-}
-
-type CreateSkill201JSONResponse Skill
-
-func (response CreateSkill201JSONResponse) VisitCreateSkillResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(201)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateSkill400JSONResponse struct{ BadRequestJSONResponse }
-
-func (response CreateSkill400JSONResponse) VisitCreateSkillResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(400)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateSkill401TextResponse UnauthorizedTextResponse
-
-func (response CreateSkill401TextResponse) VisitCreateSkillResponse(w http.ResponseWriter) error {
-
-	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(401)
-
-	_, err := w.Write([]byte(fmt.Sprint(response)))
-	return err
-}
-
-type CreateSkill403JSONResponse struct{ ForbiddenJSONResponse }
-
-func (response CreateSkill403JSONResponse) VisitCreateSkillResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateSkill422JSONResponse struct{ UnprocessableJSONResponse }
-
-func (response CreateSkill422JSONResponse) VisitCreateSkillResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -4729,15 +5617,6 @@ func (response UpdateQuestStage422JSONResponse) VisitUpdateQuestStageResponse(w 
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
-	// GetBuildReport Check the content as the build would, without writing a bundle
-	// (GET /build)
-	GetBuildReport(ctx context.Context, request GetBuildReportRequestObject) (GetBuildReportResponseObject, error)
-	// ListCharacters List characters by name
-	// (GET /characters)
-	ListCharacters(ctx context.Context, request ListCharactersRequestObject) (ListCharactersResponseObject, error)
-	// CreateCharacter Create a character
-	// (POST /characters)
-	CreateCharacter(ctx context.Context, request CreateCharacterRequestObject) (CreateCharacterResponseObject, error)
 	// DeleteCharacter Delete a character
 	// (DELETE /characters/{characterId})
 	DeleteCharacter(ctx context.Context, request DeleteCharacterRequestObject) (DeleteCharacterResponseObject, error)
@@ -4753,12 +5632,6 @@ type StrictServerInterface interface {
 	// UpdateChoice Change a choice's text, target or order
 	// (PATCH /choices/{choiceId})
 	UpdateChoice(ctx context.Context, request UpdateChoiceRequestObject) (UpdateChoiceResponseObject, error)
-	// ListConversations List conversations, newest first
-	// (GET /conversations)
-	ListConversations(ctx context.Context, request ListConversationsRequestObject) (ListConversationsResponseObject, error)
-	// CreateConversation Create an empty conversation
-	// (POST /conversations)
-	CreateConversation(ctx context.Context, request CreateConversationRequestObject) (CreateConversationResponseObject, error)
 	// DeleteConversation Delete a conversation
 	// (DELETE /conversations/{conversationId})
 	DeleteConversation(ctx context.Context, request DeleteConversationRequestObject) (DeleteConversationResponseObject, error)
@@ -4771,18 +5644,66 @@ type StrictServerInterface interface {
 	// CreateNode Add a line to a conversation
 	// (POST /conversations/{conversationId}/nodes)
 	CreateNode(ctx context.Context, request CreateNodeRequestObject) (CreateNodeResponseObject, error)
-	// ListFlags List flags by key
-	// (GET /flags)
-	ListFlags(ctx context.Context, request ListFlagsRequestObject) (ListFlagsResponseObject, error)
-	// CreateFlag Create a flag
-	// (POST /flags)
-	CreateFlag(ctx context.Context, request CreateFlagRequestObject) (CreateFlagResponseObject, error)
 	// DeleteFlag Delete a flag
 	// (DELETE /flags/{flagId})
 	DeleteFlag(ctx context.Context, request DeleteFlagRequestObject) (DeleteFlagResponseObject, error)
 	// UpdateFlag Change a flag's key, description or initial value
 	// (PATCH /flags/{flagId})
 	UpdateFlag(ctx context.Context, request UpdateFlagRequestObject) (UpdateFlagResponseObject, error)
+	// ListGames List games, oldest first
+	// (GET /games)
+	ListGames(ctx context.Context, request ListGamesRequestObject) (ListGamesResponseObject, error)
+	// CreateGame Create a game
+	// (POST /games)
+	CreateGame(ctx context.Context, request CreateGameRequestObject) (CreateGameResponseObject, error)
+	// DeleteGame Delete a game; its content stops being listed or built
+	// (DELETE /games/{gameId})
+	DeleteGame(ctx context.Context, request DeleteGameRequestObject) (DeleteGameResponseObject, error)
+	// GetGame One game
+	// (GET /games/{gameId})
+	GetGame(ctx context.Context, request GetGameRequestObject) (GetGameResponseObject, error)
+	// UpdateGame Change a game's name, key or ruleset
+	// (PATCH /games/{gameId})
+	UpdateGame(ctx context.Context, request UpdateGameRequestObject) (UpdateGameResponseObject, error)
+	// GetBuildReport Check the content as the build would, without writing a bundle
+	// (GET /games/{gameId}/build)
+	GetBuildReport(ctx context.Context, request GetBuildReportRequestObject) (GetBuildReportResponseObject, error)
+	// ListCharacters List characters by name
+	// (GET /games/{gameId}/characters)
+	ListCharacters(ctx context.Context, request ListCharactersRequestObject) (ListCharactersResponseObject, error)
+	// CreateCharacter Create a character
+	// (POST /games/{gameId}/characters)
+	CreateCharacter(ctx context.Context, request CreateCharacterRequestObject) (CreateCharacterResponseObject, error)
+	// ListConversations List conversations, newest first
+	// (GET /games/{gameId}/conversations)
+	ListConversations(ctx context.Context, request ListConversationsRequestObject) (ListConversationsResponseObject, error)
+	// CreateConversation Create an empty conversation
+	// (POST /games/{gameId}/conversations)
+	CreateConversation(ctx context.Context, request CreateConversationRequestObject) (CreateConversationResponseObject, error)
+	// ListFlags List flags by key
+	// (GET /games/{gameId}/flags)
+	ListFlags(ctx context.Context, request ListFlagsRequestObject) (ListFlagsResponseObject, error)
+	// CreateFlag Create a flag
+	// (POST /games/{gameId}/flags)
+	CreateFlag(ctx context.Context, request CreateFlagRequestObject) (CreateFlagResponseObject, error)
+	// ListNotes List notes, oldest first
+	// (GET /games/{gameId}/notes)
+	ListNotes(ctx context.Context, request ListNotesRequestObject) (ListNotesResponseObject, error)
+	// CreateNote Leave a note on the game, a character, a conversation, a node, a choice, a flag, a skill or a quest
+	// (POST /games/{gameId}/notes)
+	CreateNote(ctx context.Context, request CreateNoteRequestObject) (CreateNoteResponseObject, error)
+	// ListQuests List quests by name, with their stages
+	// (GET /games/{gameId}/quests)
+	ListQuests(ctx context.Context, request ListQuestsRequestObject) (ListQuestsResponseObject, error)
+	// CreateQuest Create a quest
+	// (POST /games/{gameId}/quests)
+	CreateQuest(ctx context.Context, request CreateQuestRequestObject) (CreateQuestResponseObject, error)
+	// ListSkills List skills by name
+	// (GET /games/{gameId}/skills)
+	ListSkills(ctx context.Context, request ListSkillsRequestObject) (ListSkillsResponseObject, error)
+	// CreateSkill Create a skill
+	// (POST /games/{gameId}/skills)
+	CreateSkill(ctx context.Context, request CreateSkillRequestObject) (CreateSkillResponseObject, error)
 	// GetMe The api key this request acts as
 	// (GET /me)
 	GetMe(ctx context.Context, request GetMeRequestObject) (GetMeResponseObject, error)
@@ -4798,12 +5719,6 @@ type StrictServerInterface interface {
 	// GetNodePath The shortest route from the conversation's start to this node
 	// (GET /nodes/{nodeId}/path)
 	GetNodePath(ctx context.Context, request GetNodePathRequestObject) (GetNodePathResponseObject, error)
-	// ListNotes List notes, oldest first
-	// (GET /notes)
-	ListNotes(ctx context.Context, request ListNotesRequestObject) (ListNotesResponseObject, error)
-	// CreateNote Leave a note on the game, a character, a conversation, a node, a choice, a flag, a skill or a quest
-	// (POST /notes)
-	CreateNote(ctx context.Context, request CreateNoteRequestObject) (CreateNoteResponseObject, error)
 	// DeleteNote Delete a note
 	// (DELETE /notes/{noteId})
 	DeleteNote(ctx context.Context, request DeleteNoteRequestObject) (DeleteNoteResponseObject, error)
@@ -4813,12 +5728,6 @@ type StrictServerInterface interface {
 	// UpdateNote Resolve, dismiss or reopen a note
 	// (PATCH /notes/{noteId})
 	UpdateNote(ctx context.Context, request UpdateNoteRequestObject) (UpdateNoteResponseObject, error)
-	// ListQuests List quests by name, with their stages
-	// (GET /quests)
-	ListQuests(ctx context.Context, request ListQuestsRequestObject) (ListQuestsResponseObject, error)
-	// CreateQuest Create a quest
-	// (POST /quests)
-	CreateQuest(ctx context.Context, request CreateQuestRequestObject) (CreateQuestResponseObject, error)
 	// DeleteQuest Delete a quest and its stages
 	// (DELETE /quests/{questId})
 	DeleteQuest(ctx context.Context, request DeleteQuestRequestObject) (DeleteQuestResponseObject, error)
@@ -4831,12 +5740,6 @@ type StrictServerInterface interface {
 	// CreateQuestStage Add a stage to a quest
 	// (POST /quests/{questId}/stages)
 	CreateQuestStage(ctx context.Context, request CreateQuestStageRequestObject) (CreateQuestStageResponseObject, error)
-	// ListSkills List skills by name
-	// (GET /skills)
-	ListSkills(ctx context.Context, request ListSkillsRequestObject) (ListSkillsResponseObject, error)
-	// CreateSkill Create a skill
-	// (POST /skills)
-	CreateSkill(ctx context.Context, request CreateSkillRequestObject) (CreateSkillResponseObject, error)
 	// DeleteSkill Delete a skill
 	// (DELETE /skills/{skillId})
 	DeleteSkill(ctx context.Context, request DeleteSkillRequestObject) (DeleteSkillResponseObject, error)
@@ -4888,85 +5791,6 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
-}
-
-// GetBuildReport operation middleware
-func (sh *strictHandler) GetBuildReport(w http.ResponseWriter, r *http.Request) {
-	var request GetBuildReportRequestObject
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.GetBuildReport(ctx, request.(GetBuildReportRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetBuildReport")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(GetBuildReportResponseObject); ok {
-		if err := validResponse.VisitGetBuildReportResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// ListCharacters operation middleware
-func (sh *strictHandler) ListCharacters(w http.ResponseWriter, r *http.Request) {
-	var request ListCharactersRequestObject
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ListCharacters(ctx, request.(ListCharactersRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ListCharacters")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ListCharactersResponseObject); ok {
-		if err := validResponse.VisitListCharactersResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// CreateCharacter operation middleware
-func (sh *strictHandler) CreateCharacter(w http.ResponseWriter, r *http.Request) {
-	var request CreateCharacterRequestObject
-
-	var body CreateCharacterJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.CreateCharacter(ctx, request.(CreateCharacterRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "CreateCharacter")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(CreateCharacterResponseObject); ok {
-		if err := validResponse.VisitCreateCharacterResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
 }
 
 // DeleteCharacter operation middleware
@@ -5113,61 +5937,6 @@ func (sh *strictHandler) UpdateChoice(w http.ResponseWriter, r *http.Request, ch
 	}
 }
 
-// ListConversations operation middleware
-func (sh *strictHandler) ListConversations(w http.ResponseWriter, r *http.Request) {
-	var request ListConversationsRequestObject
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ListConversations(ctx, request.(ListConversationsRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ListConversations")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ListConversationsResponseObject); ok {
-		if err := validResponse.VisitListConversationsResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// CreateConversation operation middleware
-func (sh *strictHandler) CreateConversation(w http.ResponseWriter, r *http.Request) {
-	var request CreateConversationRequestObject
-
-	var body CreateConversationJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.CreateConversation(ctx, request.(CreateConversationRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "CreateConversation")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(CreateConversationResponseObject); ok {
-		if err := validResponse.VisitCreateConversationResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
 // DeleteConversation operation middleware
 func (sh *strictHandler) DeleteConversation(w http.ResponseWriter, r *http.Request, conversationId ConversationId) {
 	var request DeleteConversationRequestObject
@@ -5286,61 +6055,6 @@ func (sh *strictHandler) CreateNode(w http.ResponseWriter, r *http.Request, conv
 	}
 }
 
-// ListFlags operation middleware
-func (sh *strictHandler) ListFlags(w http.ResponseWriter, r *http.Request) {
-	var request ListFlagsRequestObject
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ListFlags(ctx, request.(ListFlagsRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ListFlags")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ListFlagsResponseObject); ok {
-		if err := validResponse.VisitListFlagsResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// CreateFlag operation middleware
-func (sh *strictHandler) CreateFlag(w http.ResponseWriter, r *http.Request) {
-	var request CreateFlagRequestObject
-
-	var body CreateFlagJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.CreateFlag(ctx, request.(CreateFlagRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "CreateFlag")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(CreateFlagResponseObject); ok {
-		if err := validResponse.VisitCreateFlagResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
 // DeleteFlag operation middleware
 func (sh *strictHandler) DeleteFlag(w http.ResponseWriter, r *http.Request, flagId FlagId) {
 	var request DeleteFlagRequestObject
@@ -5393,6 +6107,527 @@ func (sh *strictHandler) UpdateFlag(w http.ResponseWriter, r *http.Request, flag
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateFlagResponseObject); ok {
 		if err := validResponse.VisitUpdateFlagResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListGames operation middleware
+func (sh *strictHandler) ListGames(w http.ResponseWriter, r *http.Request) {
+	var request ListGamesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListGames(ctx, request.(ListGamesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListGames")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListGamesResponseObject); ok {
+		if err := validResponse.VisitListGamesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateGame operation middleware
+func (sh *strictHandler) CreateGame(w http.ResponseWriter, r *http.Request) {
+	var request CreateGameRequestObject
+
+	var body CreateGameJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateGame(ctx, request.(CreateGameRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateGame")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateGameResponseObject); ok {
+		if err := validResponse.VisitCreateGameResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteGame operation middleware
+func (sh *strictHandler) DeleteGame(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	var request DeleteGameRequestObject
+
+	request.GameId = gameId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteGame(ctx, request.(DeleteGameRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteGame")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteGameResponseObject); ok {
+		if err := validResponse.VisitDeleteGameResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetGame operation middleware
+func (sh *strictHandler) GetGame(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	var request GetGameRequestObject
+
+	request.GameId = gameId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetGame(ctx, request.(GetGameRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetGame")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetGameResponseObject); ok {
+		if err := validResponse.VisitGetGameResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateGame operation middleware
+func (sh *strictHandler) UpdateGame(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	var request UpdateGameRequestObject
+
+	request.GameId = gameId
+
+	var body UpdateGameJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateGame(ctx, request.(UpdateGameRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateGame")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateGameResponseObject); ok {
+		if err := validResponse.VisitUpdateGameResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetBuildReport operation middleware
+func (sh *strictHandler) GetBuildReport(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	var request GetBuildReportRequestObject
+
+	request.GameId = gameId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetBuildReport(ctx, request.(GetBuildReportRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetBuildReport")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetBuildReportResponseObject); ok {
+		if err := validResponse.VisitGetBuildReportResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListCharacters operation middleware
+func (sh *strictHandler) ListCharacters(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	var request ListCharactersRequestObject
+
+	request.GameId = gameId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListCharacters(ctx, request.(ListCharactersRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListCharacters")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListCharactersResponseObject); ok {
+		if err := validResponse.VisitListCharactersResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateCharacter operation middleware
+func (sh *strictHandler) CreateCharacter(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	var request CreateCharacterRequestObject
+
+	request.GameId = gameId
+
+	var body CreateCharacterJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateCharacter(ctx, request.(CreateCharacterRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateCharacter")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateCharacterResponseObject); ok {
+		if err := validResponse.VisitCreateCharacterResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListConversations operation middleware
+func (sh *strictHandler) ListConversations(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	var request ListConversationsRequestObject
+
+	request.GameId = gameId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListConversations(ctx, request.(ListConversationsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListConversations")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListConversationsResponseObject); ok {
+		if err := validResponse.VisitListConversationsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateConversation operation middleware
+func (sh *strictHandler) CreateConversation(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	var request CreateConversationRequestObject
+
+	request.GameId = gameId
+
+	var body CreateConversationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateConversation(ctx, request.(CreateConversationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateConversation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateConversationResponseObject); ok {
+		if err := validResponse.VisitCreateConversationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListFlags operation middleware
+func (sh *strictHandler) ListFlags(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	var request ListFlagsRequestObject
+
+	request.GameId = gameId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListFlags(ctx, request.(ListFlagsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListFlags")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListFlagsResponseObject); ok {
+		if err := validResponse.VisitListFlagsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateFlag operation middleware
+func (sh *strictHandler) CreateFlag(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	var request CreateFlagRequestObject
+
+	request.GameId = gameId
+
+	var body CreateFlagJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateFlag(ctx, request.(CreateFlagRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateFlag")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateFlagResponseObject); ok {
+		if err := validResponse.VisitCreateFlagResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListNotes operation middleware
+func (sh *strictHandler) ListNotes(w http.ResponseWriter, r *http.Request, gameId GameId, params ListNotesParams) {
+	var request ListNotesRequestObject
+
+	request.GameId = gameId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListNotes(ctx, request.(ListNotesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListNotes")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListNotesResponseObject); ok {
+		if err := validResponse.VisitListNotesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateNote operation middleware
+func (sh *strictHandler) CreateNote(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	var request CreateNoteRequestObject
+
+	request.GameId = gameId
+
+	var body CreateNoteJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateNote(ctx, request.(CreateNoteRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateNote")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateNoteResponseObject); ok {
+		if err := validResponse.VisitCreateNoteResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListQuests operation middleware
+func (sh *strictHandler) ListQuests(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	var request ListQuestsRequestObject
+
+	request.GameId = gameId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListQuests(ctx, request.(ListQuestsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListQuests")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListQuestsResponseObject); ok {
+		if err := validResponse.VisitListQuestsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateQuest operation middleware
+func (sh *strictHandler) CreateQuest(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	var request CreateQuestRequestObject
+
+	request.GameId = gameId
+
+	var body CreateQuestJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateQuest(ctx, request.(CreateQuestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateQuest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateQuestResponseObject); ok {
+		if err := validResponse.VisitCreateQuestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListSkills operation middleware
+func (sh *strictHandler) ListSkills(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	var request ListSkillsRequestObject
+
+	request.GameId = gameId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSkills(ctx, request.(ListSkillsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSkills")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSkillsResponseObject); ok {
+		if err := validResponse.VisitListSkillsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateSkill operation middleware
+func (sh *strictHandler) CreateSkill(w http.ResponseWriter, r *http.Request, gameId GameId) {
+	var request CreateSkillRequestObject
+
+	request.GameId = gameId
+
+	var body CreateSkillJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateSkill(ctx, request.(CreateSkillRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateSkill")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateSkillResponseObject); ok {
+		if err := validResponse.VisitCreateSkillResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -5542,63 +6777,6 @@ func (sh *strictHandler) GetNodePath(w http.ResponseWriter, r *http.Request, nod
 	}
 }
 
-// ListNotes operation middleware
-func (sh *strictHandler) ListNotes(w http.ResponseWriter, r *http.Request, params ListNotesParams) {
-	var request ListNotesRequestObject
-
-	request.Params = params
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ListNotes(ctx, request.(ListNotesRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ListNotes")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ListNotesResponseObject); ok {
-		if err := validResponse.VisitListNotesResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// CreateNote operation middleware
-func (sh *strictHandler) CreateNote(w http.ResponseWriter, r *http.Request) {
-	var request CreateNoteRequestObject
-
-	var body CreateNoteJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.CreateNote(ctx, request.(CreateNoteRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "CreateNote")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(CreateNoteResponseObject); ok {
-		if err := validResponse.VisitCreateNoteResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
 // DeleteNote operation middleware
 func (sh *strictHandler) DeleteNote(w http.ResponseWriter, r *http.Request, noteId NoteId) {
 	var request DeleteNoteRequestObject
@@ -5677,61 +6855,6 @@ func (sh *strictHandler) UpdateNote(w http.ResponseWriter, r *http.Request, note
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateNoteResponseObject); ok {
 		if err := validResponse.VisitUpdateNoteResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// ListQuests operation middleware
-func (sh *strictHandler) ListQuests(w http.ResponseWriter, r *http.Request) {
-	var request ListQuestsRequestObject
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ListQuests(ctx, request.(ListQuestsRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ListQuests")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ListQuestsResponseObject); ok {
-		if err := validResponse.VisitListQuestsResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// CreateQuest operation middleware
-func (sh *strictHandler) CreateQuest(w http.ResponseWriter, r *http.Request) {
-	var request CreateQuestRequestObject
-
-	var body CreateQuestJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.CreateQuest(ctx, request.(CreateQuestRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "CreateQuest")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(CreateQuestResponseObject); ok {
-		if err := validResponse.VisitCreateQuestResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -5850,61 +6973,6 @@ func (sh *strictHandler) CreateQuestStage(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateQuestStageResponseObject); ok {
 		if err := validResponse.VisitCreateQuestStageResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// ListSkills operation middleware
-func (sh *strictHandler) ListSkills(w http.ResponseWriter, r *http.Request) {
-	var request ListSkillsRequestObject
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ListSkills(ctx, request.(ListSkillsRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ListSkills")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ListSkillsResponseObject); ok {
-		if err := validResponse.VisitListSkillsResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// CreateSkill operation middleware
-func (sh *strictHandler) CreateSkill(w http.ResponseWriter, r *http.Request) {
-	var request CreateSkillRequestObject
-
-	var body CreateSkillJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.CreateSkill(ctx, request.(CreateSkillRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "CreateSkill")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(CreateSkillResponseObject); ok {
-		if err := validResponse.VisitCreateSkillResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -6035,94 +7103,103 @@ func (sh *strictHandler) UpdateQuestStage(w http.ResponseWriter, r *http.Request
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

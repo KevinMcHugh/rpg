@@ -54,7 +54,7 @@ type Endpoint[Req, M, VM, Res any] interface {
 - **xid ids** in `CHAR(20)`. They are sortable, URL-safe and short enough to read aloud.
 - **Soft delete everywhere.** Every live table has `created_at`, `updated_at`, `deleted_at`, and every query filters `deleted_at IS NULL`. A delete is an `UPDATE`, and `:execrows` tells the endpoint whether anything was there.
 - **Partial updates.** `COALESCE(sqlc.narg(x), x)` in SQL and a pointer field in the spec (`x-go-type-skip-optional-pointer: false`) mean a PATCH sends only what changes. Everything else optional stays a plain value (`prefer-skip-optional-pointer`), so conversions need no pointer per field.
-- **No tenants.** Everyone sees the same data, and the api key behind a request is recorded on what it creates (`created_by`). See "Adding tenants" below if your app needs isolation.
+- **Games, not tenants.** Content is split into games (`games`, and a `game_id` on everything that belongs to one), each with its own keys, opening conversation, build and ruleset. Games organize; they do not isolate: every key sees every game, and the api key behind a request is recorded on what it creates (`created_by`). See "Adding tenants" below if your app needs isolation.
 - **People write the content; agents leave notes.** Every player-facing string goes through `app.Revise`, and every content endpoint starts with `app.RequireHuman`. See [authorship.md](authorship.md).
 - **Authoring and runtime are different shapes.** The database tolerates work in progress; the game runs on the bundle `server build` writes, which holds only player-facing text and the graph, and which refuses to build while there are errors.
 

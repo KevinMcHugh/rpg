@@ -29,7 +29,7 @@ input, textarea { font: 14px/1.4 ui-monospace, Menlo, monospace; background: var
 </head>
 <body>
 <header class="top">
-  <a class="brand" href="{{.Base}}/">{{.Title}}</a>
+  <a class="brand" href="{{.Base}}/{{with .Game}}?game={{.}}{{end}}">{{.Title}}</a>
   <span class="spacer"></span>
   {{if .Back}}<a href="{{.Back}}">← Authoring</a>{{end}}
 </header>

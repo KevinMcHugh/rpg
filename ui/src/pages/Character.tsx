@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, must } from "../api/client";
-import { useAct, useLoad, useMe } from "../hooks";
+import { useAct, useGameId, useLoad, useMe } from "../hooks";
 import { Badge, Form, Id, Key, Loading, Notes, notesFor, str } from "../components/ui";
 
 export default function CharacterPage() {
@@ -11,12 +11,13 @@ export default function CharacterPage() {
   const nav = useNavigate();
   const [editing, setEditing] = useState(false);
   const { data, error, reload } = useLoad(async () => {
-    const [c, notes] = await Promise.all([
-      api.GET("/characters/{characterId}", { params: { path: { characterId: id } } }).then(must),
-      api.GET("/notes", { params: { query: { targetKind: "character", targetId: id } } }).then(must),
-    ]);
+    const c = must(await api.GET("/characters/{characterId}", { params: { path: { characterId: id } } }));
+    const notes = must(
+      await api.GET("/games/{gameId}/notes", { params: { path: { gameId: c.gameId }, query: { targetKind: "character", targetId: id } } }),
+    );
     return { c, notes: notes.notes };
   }, [id]);
+  useGameId(data?.c.gameId);
   if (!data) return <Loading error={error} />;
   const { c } = data;
 
@@ -35,13 +36,13 @@ export default function CharacterPage() {
     confirm(`Delete ${c.name}? Lines they speak stay, and the build will report them.`) &&
     act(async () => {
       must(await api.DELETE("/characters/{characterId}", { params: { path: { characterId: id } } }));
-      nav("/");
+      nav("/games/" + c.gameId);
     }, "Deleted.");
 
   return (
     <>
       <p>
-        <Link to="/">← Content</Link>
+        <Link to={"/games/" + c.gameId}>← Content</Link>
       </p>
       <div className="row spread">
         <h1>{c.name}</h1>
@@ -84,7 +85,7 @@ export default function CharacterPage() {
         </>
       )}
       <h2>Notes</h2>
-      <Notes kind="character" id={c.id} notes={notesFor(data.notes, "character", c.id)} onChange={reload} />
+      <Notes game={c.gameId} kind="character" id={c.id} notes={notesFor(data.notes, "character", c.id)} onChange={reload} />
     </>
   );
 }

@@ -93,12 +93,14 @@ export function Rule({ word, children }: { word: string; children: ReactNode }) 
 /** Notes: the thread on one target, and adding to it. Notes are feedback,
  *  never content, so they look nothing like it. */
 export function Notes({
+  game,
   kind,
   id,
   notes,
   onChange,
   compact,
 }: {
+  game: string;
   kind: TargetKind;
   id: string;
   notes: Note[];
@@ -116,13 +118,18 @@ export function Notes({
     act(async () => must(await api.PATCH("/notes/{noteId}", { params: { path: { noteId: n.id } }, body: { status: s } })), "").then(onChange);
   const add = (f: FormData) =>
     act(async () => {
-      must(await api.POST("/notes", { body: { targetKind: kind, targetId: id, kind: str(f, "kind") as NoteKind, body: str(f, "body") } }));
+      must(
+        await api.POST("/games/{gameId}/notes", {
+          params: { path: { gameId: game } },
+          body: { targetKind: kind, targetId: id, kind: str(f, "kind") as NoteKind, body: str(f, "body") },
+        }),
+      );
       setAdding(false);
       onChange();
     }, "Noted.");
   const reply = (p: Note) => (f: FormData) =>
     act(async () => {
-      must(await api.POST("/notes", { body: { parentId: p.id, body: str(f, "body") } }));
+      must(await api.POST("/games/{gameId}/notes", { params: { path: { gameId: game } }, body: { parentId: p.id, body: str(f, "body") } }));
       onChange();
     }, "Noted.");
 

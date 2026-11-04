@@ -10,6 +10,7 @@ It is built on [app-template](https://github.com/KevinMcHugh/app-template): one 
 
 ## What is here
 
+- **Games**: one tool holds several games, each with its own content, build and ruleset (how its checks resolve).
 - **Characters**: a player-facing name, and a bible (voice, wants, secrets) that never ships but that Claude reads before commenting on anything they say.
 - **Conversations**: a graph of nodes (a line, spoken by a character or the narrator) joined by choices (what the player says, leading to another node or ending the conversation). Titles and summaries are authoring labels. Edit them as a list of lines, or as a graph you can pan and zoom, with the selected line's editor beside it.
 - **Notes**: feedback on the game, a character, a conversation, a node or a choice, from you or from Claude, with threads and open/resolved/dismissed.
@@ -40,7 +41,7 @@ claude mcp add --transport http rpg http://localhost:8080/mcp/rpc --header "Auth
 
 Then ask it to review a conversation. It reads the characters' bibles and the path to each line, checks the build, and leaves notes beside the lines they are about.
 
-`make bundle` writes `content.json`, or tells you what stops it, and `make play GAME_DATABASE_URL=…` plays it in the game binary.
+`make bundle GAME=key` writes a game's `content.json`, or tells you what stops it, and `make play GAME_DATABASE_URL=…` plays it in the game binary.
 
 ## Layout
 
@@ -80,7 +81,7 @@ internal/db/gen/        sqlc output: do not edit
 | `make new-migration NAME=…` | create a timestamped migration file |
 | `make key NAME=…` | mint a person's api key, which may write content |
 | `make agent-key NAME=…` | mint an agent's api key, which may only read and leave notes |
-| `make bundle` | check the content and write `content.json` |
+| `make bundle GAME=…` | check a game's content and write its `content.json` (`GAME` can be left out while there is one game) |
 | `make play GAME_DATABASE_URL=…` | play `content.json` in the game binary on :8090 |
 | `make invite NOTE=…` | mint a single-use invite |
 | `make build` | build the app, then compile `bin/server` and `bin/game` |

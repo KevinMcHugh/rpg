@@ -30,6 +30,7 @@ type Character struct {
 	DeletedAt      pgtype.Timestamptz `json:"deleted_at"`
 	Key            string             `json:"key"`
 	Companion      bool               `json:"companion"`
+	GameID         string             `json:"game_id"`
 }
 
 type Choice struct {
@@ -65,6 +66,7 @@ type Conversation struct {
 	Condition       []byte             `json:"condition"`
 	Repeatable      bool               `json:"repeatable"`
 	Opening         bool               `json:"opening"`
+	GameID          string             `json:"game_id"`
 }
 
 type Flag struct {
@@ -76,6 +78,18 @@ type Flag struct {
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 	DeletedAt    pgtype.Timestamptz `json:"deleted_at"`
+	GameID       string             `json:"game_id"`
+}
+
+type Game struct {
+	ID        string             `json:"id"`
+	Key       string             `json:"key"`
+	Name      string             `json:"name"`
+	Ruleset   string             `json:"ruleset"`
+	CreatedBy *string            `json:"created_by"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
 }
 
 type Invite struct {
@@ -116,6 +130,7 @@ type Note struct {
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
 	DeletedAt  pgtype.Timestamptz `json:"deleted_at"`
+	GameID     string             `json:"game_id"`
 }
 
 type OauthClient struct {
@@ -162,6 +177,7 @@ type Quest struct {
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 	DeletedAt      pgtype.Timestamptz `json:"deleted_at"`
+	GameID         string             `json:"game_id"`
 }
 
 type QuestStage struct {
@@ -185,6 +201,7 @@ type Save struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
+	GameID    *string            `json:"game_id"`
 }
 
 type Skill struct {
@@ -197,6 +214,7 @@ type Skill struct {
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 	DeletedAt      pgtype.Timestamptz `json:"deleted_at"`
+	GameID         string             `json:"game_id"`
 }
 
 type TextRevision struct {
