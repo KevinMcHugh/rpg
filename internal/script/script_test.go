@@ -30,6 +30,8 @@ func TestConditionsRoundTrip(t *testing.T) {
 		"quest find_brother >= 2":                 "quest find_brother >= 2",
 		"quest find_brother done":                 "quest find_brother done",
 		"done docks":                              "done docks",
+		"ability str >= 14":                       "ability str >= 14",
+		"level>2 and not ability cha < 8":         "level > 2 and not ability cha < 8",
 		"a_ and b":                                "",
 		"met_mayor and gold > 1 or done docks":    "met_mayor and gold > 1 or done docks",
 		"met_mayor and (gold > 1 or done docks)":  "met_mayor and (gold > 1 or done docks)",
@@ -79,6 +81,7 @@ func TestConditionErrors(t *testing.T) {
 		"met_mayor & gold":    `unexpected "&" at column 11`,
 		"approval nobody > 1": `no character named "nobody"`,
 		"done ?d0abc":         "conversation d0abc was deleted",
+		"ability luck > 3":    "expected an ability (str dex con int wis cha)",
 	} {
 		_, err := script.ParseCond(in, names())
 		if err == nil || !strings.Contains(err.Error(), want) {
@@ -88,12 +91,12 @@ func TestConditionErrors(t *testing.T) {
 }
 
 func TestEffectsRoundTrip(t *testing.T) {
-	in := "met_mayor\ngold += 10; gold -= 2;; met_mayor = false\n skill persuasion += 1\napproval aria -= 5\nquest find_brother = 2\n"
+	in := "met_mayor\ngold += 10; gold -= 2;; met_mayor = false\n skill persuasion += 1\napproval aria -= 5\nquest find_brother = 2\nability str = 16; level += 1\n"
 	es, err := script.ParseEffects(in, names())
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "met_mayor\ngold += 10\ngold -= 2\nmet_mayor = 0\nskill persuasion += 1\napproval aria -= 5\nquest find_brother = 2"
+	want := "met_mayor\ngold += 10\ngold -= 2\nmet_mayor = 0\nskill persuasion += 1\napproval aria -= 5\nquest find_brother = 2\nability str = 16\nlevel += 1"
 	if got := script.FormatEffects(es, names()); got != want {
 		t.Fatalf("effects format as\n%s\nwant\n%s", got, want)
 	}
@@ -115,8 +118,8 @@ func TestEffectsRoundTrip(t *testing.T) {
 
 // world is a script.World from maps.
 type world struct {
-	flags, skills, approval, quests map[string]int
-	questDone, done                 map[string]bool
+	flags, skills, approval, quests, abilities map[string]int
+	questDone, done                            map[string]bool
 }
 
 func (w world) Flag(id string) int       { return w.flags[id] }
@@ -125,6 +128,7 @@ func (w world) Approval(id string) int   { return w.approval[id] }
 func (w world) Quest(id string) int      { return w.quests[id] }
 func (w world) QuestDone(id string) bool { return w.questDone[id] }
 func (w world) Done(id string) bool      { return w.done[id] }
+func (w world) Ability(key string) int   { return w.abilities[key] }
 
 func TestEval(t *testing.T) {
 	w := world{
@@ -134,6 +138,7 @@ func TestEval(t *testing.T) {
 		quests:    map[string]int{"Q1": 2},
 		questDone: map[string]bool{},
 		done:      map[string]bool{"V1": true},
+		abilities: map[string]int{"str": 15, "level": 3},
 	}
 	for in, want := range map[string]bool{
 		"met_mayor":                                 true,
@@ -146,6 +151,8 @@ func TestEval(t *testing.T) {
 		"done docks":                                true,
 		"skill persuasion > 3 or approval aria < 0": true,
 		"not (met_mayor and done docks)":            false,
+		"ability str >= 15 and level == 3":          true,
+		"ability dex > 0":                           false,
 	} {
 		c, err := script.ParseCond(in, names())
 		if err != nil {
@@ -163,7 +170,7 @@ func TestKeys(t *testing.T) {
 			t.Errorf("%q: %v", ok, err)
 		}
 	}
-	for _, bad := range []string{"", "Aria", "2nd", "has space", "quest", "and"} {
+	for _, bad := range []string{"", "Aria", "2nd", "has space", "quest", "and", "level", "ability"} {
 		if script.CheckKey(bad) == nil {
 			t.Errorf("%q passed", bad)
 		}

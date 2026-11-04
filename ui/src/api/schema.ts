@@ -11,7 +11,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The api key this request acts as */
+        /** The api key this request acts as, and its user */
         get: operations["getMe"];
         put?: never;
         post?: never;
@@ -21,11 +21,136 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/characters": {
+    "/games": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
+            cookie?: never;
+        };
+        /** List the caller's games, oldest first */
+        get: operations["listGames"];
+        put?: never;
+        /** Create a game, owned by the caller */
+        post: operations["createGame"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/games/{gameId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
+            cookie?: never;
+        };
+        /** One game */
+        get: operations["getGame"];
+        put?: never;
+        post?: never;
+        /** Delete a game; its content stops being listed or built (its owner only) */
+        delete: operations["deleteGame"];
+        options?: never;
+        head?: never;
+        /** Change a game's name, key or ruleset (its owner only) */
+        patch: operations["updateGame"];
+        trace?: never;
+    };
+    "/games/{gameId}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
+            cookie?: never;
+        };
+        /** The game's members, owner first */
+        get: operations["listMembers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/games/{gameId}/members/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Take a writer out of the game (the owner may remove anyone else; a writer may leave) */
+        delete: operations["removeMember"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/games/{gameId}/invites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
+            cookie?: never;
+        };
+        /** The game's unused, unexpired invites (its owner only) */
+        get: operations["listInvites"];
+        put?: never;
+        /**
+         * Make a single-use link that brings someone into the game as a writer (its owner only)
+         * @description The response carries the link, which is shown this once: only a hash
+         *     of it is stored. Whoever opens it signs in (or, with Google, signs
+         *     up) and joins the game. An invite is not a credential: it grants
+         *     nothing until someone signs in to redeem it.
+         */
+        post: operations["createInvite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/invites/{inviteId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                inviteId: components["parameters"]["InviteId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke an unused invite (its game's owner only) */
+        delete: operations["deleteInvite"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/games/{gameId}/characters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         /** List characters by name */
@@ -60,11 +185,13 @@ export interface paths {
         patch: operations["updateCharacter"];
         trace?: never;
     };
-    "/conversations": {
+    "/games/{gameId}/conversations": {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         /** List conversations, newest first */
@@ -203,11 +330,13 @@ export interface paths {
         patch: operations["updateChoice"];
         trace?: never;
     };
-    "/flags": {
+    "/games/{gameId}/flags": {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         /** List flags by key */
@@ -241,11 +370,13 @@ export interface paths {
         patch: operations["updateFlag"];
         trace?: never;
     };
-    "/skills": {
+    "/games/{gameId}/skills": {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         /** List skills by name */
@@ -279,11 +410,13 @@ export interface paths {
         patch: operations["updateSkill"];
         trace?: never;
     };
-    "/quests": {
+    "/games/{gameId}/quests": {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         /** List quests by name, with their stages */
@@ -357,11 +490,13 @@ export interface paths {
         patch: operations["updateQuestStage"];
         trace?: never;
     };
-    "/notes": {
+    "/games/{gameId}/notes": {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         /** List notes, oldest first */
@@ -396,11 +531,13 @@ export interface paths {
         patch: operations["updateNote"];
         trace?: never;
     };
-    "/build": {
+    "/games/{gameId}/build": {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         /**
@@ -427,6 +564,7 @@ export interface components {
             error: string;
         };
         Me: {
+            user?: components["schemas"]["User"];
             keyId: string;
             /** @description The label the key was minted with. */
             name: string;
@@ -437,8 +575,83 @@ export interface components {
              */
             human: boolean;
         };
+        /** @description The person a key belongs to. Missing for a key minted before there were users and never given one. */
+        User: {
+            id: string;
+            name: string;
+        };
+        /**
+         * @description How checks resolve. classic: 2d6 plus the skill against a difficulty.
+         *     srd52: d20 plus ability modifier plus proficiency (SRD 5.2). srd35: d20
+         *     plus skill ranks plus ability modifier (3.5 SRD). pf2e: d20 plus
+         *     modifier with four degrees of success (Pathfinder 2e). See
+         *     docs/mechanics.md.
+         * @enum {string}
+         */
+        Ruleset: "classic" | "srd52" | "srd35" | "pf2e";
+        /**
+         * @description owner: may change or delete the game and invite people, as well as
+         *     write. writer: may write the game's content and leave notes.
+         * @enum {string}
+         */
+        Role: "owner" | "writer";
+        Game: {
+            role: components["schemas"]["Role"];
+            id: string;
+            key: string;
+            /** @description Authoring label; never ships. */
+            name: string;
+            ruleset: components["schemas"]["Ruleset"];
+            url: string;
+        };
+        GameList: {
+            games: components["schemas"]["Game"][];
+        };
+        Member: {
+            userId: string;
+            name: string;
+            role: components["schemas"]["Role"];
+            /** Format: date-time */
+            joinedAt: string;
+        };
+        MemberList: {
+            members: components["schemas"]["Member"][];
+        };
+        Invite: {
+            id: string;
+            gameId: string;
+            /** @description Who the invite is for, as a reminder; nobody else sees it. */
+            note: string;
+            /** Format: date-time */
+            expiresAt: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** @description The link to send. Only in the response that created the invite. */
+            url?: string;
+        };
+        InviteList: {
+            invites: components["schemas"]["Invite"][];
+        };
+        InviteCreate: {
+            note?: string;
+            /** @description How long the link works for. Defaults to 168 (a week); at most 720. */
+            expiresInHours?: number;
+        };
+        GameCreate: {
+            name: string;
+            /** @description A readable label for the command line; leave out to make one from the name. Not unique (the id is the game's identity). */
+            key?: string;
+            ruleset?: components["schemas"]["Ruleset"];
+        };
+        /** @description Fields left out are left alone. */
+        GameUpdate: {
+            name?: string;
+            key?: string;
+            ruleset?: components["schemas"]["Ruleset"];
+        };
         Character: {
             id: string;
+            gameId: string;
             /** @description What scripts call the character (approval aria > 5). Authoring only. */
             key: string;
             /** @description Can join the party; the journal shows a companion's approval. */
@@ -472,6 +685,7 @@ export interface components {
         };
         Conversation: {
             id: string;
+            gameId: string;
             /** @description What scripts call the conversation (done docks). Authoring only. */
             key: string;
             /** @description Player-facing. What the player picks to start this conversation between others; empty when it is only reached from another. */
@@ -557,11 +771,15 @@ export interface components {
             condition: string;
             /** @description What taking the choice changes, in the script language. */
             effects: string;
-            /** @description When set, the choice is a skill check: 2d6 plus the player's skill against checkDifficulty. Success goes to toNodeId, failure to failNodeId. */
+            /** @description When set, the choice is a skill check, rolled by the game's ruleset against checkDifficulty. Success goes to toNodeId, failure to failNodeId. */
             checkSkillId: string;
             checkSkillName: string;
             checkDifficulty: number;
             failNodeId: string;
+            /** @description Where a critical success goes, under a ruleset that has them (pf2e); empty is the ordinary success. */
+            critSuccessNodeId: string;
+            /** @description Where a critical failure goes; empty is the ordinary failure. */
+            critFailNodeId: string;
         };
         ChoiceCreate: {
             text: string;
@@ -573,6 +791,8 @@ export interface components {
             checkSkillId?: string;
             checkDifficulty?: number;
             failNodeId?: string;
+            critSuccessNodeId?: string;
+            critFailNodeId?: string;
         };
         /** @description Fields left out are left alone. An empty toNodeId makes the choice end the conversation. */
         ChoiceUpdate: {
@@ -585,6 +805,8 @@ export interface components {
             checkSkillId?: string;
             checkDifficulty?: number;
             failNodeId?: string;
+            critSuccessNodeId?: string;
+            critFailNodeId?: string;
         };
         NodePath: {
             nodeId: string;
@@ -602,6 +824,7 @@ export interface components {
         };
         Flag: {
             id: string;
+            gameId: string;
             /** @description What scripts call it. A flag is a number; 0 is false. */
             key: string;
             /** @description What it means. Authoring only. */
@@ -623,13 +846,27 @@ export interface components {
             description?: string;
             initialValue?: number;
         };
+        /**
+         * @description One of the six abilities a d20 ruleset adds to a skill check.
+         * @enum {string}
+         */
+        Ability: "str" | "dex" | "con" | "int" | "wis" | "cha";
         Skill: {
             id: string;
+            gameId: string;
             key: string;
             /** @description Player-facing; shown on skill checks. */
             name: string;
-            /** @description The player's level at the start of the game. */
+            /**
+             * @description The player's value in the skill at the start of the game. What it
+             *     means depends on the game's ruleset: classic, a level added to
+             *     2d6; srd52, a proficiency tier (0 none, 1 proficient, 2
+             *     expertise); srd35, ranks; pf2e, a proficiency rank (0 untrained
+             *     to 4 legendary).
+             */
             initialLevel: number;
+            /** @description The ability a d20 ruleset adds (str, dex, con, int, wis or cha); empty for none, as in classic. */
+            ability: string;
             url: string;
         };
         SkillList: {
@@ -640,15 +877,19 @@ export interface components {
             /** @description Leave out to make one from the name. */
             key?: string;
             initialLevel?: number;
+            ability?: components["schemas"]["Ability"];
         };
         /** @description Fields left out are left alone. */
         SkillUpdate: {
             name?: string;
             key?: string;
             initialLevel?: number;
+            /** @description An empty ability clears it. */
+            ability?: string;
         };
         Quest: {
             id: string;
+            gameId: string;
             key: string;
             /** @description Player-facing; shown in the journal. */
             name: string;
@@ -700,6 +941,7 @@ export interface components {
         NoteStatus: "open" | "resolved" | "dismissed";
         Note: {
             id: string;
+            gameId: string;
             targetKind: components["schemas"]["NoteTargetKind"];
             /** @description Empty when targetKind is game. */
             targetId: string;
@@ -777,7 +1019,7 @@ export interface components {
                 "text/plain": string;
             };
         };
-        /** @description An agent caller tried to change the game's content */
+        /** @description An agent caller tried to change the game's content, or a writer tried something only the game's owner may do */
         Forbidden: {
             headers: {
                 [name: string]: unknown;
@@ -806,6 +1048,9 @@ export interface components {
         };
     };
     parameters: {
+        UserId: string;
+        InviteId: string;
+        GameId: string;
         CharacterId: string;
         ConversationId: string;
         NodeId: string;
@@ -843,11 +1088,268 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
         };
     };
-    listCharacters: {
+    listGames: {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The games */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GameList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createGame: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GameCreate"];
+            };
+        };
+        responses: {
+            /** @description The created game */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Game"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    getGame: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The game */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Game"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteGame: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateGame: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GameUpdate"];
+            };
+        };
+        responses: {
+            /** @description The updated game */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Game"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    listMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The members */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    removeMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    listInvites: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The invites */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InviteCreate"];
+            };
+        };
+        responses: {
+            /** @description The invite, with its link */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Invite"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    deleteInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                inviteId: components["parameters"]["InviteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listCharacters: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -862,13 +1364,16 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
         };
     };
     createCharacter: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         requestBody: {
@@ -889,6 +1394,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             422: components["responses"]["Unprocessable"];
         };
     };
@@ -974,7 +1480,9 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -989,13 +1497,16 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
         };
     };
     createConversation: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         requestBody: {
@@ -1016,6 +1527,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             422: components["responses"]["Unprocessable"];
         };
     };
@@ -1295,7 +1807,9 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -1310,13 +1824,16 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
         };
     };
     createFlag: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         requestBody: {
@@ -1337,6 +1854,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             422: components["responses"]["Unprocessable"];
         };
     };
@@ -1398,7 +1916,9 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -1413,13 +1933,16 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
         };
     };
     createSkill: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         requestBody: {
@@ -1440,6 +1963,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             422: components["responses"]["Unprocessable"];
         };
     };
@@ -1501,7 +2025,9 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -1516,13 +2042,16 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
         };
     };
     createQuest: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         requestBody: {
@@ -1543,6 +2072,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             422: components["responses"]["Unprocessable"];
         };
     };
@@ -1717,7 +2247,9 @@ export interface operations {
                 targetId?: string;
             };
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -1732,6 +2264,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
             422: components["responses"]["Unprocessable"];
         };
     };
@@ -1739,7 +2272,9 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         requestBody: {
@@ -1845,7 +2380,9 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                gameId: components["parameters"]["GameId"];
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -1860,6 +2397,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
         };
     };
 }

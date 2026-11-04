@@ -1,6 +1,6 @@
 -- name: CreateCharacter :one
-INSERT INTO characters (id, key, name, name_revision_id, bible, companion, created_by)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO characters (id, game_id, key, name, name_revision_id, bible, companion, created_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING *;
 
 -- name: GetCharacter :one
@@ -9,7 +9,7 @@ WHERE id = $1 AND deleted_at IS NULL;
 
 -- name: ListCharacters :many
 SELECT * FROM characters
-WHERE deleted_at IS NULL
+WHERE game_id = $1 AND deleted_at IS NULL
 ORDER BY name, id;
 
 -- A new name comes with its new revision.

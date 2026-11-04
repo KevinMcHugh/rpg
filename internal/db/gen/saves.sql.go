@@ -10,13 +10,14 @@ import (
 )
 
 const createSave = `-- name: CreateSave :one
-INSERT INTO saves (id, name, state, created_by)
-VALUES ($1, $2, $3, $4)
-RETURNING id, name, state, created_by, created_at, updated_at, deleted_at
+INSERT INTO saves (id, game_id, name, state, created_by)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, name, state, created_by, created_at, updated_at, deleted_at, game_id
 `
 
 type CreateSaveParams struct {
 	ID        string  `json:"id"`
+	GameID    *string `json:"game_id"`
 	Name      string  `json:"name"`
 	State     []byte  `json:"state"`
 	CreatedBy *string `json:"created_by"`
@@ -25,6 +26,7 @@ type CreateSaveParams struct {
 func (q *Queries) CreateSave(ctx context.Context, arg CreateSaveParams) (Save, error) {
 	row := q.db.QueryRow(ctx, createSave,
 		arg.ID,
+		arg.GameID,
 		arg.Name,
 		arg.State,
 		arg.CreatedBy,
@@ -38,6 +40,7 @@ func (q *Queries) CreateSave(ctx context.Context, arg CreateSaveParams) (Save, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.GameID,
 	)
 	return i, err
 }
@@ -61,7 +64,7 @@ func (q *Queries) DeleteSave(ctx context.Context, arg DeleteSaveParams) (int64, 
 }
 
 const getSave = `-- name: GetSave :one
-SELECT id, name, state, created_by, created_at, updated_at, deleted_at FROM saves
+SELECT id, name, state, created_by, created_at, updated_at, deleted_at, game_id FROM saves
 WHERE id = $1 AND created_by IS NOT DISTINCT FROM $2 AND deleted_at IS NULL
 `
 
@@ -83,19 +86,27 @@ func (q *Queries) GetSave(ctx context.Context, arg GetSaveParams) (Save, error) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.GameID,
 	)
 	return i, err
 }
 
 const listSaves = `-- name: ListSaves :many
-SELECT id, name, state, created_by, created_at, updated_at, deleted_at FROM saves
-WHERE created_by IS NOT DISTINCT FROM $1 AND deleted_at IS NULL
+SELECT id, name, state, created_by, created_at, updated_at, deleted_at, game_id FROM saves
+WHERE created_by IS NOT DISTINCT FROM $1
+  AND game_id IS NOT DISTINCT FROM $2
+  AND deleted_at IS NULL
 ORDER BY updated_at DESC
 LIMIT 50
 `
 
-func (q *Queries) ListSaves(ctx context.Context, createdBy *string) ([]Save, error) {
-	rows, err := q.db.Query(ctx, listSaves, createdBy)
+type ListSavesParams struct {
+	CreatedBy *string `json:"created_by"`
+	GameID    *string `json:"game_id"`
+}
+
+func (q *Queries) ListSaves(ctx context.Context, arg ListSavesParams) ([]Save, error) {
+	rows, err := q.db.Query(ctx, listSaves, arg.CreatedBy, arg.GameID)
 	if err != nil {
 		return nil, err
 	}
@@ -111,6 +122,7 @@ func (q *Queries) ListSaves(ctx context.Context, createdBy *string) ([]Save, err
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.GameID,
 		); err != nil {
 			return nil, err
 		}
@@ -125,7 +137,7 @@ func (q *Queries) ListSaves(ctx context.Context, createdBy *string) ([]Save, err
 const updateSave = `-- name: UpdateSave :one
 UPDATE saves SET state = $2, updated_at = NOW()
 WHERE id = $1 AND created_by IS NOT DISTINCT FROM $3 AND deleted_at IS NULL
-RETURNING id, name, state, created_by, created_at, updated_at, deleted_at
+RETURNING id, name, state, created_by, created_at, updated_at, deleted_at, game_id
 `
 
 type UpdateSaveParams struct {
@@ -145,6 +157,7 @@ func (q *Queries) UpdateSave(ctx context.Context, arg UpdateSaveParams) (Save, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.GameID,
 	)
 	return i, err
 }

@@ -38,6 +38,7 @@ var (
 // Note is a note as every surface shows it.
 type Note struct {
 	ID         string    `json:"id"`
+	GameID     string    `json:"gameId"`
 	TargetKind string    `json:"targetKind"`
 	TargetID   string    `json:"targetId"`
 	Kind       string    `json:"kind"`
@@ -55,6 +56,7 @@ type Note struct {
 func ToViewModel(row dbgen.Note, authorName *string, links app.Links) Note {
 	return Note{
 		ID:         row.ID,
+		GameID:     row.GameID,
 		TargetKind: row.TargetKind,
 		TargetID:   deref(row.TargetID),
 		Kind:       row.Kind,
@@ -65,13 +67,14 @@ func ToViewModel(row dbgen.Note, authorName *string, links app.Links) Note {
 		ByHuman:    row.ByHuman,
 		CreatedAt:  row.CreatedAt.Time,
 		UpdatedAt:  row.UpdatedAt.Time,
-		URL:        links.Target(row.TargetKind, deref(row.TargetID)),
+		URL:        links.Target(row.GameID, row.TargetKind, deref(row.TargetID)),
 	}
 }
 
 func toAPI(n Note) apigen.Note {
 	return apigen.Note{
 		Id:         n.ID,
+		GameId:     n.GameID,
 		TargetKind: apigen.NoteTargetKind(n.TargetKind),
 		TargetId:   n.TargetID,
 		Kind:       apigen.NoteKind(n.Kind),
@@ -113,16 +116,20 @@ func ptr(s string) *string {
 // -----------------------------------------------------------------------------
 
 type ListStore interface {
+	app.GameStore
 	ListNotes(ctx context.Context, arg dbgen.ListNotesParams) ([]dbgen.ListNotesRow, error)
 }
 
-// ListEndpoint is the notes matching the filters, oldest first.
+// ListEndpoint is a game's notes matching the filters, oldest first.
 type ListEndpoint struct {
 	Store ListStore
 	Links app.Links
 }
 
 func (e ListEndpoint) Interact(ctx context.Context, req apigen.ListNotesRequestObject) ([]dbgen.ListNotesRow, error) {
+	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
+		return nil, err
+	}
 	p := req.Params
 	if p.Status != "" {
 		if err := oneOf("status", string(p.Status), Statuses); err != nil {
@@ -135,6 +142,7 @@ func (e ListEndpoint) Interact(ctx context.Context, req apigen.ListNotesRequestO
 		}
 	}
 	return e.Store.ListNotes(ctx, dbgen.ListNotesParams{
+		GameID:     req.GameId,
 		Status:     ptr(string(p.Status)),
 		TargetKind: ptr(string(p.TargetKind)),
 		TargetID:   ptr(strings.TrimSpace(p.TargetId)),
@@ -162,6 +170,7 @@ func (e ListEndpoint) Render(vms []Note) apigen.ListNotesResponseObject {
 // -----------------------------------------------------------------------------
 
 type GetStore interface {
+	app.AccessStore
 	GetNote(ctx context.Context, id string) (dbgen.GetNoteRow, error)
 }
 
@@ -172,6 +181,9 @@ type GetEndpoint struct {
 }
 
 func (e GetEndpoint) Interact(ctx context.Context, req apigen.GetNoteRequestObject) (dbgen.GetNoteRow, error) {
+	if _, err := app.Access(ctx, e.Store, "note", req.NoteId); err != nil {
+		return dbgen.GetNoteRow{}, err
+	}
 	row, err := e.Store.GetNote(ctx, req.NoteId)
 	return row, app.NotFound(err, "note", req.NoteId)
 }
@@ -190,6 +202,7 @@ func (e GetEndpoint) Render(vm Note) apigen.GetNoteResponseObject {
 
 type CreateStore interface {
 	GetStore
+	app.GameStore
 	CreateNote(ctx context.Context, arg dbgen.CreateNoteParams) (dbgen.Note, error)
 	GetCharacter(ctx context.Context, id string) (dbgen.Character, error)
 	GetConversation(ctx context.Context, id string) (dbgen.Conversation, error)
@@ -200,14 +213,18 @@ type CreateStore interface {
 	GetQuest(ctx context.Context, id string) (dbgen.Quest, error)
 }
 
-// CreateEndpoint leaves a note, or replies to one. Anyone may: it is how an
-// agent contributes without writing the game's text.
+// CreateEndpoint leaves a note in a game, or replies to one. Anyone may:
+// it is how an agent contributes without writing the game's text. What it
+// is about must be in the same game.
 type CreateEndpoint struct {
 	Store CreateStore
 	Links app.Links
 }
 
 func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateNoteRequestObject) (dbgen.GetNoteRow, error) {
+	if _, err := app.Access(ctx, e.Store, "game", req.GameId); err != nil {
+		return dbgen.GetNoteRow{}, err
+	}
 	b := req.Body
 	body := strings.TrimSpace(b.Body)
 	if body == "" {
@@ -215,6 +232,9 @@ func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateNoteReque
 	}
 	if n := utf8.RuneCountInString(body); n > MaxBody {
 		return dbgen.GetNoteRow{}, fmt.Errorf("%w: body is %d characters; the limit is %d", app.ErrBadInput, n, MaxBody)
+	}
+	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
+		return dbgen.GetNoteRow{}, err
 	}
 	kind, targetKind, targetID := string(b.Kind), string(b.TargetKind), strings.TrimSpace(b.TargetId)
 	var parentID *string
@@ -224,6 +244,9 @@ func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateNoteReque
 			if errors.Is(err, pgx.ErrNoRows) {
 				return dbgen.GetNoteRow{}, fmt.Errorf("%w: no note %s to reply to", app.ErrBadInput, id)
 			}
+			return dbgen.GetNoteRow{}, err
+		}
+		if err := app.SameGame("note "+id, parent.Note.GameID, req.GameId); err != nil {
 			return dbgen.GetNoteRow{}, err
 		}
 		// A reply joins its parent's thread: same target, and the same kind
@@ -246,11 +269,12 @@ func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateNoteReque
 	if err := oneOf("targetKind", targetKind, TargetKinds); err != nil {
 		return dbgen.GetNoteRow{}, err
 	}
-	if err := e.checkTarget(ctx, targetKind, targetID); err != nil {
+	if err := e.checkTarget(ctx, req.GameId, targetKind, targetID); err != nil {
 		return dbgen.GetNoteRow{}, err
 	}
 	row, err := e.Store.CreateNote(ctx, dbgen.CreateNoteParams{
 		ID:         xid.New().String(),
+		GameID:     req.GameId,
 		TargetKind: targetKind,
 		TargetID:   ptr(targetID),
 		Kind:       kind,
@@ -265,8 +289,9 @@ func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateNoteReque
 	return e.Store.GetNote(ctx, row.ID)
 }
 
-// checkTarget makes sure a note is about something that exists.
-func (e CreateEndpoint) checkTarget(ctx context.Context, kind, id string) error {
+// checkTarget makes sure a note is about something that exists in the
+// game.
+func (e CreateEndpoint) checkTarget(ctx context.Context, gameID, kind, id string) error {
 	if kind == "game" {
 		if id != "" {
 			return fmt.Errorf("%w: a note on the whole game takes no targetId", app.ErrBadInput)
@@ -276,24 +301,48 @@ func (e CreateEndpoint) checkTarget(ctx context.Context, kind, id string) error 
 	if id == "" {
 		return fmt.Errorf("%w: targetId is required for a note on a %s", app.ErrBadInput, kind)
 	}
-	var err error
+	game, err := e.gameOf(ctx, kind, id)
+	if err != nil {
+		return app.NotFound(err, kind, id)
+	}
+	return app.SameGame(kind+" "+id, game, gameID)
+}
+
+// gameOf is the game a note's target is in.
+func (e CreateEndpoint) gameOf(ctx context.Context, kind, id string) (string, error) {
 	switch kind {
 	case "character":
-		_, err = e.Store.GetCharacter(ctx, id)
+		c, err := e.Store.GetCharacter(ctx, id)
+		return c.GameID, err
 	case "conversation":
-		_, err = e.Store.GetConversation(ctx, id)
-	case "node":
-		_, err = e.Store.GetNode(ctx, id)
-	case "choice":
-		_, err = e.Store.GetChoice(ctx, id)
+		c, err := e.Store.GetConversation(ctx, id)
+		return c.GameID, err
+	case "node", "choice":
+		nodeID := id
+		if kind == "choice" {
+			c, err := e.Store.GetChoice(ctx, id)
+			if err != nil {
+				return "", err
+			}
+			nodeID = c.FromNodeID
+		}
+		n, err := e.Store.GetNode(ctx, nodeID)
+		if err != nil {
+			return "", err
+		}
+		c, err := e.Store.GetConversation(ctx, n.ConversationID)
+		return c.GameID, err
 	case "flag":
-		_, err = e.Store.GetFlag(ctx, id)
+		f, err := e.Store.GetFlag(ctx, id)
+		return f.GameID, err
 	case "skill":
-		_, err = e.Store.GetSkill(ctx, id)
+		s, err := e.Store.GetSkill(ctx, id)
+		return s.GameID, err
 	case "quest":
-		_, err = e.Store.GetQuest(ctx, id)
+		q, err := e.Store.GetQuest(ctx, id)
+		return q.GameID, err
 	}
-	return app.NotFound(err, kind, id)
+	return "", fmt.Errorf("%w: unknown target kind %q", app.ErrBadInput, kind)
 }
 
 func (e CreateEndpoint) Build(row dbgen.GetNoteRow) Note {
@@ -309,6 +358,7 @@ func (e CreateEndpoint) Render(vm Note) apigen.CreateNoteResponseObject {
 // -----------------------------------------------------------------------------
 
 type UpdateStore interface {
+	app.AccessStore
 	GetStore
 	SetNoteStatus(ctx context.Context, arg dbgen.SetNoteStatusParams) (dbgen.Note, error)
 }
@@ -321,6 +371,9 @@ type UpdateEndpoint struct {
 }
 
 func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateNoteRequestObject) (dbgen.GetNoteRow, error) {
+	if _, err := app.Access(ctx, e.Store, "note", req.NoteId); err != nil {
+		return dbgen.GetNoteRow{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return dbgen.GetNoteRow{}, err
 	}
@@ -347,6 +400,7 @@ func (e UpdateEndpoint) Render(vm Note) apigen.UpdateNoteResponseObject {
 // -----------------------------------------------------------------------------
 
 type DeleteStore interface {
+	app.AccessStore
 	DeleteNote(ctx context.Context, id string) (int64, error)
 }
 
@@ -354,6 +408,9 @@ type DeleteStore interface {
 type DeleteEndpoint struct{ Store DeleteStore }
 
 func (e DeleteEndpoint) Interact(ctx context.Context, req apigen.DeleteNoteRequestObject) (bool, error) {
+	if _, err := app.Access(ctx, e.Store, "note", req.NoteId); err != nil {
+		return false, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return false, err
 	}

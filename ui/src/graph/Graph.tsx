@@ -153,6 +153,8 @@ export default function GraphView({
   const edgeLabel = (e: Edge) => {
     const c = choices.get(e.choiceId)!;
     if (e.kind === "fail") return "✗ failed";
+    if (e.kind === "critSuccess") return "★ critical success";
+    if (e.kind === "critFail") return "✗✗ critical failure";
     const check = c.checkSkillId ? `[${c.checkSkillName} ${c.checkDifficulty}] ` : "";
     return check + short(c.text, c.checkSkillId ? 18 : 28);
   };
@@ -244,11 +246,11 @@ export default function GraphView({
         </defs>
         {l.edges.map((e, i) => {
           const c = choices.get(e.choiceId)!;
-          const cls = ["edge", e.kind, c.condition && e.kind === "next" && "cond", (e.from === selected || e.to === selected) && "hot"]
+          const cls = ["edge", e.kind === "critFail" ? "fail" : e.kind === "critSuccess" ? "next crit" : e.kind, c.condition && e.kind === "next" && "cond", (e.from === selected || e.to === selected) && "hot"]
             .filter(Boolean)
             .join(" ");
           return (
-            <path key={i} d={path(e)} className={cls} markerEnd={`url(#arrow-${e.kind})`}>
+            <path key={i} d={path(e)} className={cls} markerEnd={`url(#arrow-${e.kind === "critFail" ? "fail" : "next"})`}>
               <title>{c.text + (c.condition ? "\nif " + c.condition : "") + (c.effects ? "\nthen " + c.effects.replace(/\n/g, "; ") : "")}</title>
             </path>
           );
@@ -265,7 +267,7 @@ export default function GraphView({
         {l.edges.map((e, i) => {
           const [x, y] = labelAt(e);
           return (
-            <text key={"l" + i} x={x} y={y} className={"edge-label " + e.kind}>
+            <text key={"l" + i} x={x} y={y} className={"edge-label " + (e.kind === "critFail" ? "fail" : e.kind)}>
               {edgeLabel(e)}
             </text>
           );

@@ -26,15 +26,16 @@ import (
 	"github.com/KevinMcHugh/rpg/internal/server/build"
 	"github.com/KevinMcHugh/rpg/internal/server/characters"
 	"github.com/KevinMcHugh/rpg/internal/server/conversations"
+	"github.com/KevinMcHugh/rpg/internal/server/games"
 	"github.com/KevinMcHugh/rpg/internal/server/me"
 	"github.com/KevinMcHugh/rpg/internal/server/notes"
 	"github.com/KevinMcHugh/rpg/internal/server/world"
 )
 
 // Instructions is sent to every client on connect.
-const Instructions = `This is the authoring tool for a story-driven party RPG: characters, conversations (a graph of lines, called nodes, joined by the choices a player makes), the world (flags, skills, quests with numbered stages), and notes.
+const Instructions = `This is the authoring tool for story-driven party RPGs. It holds several games, each with its own ruleset (how skill checks resolve) and its own characters, conversations (a graph of lines, called nodes, joined by the choices a player makes), world (flags, skills, quests with numbered stages), and notes. Start with list_games, which lists the games the person you work for belongs to (you see exactly what they see): most tools take the game's id, and anything you look up by id tells you its game.
 
-Choices and conversations carry scripts. A condition says when a choice shows or a conversation can be started ("met_mayor and skill persuasion >= 3"); effects say what a line or a choice changes ("approval aria += 5; quest find_brother = 2"). A choice can be a skill check: 2d6 plus the player's skill against a difficulty, with a node for failure. get_world lists the keys scripts use. Read scripts closely: a choice whose condition can never hold, a flag nothing sets, or a quest stage nothing reaches are the kind of thing worth a note.
+Choices and conversations carry scripts. A condition says when a choice shows or a conversation can be started ("met_mayor and skill persuasion >= 3"); effects say what a line or a choice changes ("approval aria += 5; quest find_brother = 2"). A choice can be a skill check, resolved by its game's ruleset (classic 2d6; SRD 5.2, 3.5 SRD or Pathfinder 2e on a d20, where a skill adds an ability and Pathfinder has critical successes and failures), with nodes for failure and, under Pathfinder, for the criticals. get_world lists the keys scripts use. Read scripts closely: a choice whose condition can never hold, a flag nothing sets, or a quest stage nothing reaches are the kind of thing worth a note.
 
 Every word a player sees is written by a person. You cannot change the game's content, and you must not write it for them. Your job is to read it closely and leave notes that make it better:
 - gap: a path, consequence or character beat the content is missing ("nothing acknowledges that the player sided with the guild").
@@ -50,7 +51,7 @@ Before commenting on a line, read the character's bible (get_character) and how 
 // Tools is the name of every tool, in the order they are registered. None
 // of them writes the game's content.
 var Tools = []string{
-	"whoami",
+	"whoami", "list_games",
 	"list_characters", "get_character",
 	"list_conversations", "get_conversation", "get_path_to",
 	"get_world",
@@ -73,6 +74,14 @@ type Empty struct{}
 
 type IDInput struct {
 	ID string `json:"id" jsonschema:"the id"`
+}
+
+type GameInput struct {
+	GameID string `json:"game_id" jsonschema:"the game's id, from list_games"`
+}
+
+type ListGamesOutput struct {
+	Games []games.Game `json:"games"`
 }
 
 type MeOutput struct {
@@ -110,6 +119,7 @@ type BuildOutput struct {
 }
 
 type ListNotesInput struct {
+	GameID     string `json:"game_id" jsonschema:"the game's id, from list_games"`
 	Status     string `json:"status,omitempty" jsonschema:"open, resolved or dismissed; omit for all"`
 	TargetKind string `json:"target_kind,omitempty" jsonschema:"game, character, conversation, node, choice, flag, skill or quest; omit for all"`
 	TargetID   string `json:"target_id,omitempty" jsonschema:"only notes on this id"`
@@ -124,6 +134,7 @@ type NoteOutput struct {
 }
 
 type AddNoteInput struct {
+	GameID     string `json:"game_id" jsonschema:"the game's id; what the note is about must be in it"`
 	TargetKind string `json:"target_kind" jsonschema:"what the note is about: game, character, conversation, node, choice, flag, skill or quest"`
 	TargetID   string `json:"target_id,omitempty" jsonschema:"its id; omit for game"`
 	Kind       string `json:"kind" jsonschema:"gap, continuity, plot_idea, pacing, mechanics, question or other"`
@@ -131,6 +142,7 @@ type AddNoteInput struct {
 }
 
 type ReplyInput struct {
+	GameID string `json:"game_id" jsonschema:"the game's id"`
 	NoteID string `json:"note_id" jsonschema:"the note to reply to"`
 	Body   string `json:"body" jsonschema:"the reply. Describe intent; never write dialogue, choices, names or prose for the game"`
 }
@@ -147,10 +159,18 @@ func registerRead(s *mcpsdk.Server, store server.Store, links app.Links) {
 	})
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
+		Name:        "list_games",
+		Description: "Every game, with its ruleset (classic 2d6, SRD 5.2, 3.5 SRD or Pathfinder 2e). Other tools take a game's id.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ Empty) (*mcpsdk.CallToolResult, ListGamesOutput, error) {
+		vm, err := server.BuildViewModel(ctx, games.ListEndpoint{Store: store, Links: links}, apigen.ListGamesRequestObject{})
+		return nil, ListGamesOutput{Games: vm}, err
+	})
+
+	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "list_characters",
-		Description: "Every character, by name, with their bible.",
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ Empty) (*mcpsdk.CallToolResult, ListCharactersOutput, error) {
-		vm, err := server.BuildViewModel(ctx, characters.ListEndpoint{Store: store, Links: links}, apigen.ListCharactersRequestObject{})
+		Description: "Every character in a game, by name, with their bible.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in GameInput) (*mcpsdk.CallToolResult, ListCharactersOutput, error) {
+		vm, err := server.BuildViewModel(ctx, characters.ListEndpoint{Store: store, Links: links}, apigen.ListCharactersRequestObject{GameId: in.GameID})
 		return nil, ListCharactersOutput{Characters: vm}, err
 	})
 
@@ -164,9 +184,9 @@ func registerRead(s *mcpsdk.Server, store server.Store, links app.Links) {
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "list_conversations",
-		Description: "Every conversation, newest first, with its title and summary but not its nodes.",
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ Empty) (*mcpsdk.CallToolResult, ListConversationsOutput, error) {
-		vm, err := server.BuildViewModel(ctx, conversations.ListEndpoint{Store: store, Links: links}, apigen.ListConversationsRequestObject{})
+		Description: "Every conversation in a game, newest first, with its title and summary but not its nodes.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in GameInput) (*mcpsdk.CallToolResult, ListConversationsOutput, error) {
+		vm, err := server.BuildViewModel(ctx, conversations.ListEndpoint{Store: store, Links: links}, apigen.ListConversationsRequestObject{GameId: in.GameID})
 		return nil, ListConversationsOutput{Conversations: vm}, err
 	})
 
@@ -188,25 +208,25 @@ func registerRead(s *mcpsdk.Server, store server.Store, links app.Links) {
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "get_world",
-		Description: "Every flag (with what it means), skill (with the player's starting level) and quest (with its numbered stages and journal entries): the keys that conditions and effects use.",
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ Empty) (*mcpsdk.CallToolResult, WorldOutput, error) {
+		Description: "A game's every flag (with what it means), skill (with the player's starting level) and quest (with its numbered stages and journal entries): the keys that conditions and effects use.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in GameInput) (*mcpsdk.CallToolResult, WorldOutput, error) {
 		var out WorldOutput
 		var err error
-		if out.Flags, err = server.BuildViewModel(ctx, world.ListFlagsEndpoint{Store: store, Links: links}, apigen.ListFlagsRequestObject{}); err != nil {
+		if out.Flags, err = server.BuildViewModel(ctx, world.ListFlagsEndpoint{Store: store, Links: links}, apigen.ListFlagsRequestObject{GameId: in.GameID}); err != nil {
 			return nil, out, err
 		}
-		if out.Skills, err = server.BuildViewModel(ctx, world.ListSkillsEndpoint{Store: store, Links: links}, apigen.ListSkillsRequestObject{}); err != nil {
+		if out.Skills, err = server.BuildViewModel(ctx, world.ListSkillsEndpoint{Store: store, Links: links}, apigen.ListSkillsRequestObject{GameId: in.GameID}); err != nil {
 			return nil, out, err
 		}
-		out.Quests, err = server.BuildViewModel(ctx, world.ListQuestsEndpoint{Store: store, Links: links}, apigen.ListQuestsRequestObject{})
+		out.Quests, err = server.BuildViewModel(ctx, world.ListQuestsEndpoint{Store: store, Links: links}, apigen.ListQuestsRequestObject{GameId: in.GameID})
 		return nil, out, err
 	})
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "check_build",
-		Description: "Check the content as the build would. Errors stop it shipping (no start node or opening, a choice leading nowhere, a script naming something deleted, text no person wrote); warnings do not (unreachable nodes, flags set but never read or read but never set).",
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ Empty) (*mcpsdk.CallToolResult, BuildOutput, error) {
-		vm, err := server.BuildViewModel(ctx, build.Endpoint{Store: store, Links: links}, apigen.GetBuildReportRequestObject{})
+		Description: "Check a game's content as the build would. Errors stop it shipping (no start node or opening, a choice leading nowhere, a script naming something deleted, text no person wrote); warnings do not (unreachable nodes, flags set but never read or read but never set).",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in GameInput) (*mcpsdk.CallToolResult, BuildOutput, error) {
+		vm, err := server.BuildViewModel(ctx, build.Endpoint{Store: store, Links: links}, apigen.GetBuildReportRequestObject{GameId: in.GameID})
 		return nil, BuildOutput{Report: vm}, err
 	})
 }
@@ -214,9 +234,9 @@ func registerRead(s *mcpsdk.Server, store server.Store, links app.Links) {
 func registerNotes(s *mcpsdk.Server, store server.Store, links app.Links) {
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "list_notes",
-		Description: "Notes, oldest first, optionally filtered. Check what is already open before adding one.",
+		Description: "A game's notes, oldest first, optionally filtered. Check what is already open before adding one.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in ListNotesInput) (*mcpsdk.CallToolResult, ListNotesOutput, error) {
-		vm, err := server.BuildViewModel(ctx, notes.ListEndpoint{Store: store, Links: links}, apigen.ListNotesRequestObject{Params: apigen.ListNotesParams{
+		vm, err := server.BuildViewModel(ctx, notes.ListEndpoint{Store: store, Links: links}, apigen.ListNotesRequestObject{GameId: in.GameID, Params: apigen.ListNotesParams{
 			Status:     apigen.NoteStatus(in.Status),
 			TargetKind: apigen.NoteTargetKind(in.TargetKind),
 			TargetId:   in.TargetID,
@@ -236,7 +256,7 @@ func registerNotes(s *mcpsdk.Server, store server.Store, links app.Links) {
 		Name:        "add_note",
 		Description: "Leave a note for the author on the game, a character, a conversation, a node or a choice. Say what is missing, wrong or possible; never write the game's text.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in AddNoteInput) (*mcpsdk.CallToolResult, NoteOutput, error) {
-		vm, err := server.BuildViewModel(ctx, notes.CreateEndpoint{Store: store, Links: links}, apigen.CreateNoteRequestObject{Body: &apigen.NoteCreate{
+		vm, err := server.BuildViewModel(ctx, notes.CreateEndpoint{Store: store, Links: links}, apigen.CreateNoteRequestObject{GameId: in.GameID, Body: &apigen.NoteCreate{
 			TargetKind: apigen.NoteTargetKind(in.TargetKind),
 			TargetId:   in.TargetID,
 			Kind:       apigen.NoteKind(in.Kind),
@@ -249,7 +269,7 @@ func registerNotes(s *mcpsdk.Server, store server.Store, links app.Links) {
 		Name:        "reply_to_note",
 		Description: "Reply in a note's thread, for example to answer the author's question on one of your notes.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in ReplyInput) (*mcpsdk.CallToolResult, NoteOutput, error) {
-		vm, err := server.BuildViewModel(ctx, notes.CreateEndpoint{Store: store, Links: links}, apigen.CreateNoteRequestObject{Body: &apigen.NoteCreate{
+		vm, err := server.BuildViewModel(ctx, notes.CreateEndpoint{Store: store, Links: links}, apigen.CreateNoteRequestObject{GameId: in.GameID, Body: &apigen.NoteCreate{
 			ParentId: in.NoteID,
 			Body:     in.Body,
 		}})

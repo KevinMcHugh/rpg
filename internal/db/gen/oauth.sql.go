@@ -172,7 +172,7 @@ func (q *Queries) GetOAuthTokenByRefreshHash(ctx context.Context, refreshTokenHa
 }
 
 const resolveAccessToken = `-- name: ResolveAccessToken :one
-SELECT oauth_tokens.api_key_id, oauth_tokens.client_id, api_keys.kind FROM oauth_tokens
+SELECT oauth_tokens.api_key_id, oauth_tokens.client_id, api_keys.kind, api_keys.user_id FROM oauth_tokens
 JOIN api_keys ON api_keys.id = oauth_tokens.api_key_id AND api_keys.deleted_at IS NULL
 WHERE token_hash = $1
   AND oauth_tokens.revoked_at IS NULL
@@ -183,6 +183,7 @@ type ResolveAccessTokenRow struct {
 	ApiKeyID string  `json:"api_key_id"`
 	ClientID *string `json:"client_id"`
 	Kind     string  `json:"kind"`
+	UserID   *string `json:"user_id"`
 }
 
 // A token stops working when its api key is deleted. client_id is NULL for
@@ -190,7 +191,12 @@ type ResolveAccessTokenRow struct {
 func (q *Queries) ResolveAccessToken(ctx context.Context, tokenHash string) (ResolveAccessTokenRow, error) {
 	row := q.db.QueryRow(ctx, resolveAccessToken, tokenHash)
 	var i ResolveAccessTokenRow
-	err := row.Scan(&i.ApiKeyID, &i.ClientID, &i.Kind)
+	err := row.Scan(
+		&i.ApiKeyID,
+		&i.ClientID,
+		&i.Kind,
+		&i.UserID,
+	)
 	return i, err
 }
 

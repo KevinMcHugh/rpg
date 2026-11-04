@@ -31,10 +31,11 @@ aside .done { color: var(--muted); text-decoration: line-through; }
     {{if eq .Kind "line"}}
       {{if .Speaker}}<p><span class="speaker">{{upper .Speaker}}</span> {{.Text}}</p>{{else}}<p class="narrator">{{.Text}}</p>{{end}}
     {{else if eq .Kind "choice"}}<p class="you">— {{.Text}}</p>
-    {{else if eq .Kind "check"}}<p class="check {{if .Success}}ok{{else}}bad{{end}}">[{{.Speaker}}: {{if .Success}}Success{{else}}Failure{{end}}] {{index .Dice 0}} + {{index .Dice 1}} + {{.Bonus}} = {{add (sum .Dice) .Bonus}} against {{.Target}}</p>
+    {{else if eq .Kind "check"}}<p class="check {{if .Success}}ok{{else}}bad{{end}}">[{{.Speaker}}: {{degree .}}] {{range $i, $d := .Dice}}{{if $i}} + {{end}}{{$d}}{{end}} {{if lt .Bonus 0}}− {{neg .Bonus}}{{else}}+ {{.Bonus}}{{end}} = {{add (sum .Dice) .Bonus}} against {{.Target}}</p>
     {{else if eq .Kind "journal"}}<p class="journal">{{if .Done}}Quest complete{{else}}Journal updated{{end}}: {{.Text}}. {{.Detail}}</p>
     {{else if eq .Kind "approval"}}<p class="change">{{.Speaker}} {{if gt .Delta 0}}approves{{else}}disapproves{{end}} ({{signed .Delta}})</p>
     {{else if eq .Kind "skill"}}<p class="change">{{.Speaker}} {{signed .Delta}}</p>
+    {{else if eq .Kind "ability"}}<p class="change">{{upper .Speaker}} {{signed .Delta}}</p>
     {{else if eq .Kind "end"}}<hr class="end">
     {{end}}
   {{end}}
@@ -42,7 +43,7 @@ aside .done { color: var(--muted); text-decoration: line-through; }
   {{if .Options}}
   <ol class="options">
     {{range .Options}}
-    <li><form method="POST" action="{{$.Base}}/s/{{$.Save.ID}}/choose"><input type="hidden" name="choice" value="{{.ID}}"><button type="submit">{{with .Check}}<span class="tag">[{{.Skill}} {{.Level}} · {{.Difficulty}} · {{.Chance}}%]</span>{{end}}{{.Text}}</button></form></li>
+    <li><form method="POST" action="{{$.Base}}/s/{{$.Save.ID}}/choose"><input type="hidden" name="choice" value="{{.ID}}"><button type="submit">{{with .Check}}<span class="tag">[{{.Skill}} {{signed .Bonus}} · {{.Difficulty}} · {{.Chance}}%]</span>{{end}}{{.Text}}</button></form></li>
     {{end}}
   </ol>
   {{else if .Available}}

@@ -13,6 +13,15 @@ info:
     whose WWW-Authenticate header points at OAuth discovery, which is how an
     MCP client such as claude.ai starts the connector flow.
 
+    Content belongs to a game: lists and creates are under /games/{gameId},
+    and each game has its own ruleset. Everything else is addressed by id,
+    which is unique across games.
+
+    A game belongs to its members: an owner, who may change or delete it and
+    invite people, and writers. A caller sees only the games their user is a
+    member of (an agent's key belongs to a user too); anything in another
+    game is a 404, as if it did not exist. See docs/auth.md.
+
     Every operation that changes something needs a human caller (a human
     api key, or a web session signed in with one) unless it says
     `x-agent-writable: true`. An agent caller gets a 403. Notes are the only
@@ -31,7 +40,7 @@ paths:
   /me:
     get:
       operationId: getMe
-      summary: The api key this request acts as
+      summary: The api key this request acts as, and its user
       responses:
         "200":
           description: The caller
@@ -43,10 +52,214 @@ paths:
           $ref: "#/components/responses/Unauthorized"
 
   # ---------------------------------------------------------------------------
+  # Games: each holds its own content and has its own ruleset
+  # ---------------------------------------------------------------------------
+
+  /games:
+    get:
+      operationId: listGames
+      summary: List the caller's games, oldest first
+      responses:
+        "200":
+          description: The games
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GameList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      operationId: createGame
+      summary: Create a game, owned by the caller
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GameCreate"
+      responses:
+        "201":
+          description: The created game
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Game"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+
+  /games/{gameId}:
+    parameters:
+      - $ref: "#/components/parameters/GameId"
+    get:
+      operationId: getGame
+      summary: One game
+      responses:
+        "200":
+          description: The game
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Game"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      operationId: updateGame
+      summary: Change a game's name, key or ruleset (its owner only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GameUpdate"
+      responses:
+        "200":
+          description: The updated game
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Game"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+    delete:
+      operationId: deleteGame
+      summary: Delete a game; its content stops being listed or built (its owner only)
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /games/{gameId}/members:
+    parameters:
+      - $ref: "#/components/parameters/GameId"
+    get:
+      operationId: listMembers
+      summary: The game's members, owner first
+      responses:
+        "200":
+          description: The members
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /games/{gameId}/members/{userId}:
+    parameters:
+      - $ref: "#/components/parameters/GameId"
+      - $ref: "#/components/parameters/UserId"
+    delete:
+      operationId: removeMember
+      summary: Take a writer out of the game (the owner may remove anyone else; a writer may leave)
+      responses:
+        "204":
+          description: Removed
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+
+  /games/{gameId}/invites:
+    parameters:
+      - $ref: "#/components/parameters/GameId"
+    get:
+      operationId: listInvites
+      summary: The game's unused, unexpired invites (its owner only)
+      responses:
+        "200":
+          description: The invites
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InviteList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      operationId: createInvite
+      summary: Make a single-use link that brings someone into the game as a writer (its owner only)
+      description: |
+        The response carries the link, which is shown this once: only a hash
+        of it is stored. Whoever opens it signs in (or, with Google, signs
+        up) and joins the game. An invite is not a credential: it grants
+        nothing until someone signs in to redeem it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InviteCreate"
+      responses:
+        "201":
+          description: The invite, with its link
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invite"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+
+  /invites/{inviteId}:
+    parameters:
+      - $ref: "#/components/parameters/InviteId"
+    delete:
+      operationId: deleteInvite
+      summary: Revoke an unused invite (its game's owner only)
+      responses:
+        "204":
+          description: Revoked
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ---------------------------------------------------------------------------
   # Characters
   # ---------------------------------------------------------------------------
 
-  /characters:
+  /games/{gameId}/characters:
+    parameters:
+      - $ref: "#/components/parameters/GameId"
     get:
       operationId: listCharacters
       summary: List characters by name
@@ -59,6 +272,8 @@ paths:
                 $ref: "#/components/schemas/CharacterList"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
     post:
       operationId: createCharacter
       summary: Create a character
@@ -79,6 +294,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "403":
           $ref: "#/components/responses/Forbidden"
         "422":
@@ -144,7 +361,9 @@ paths:
   # Conversations, nodes and choices
   # ---------------------------------------------------------------------------
 
-  /conversations:
+  /games/{gameId}/conversations:
+    parameters:
+      - $ref: "#/components/parameters/GameId"
     get:
       operationId: listConversations
       summary: List conversations, newest first
@@ -157,6 +376,8 @@ paths:
                 $ref: "#/components/schemas/ConversationList"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
     post:
       operationId: createConversation
       summary: Create an empty conversation
@@ -177,6 +398,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "403":
           $ref: "#/components/responses/Forbidden"
         "422":
@@ -408,7 +631,9 @@ paths:
   # World: flags, skills and quests
   # ---------------------------------------------------------------------------
 
-  /flags:
+  /games/{gameId}/flags:
+    parameters:
+      - $ref: "#/components/parameters/GameId"
     get:
       operationId: listFlags
       summary: List flags by key
@@ -421,6 +646,8 @@ paths:
                 $ref: "#/components/schemas/FlagList"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
     post:
       operationId: createFlag
       summary: Create a flag
@@ -441,6 +668,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "403":
           $ref: "#/components/responses/Forbidden"
         "422":
@@ -488,7 +717,9 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
-  /skills:
+  /games/{gameId}/skills:
+    parameters:
+      - $ref: "#/components/parameters/GameId"
     get:
       operationId: listSkills
       summary: List skills by name
@@ -501,6 +732,8 @@ paths:
                 $ref: "#/components/schemas/SkillList"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
     post:
       operationId: createSkill
       summary: Create a skill
@@ -521,6 +754,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "403":
           $ref: "#/components/responses/Forbidden"
         "422":
@@ -568,7 +803,9 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
-  /quests:
+  /games/{gameId}/quests:
+    parameters:
+      - $ref: "#/components/parameters/GameId"
     get:
       operationId: listQuests
       summary: List quests by name, with their stages
@@ -581,6 +818,8 @@ paths:
                 $ref: "#/components/schemas/QuestList"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
     post:
       operationId: createQuest
       summary: Create a quest
@@ -601,6 +840,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "403":
           $ref: "#/components/responses/Forbidden"
         "422":
@@ -738,7 +979,9 @@ paths:
   # Notes: feedback on the content, the one thing an agent may write
   # ---------------------------------------------------------------------------
 
-  /notes:
+  /games/{gameId}/notes:
+    parameters:
+      - $ref: "#/components/parameters/GameId"
     get:
       operationId: listNotes
       summary: List notes, oldest first
@@ -764,6 +1007,8 @@ paths:
                 $ref: "#/components/schemas/NoteList"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "422":
           $ref: "#/components/responses/Unprocessable"
     post:
@@ -852,7 +1097,9 @@ paths:
   # Build
   # ---------------------------------------------------------------------------
 
-  /build:
+  /games/{gameId}/build:
+    parameters:
+      - $ref: "#/components/parameters/GameId"
     get:
       operationId: getBuildReport
       summary: Check the content as the build would, without writing a bundle
@@ -870,6 +1117,8 @@ paths:
                 $ref: "#/components/schemas/BuildReport"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
 components:
   securitySchemes:
@@ -884,6 +1133,24 @@ components:
       description: The web session set by /login.
 
   parameters:
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+    InviteId:
+      name: inviteId
+      in: path
+      required: true
+      schema:
+        type: string
+    GameId:
+      name: gameId
+      in: path
+      required: true
+      schema:
+        type: string
     CharacterId:
       name: characterId
       in: path
@@ -953,7 +1220,7 @@ components:
           schema:
             type: string
     Forbidden:
-      description: An agent caller tried to change the game's content
+      description: An agent caller tried to change the game's content, or a writer tried something only the game's owner may do
       content:
         application/json:
           schema:
@@ -983,6 +1250,10 @@ components:
       type: object
       required: [keyId, name, human]
       properties:
+        user:
+          x-go-type-skip-optional-pointer: false
+          allOf:
+            - $ref: "#/components/schemas/User"
         keyId:
           type: string
         name:
@@ -995,13 +1266,160 @@ components:
             directly or through a web session. An OAuth connector token is
             never human, whichever key approved it.
 
+    User:
+      type: object
+      description: The person a key belongs to. Missing for a key minted before there were users and never given one.
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+
+    # ---- games ----
+
+    Ruleset:
+      type: string
+      description: |
+        How checks resolve. classic: 2d6 plus the skill against a difficulty.
+        srd52: d20 plus ability modifier plus proficiency (SRD 5.2). srd35: d20
+        plus skill ranks plus ability modifier (3.5 SRD). pf2e: d20 plus
+        modifier with four degrees of success (Pathfinder 2e). See
+        docs/mechanics.md.
+      enum: [classic, srd52, srd35, pf2e]
+
+    Role:
+      type: string
+      description: |
+        owner: may change or delete the game and invite people, as well as
+        write. writer: may write the game's content and leave notes.
+      enum: [owner, writer]
+
+    Game:
+      type: object
+      required: [id, key, name, ruleset, role, url]
+      properties:
+        role:
+          $ref: "#/components/schemas/Role"
+        id:
+          type: string
+        key:
+          type: string
+        name:
+          type: string
+          description: Authoring label; never ships.
+        ruleset:
+          $ref: "#/components/schemas/Ruleset"
+        url:
+          type: string
+
+    GameList:
+      type: object
+      required: [games]
+      properties:
+        games:
+          type: array
+          items:
+            $ref: "#/components/schemas/Game"
+
+    Member:
+      type: object
+      required: [userId, name, role, joinedAt]
+      properties:
+        userId:
+          type: string
+        name:
+          type: string
+        role:
+          $ref: "#/components/schemas/Role"
+        joinedAt:
+          type: string
+          format: date-time
+
+    MemberList:
+      type: object
+      required: [members]
+      properties:
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/Member"
+
+    Invite:
+      type: object
+      required: [id, gameId, note, expiresAt, createdAt]
+      properties:
+        id:
+          type: string
+        gameId:
+          type: string
+        note:
+          type: string
+          description: Who the invite is for, as a reminder; nobody else sees it.
+        expiresAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        url:
+          type: string
+          description: The link to send. Only in the response that created the invite.
+
+    InviteList:
+      type: object
+      required: [invites]
+      properties:
+        invites:
+          type: array
+          items:
+            $ref: "#/components/schemas/Invite"
+
+    InviteCreate:
+      type: object
+      properties:
+        note:
+          type: string
+        expiresInHours:
+          type: integer
+          description: How long the link works for. Defaults to 168 (a week); at most 720.
+
+    GameCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        key:
+          type: string
+          description: A readable label for the command line; leave out to make one from the name. Not unique (the id is the game's identity).
+        ruleset:
+          $ref: "#/components/schemas/Ruleset"
+
+    GameUpdate:
+      type: object
+      description: Fields left out are left alone.
+      properties:
+        name:
+          type: string
+          x-go-type-skip-optional-pointer: false
+        key:
+          type: string
+          x-go-type-skip-optional-pointer: false
+        ruleset:
+          allOf:
+            - $ref: "#/components/schemas/Ruleset"
+          x-go-type-skip-optional-pointer: false
+
     # ---- characters ----
 
     Character:
       type: object
-      required: [id, key, name, bible, companion, createdAt, updatedAt, url]
+      required: [id, gameId, key, name, bible, companion, createdAt, updatedAt, url]
       properties:
         id:
+          type: string
+        gameId:
           type: string
         key:
           type: string
@@ -1068,9 +1486,11 @@ components:
 
     Conversation:
       type: object
-      required: [id, key, title, summary, startNodeId, label, condition, repeatable, opening, createdAt, updatedAt, url]
+      required: [id, gameId, key, title, summary, startNodeId, label, condition, repeatable, opening, createdAt, updatedAt, url]
       properties:
         id:
+          type: string
+        gameId:
           type: string
         key:
           type: string
@@ -1222,7 +1642,7 @@ components:
 
     Choice:
       type: object
-      required: [id, fromNodeId, toNodeId, text, sortOrder, condition, effects, checkSkillId, checkSkillName, checkDifficulty, failNodeId]
+      required: [id, fromNodeId, toNodeId, text, sortOrder, condition, effects, checkSkillId, checkSkillName, checkDifficulty, failNodeId, critSuccessNodeId, critFailNodeId]
       properties:
         id:
           type: string
@@ -1244,13 +1664,19 @@ components:
           description: What taking the choice changes, in the script language.
         checkSkillId:
           type: string
-          description: "When set, the choice is a skill check: 2d6 plus the player's skill against checkDifficulty. Success goes to toNodeId, failure to failNodeId."
+          description: "When set, the choice is a skill check, rolled by the game's ruleset against checkDifficulty. Success goes to toNodeId, failure to failNodeId."
         checkSkillName:
           type: string
         checkDifficulty:
           type: integer
         failNodeId:
           type: string
+        critSuccessNodeId:
+          type: string
+          description: Where a critical success goes, under a ruleset that has them (pf2e); empty is the ordinary success.
+        critFailNodeId:
+          type: string
+          description: Where a critical failure goes; empty is the ordinary failure.
 
     ChoiceCreate:
       type: object
@@ -1272,6 +1698,10 @@ components:
         checkDifficulty:
           type: integer
         failNodeId:
+          type: string
+        critSuccessNodeId:
+          type: string
+        critFailNodeId:
           type: string
 
     ChoiceUpdate:
@@ -1301,6 +1731,12 @@ components:
           type: integer
           x-go-type-skip-optional-pointer: false
         failNodeId:
+          type: string
+          x-go-type-skip-optional-pointer: false
+        critSuccessNodeId:
+          type: string
+          x-go-type-skip-optional-pointer: false
+        critFailNodeId:
           type: string
           x-go-type-skip-optional-pointer: false
 
@@ -1339,9 +1775,11 @@ components:
 
     Flag:
       type: object
-      required: [id, key, description, initialValue, url]
+      required: [id, gameId, key, description, initialValue, url]
       properties:
         id:
+          type: string
+        gameId:
           type: string
         key:
           type: string
@@ -1388,11 +1826,18 @@ components:
           type: integer
           x-go-type-skip-optional-pointer: false
 
+    Ability:
+      type: string
+      description: One of the six abilities a d20 ruleset adds to a skill check.
+      enum: [str, dex, con, int, wis, cha]
+
     Skill:
       type: object
-      required: [id, key, name, initialLevel, url]
+      required: [id, gameId, key, name, initialLevel, ability, url]
       properties:
         id:
+          type: string
+        gameId:
           type: string
         key:
           type: string
@@ -1401,7 +1846,15 @@ components:
           description: Player-facing; shown on skill checks.
         initialLevel:
           type: integer
-          description: The player's level at the start of the game.
+          description: |
+            The player's value in the skill at the start of the game. What it
+            means depends on the game's ruleset: classic, a level added to
+            2d6; srd52, a proficiency tier (0 none, 1 proficient, 2
+            expertise); srd35, ranks; pf2e, a proficiency rank (0 untrained
+            to 4 legendary).
+        ability:
+          type: string
+          description: The ability a d20 ruleset adds (str, dex, con, int, wis or cha); empty for none, as in classic.
         url:
           type: string
 
@@ -1425,6 +1878,8 @@ components:
           description: Leave out to make one from the name.
         initialLevel:
           type: integer
+        ability:
+          $ref: "#/components/schemas/Ability"
 
     SkillUpdate:
       type: object
@@ -1439,12 +1894,18 @@ components:
         initialLevel:
           type: integer
           x-go-type-skip-optional-pointer: false
+        ability:
+          type: string
+          description: An empty ability clears it.
+          x-go-type-skip-optional-pointer: false
 
     Quest:
       type: object
-      required: [id, key, name, summary, stages, url]
+      required: [id, gameId, key, name, summary, stages, url]
       properties:
         id:
+          type: string
+        gameId:
           type: string
         key:
           type: string
@@ -1554,9 +2015,11 @@ components:
 
     Note:
       type: object
-      required: [id, targetKind, targetId, kind, body, status, parentId, authorName, byHuman, createdAt, updatedAt, url]
+      required: [id, gameId, targetKind, targetId, kind, body, status, parentId, authorName, byHuman, createdAt, updatedAt, url]
       properties:
         id:
+          type: string
+        gameId:
           type: string
         targetKind:
           $ref: "#/components/schemas/NoteTargetKind"

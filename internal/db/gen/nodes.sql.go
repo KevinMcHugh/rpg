@@ -90,13 +90,13 @@ func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
 const listAllNodes = `-- name: ListAllNodes :many
 SELECT nodes.id, nodes.conversation_id, nodes.speaker_id, nodes.text, nodes.text_revision_id, nodes.created_by, nodes.created_at, nodes.updated_at, nodes.deleted_at, nodes.effects FROM nodes
 JOIN conversations ON conversations.id = nodes.conversation_id AND conversations.deleted_at IS NULL
-WHERE nodes.deleted_at IS NULL
+WHERE conversations.game_id = $1 AND nodes.deleted_at IS NULL
 ORDER BY nodes.conversation_id, nodes.created_at, nodes.id
 `
 
-// Every live node of every live conversation, for the build.
-func (q *Queries) ListAllNodes(ctx context.Context) ([]Node, error) {
-	rows, err := q.db.Query(ctx, listAllNodes)
+// Every live node of every live conversation in a game, for the build.
+func (q *Queries) ListAllNodes(ctx context.Context, gameID string) ([]Node, error) {
+	rows, err := q.db.Query(ctx, listAllNodes, gameID)
 	if err != nil {
 		return nil, err
 	}

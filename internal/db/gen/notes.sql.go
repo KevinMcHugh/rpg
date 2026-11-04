@@ -11,24 +11,25 @@ import (
 
 const countOpenNotes = `-- name: CountOpenNotes :one
 SELECT COUNT(*) FROM notes
-WHERE status = 'open' AND parent_id IS NULL AND deleted_at IS NULL
+WHERE game_id = $1 AND status = 'open' AND parent_id IS NULL AND deleted_at IS NULL
 `
 
-func (q *Queries) CountOpenNotes(ctx context.Context) (int64, error) {
-	row := q.db.QueryRow(ctx, countOpenNotes)
+func (q *Queries) CountOpenNotes(ctx context.Context, gameID string) (int64, error) {
+	row := q.db.QueryRow(ctx, countOpenNotes, gameID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
 }
 
 const createNote = `-- name: CreateNote :one
-INSERT INTO notes (id, target_kind, target_id, kind, body, parent_id, by_human, created_by)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, target_kind, target_id, kind, body, status, parent_id, by_human, created_by, created_at, updated_at, deleted_at
+INSERT INTO notes (id, game_id, target_kind, target_id, kind, body, parent_id, by_human, created_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+RETURNING id, target_kind, target_id, kind, body, status, parent_id, by_human, created_by, created_at, updated_at, deleted_at, game_id
 `
 
 type CreateNoteParams struct {
 	ID         string  `json:"id"`
+	GameID     string  `json:"game_id"`
 	TargetKind string  `json:"target_kind"`
 	TargetID   *string `json:"target_id"`
 	Kind       string  `json:"kind"`
@@ -41,6 +42,7 @@ type CreateNoteParams struct {
 func (q *Queries) CreateNote(ctx context.Context, arg CreateNoteParams) (Note, error) {
 	row := q.db.QueryRow(ctx, createNote,
 		arg.ID,
+		arg.GameID,
 		arg.TargetKind,
 		arg.TargetID,
 		arg.Kind,
@@ -63,6 +65,7 @@ func (q *Queries) CreateNote(ctx context.Context, arg CreateNoteParams) (Note, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.GameID,
 	)
 	return i, err
 }
@@ -81,7 +84,7 @@ func (q *Queries) DeleteNote(ctx context.Context, id string) (int64, error) {
 }
 
 const getNote = `-- name: GetNote :one
-SELECT notes.id, notes.target_kind, notes.target_id, notes.kind, notes.body, notes.status, notes.parent_id, notes.by_human, notes.created_by, notes.created_at, notes.updated_at, notes.deleted_at, api_keys.name AS author_name
+SELECT notes.id, notes.target_kind, notes.target_id, notes.kind, notes.body, notes.status, notes.parent_id, notes.by_human, notes.created_by, notes.created_at, notes.updated_at, notes.deleted_at, notes.game_id, api_keys.name AS author_name
 FROM notes
 LEFT JOIN api_keys ON api_keys.id = notes.created_by
 WHERE notes.id = $1 AND notes.deleted_at IS NULL
@@ -109,23 +112,25 @@ func (q *Queries) GetNote(ctx context.Context, id string) (GetNoteRow, error) {
 		&i.Note.CreatedAt,
 		&i.Note.UpdatedAt,
 		&i.Note.DeletedAt,
+		&i.Note.GameID,
 		&i.AuthorName,
 	)
 	return i, err
 }
 
 const listNotes = `-- name: ListNotes :many
-SELECT notes.id, notes.target_kind, notes.target_id, notes.kind, notes.body, notes.status, notes.parent_id, notes.by_human, notes.created_by, notes.created_at, notes.updated_at, notes.deleted_at, api_keys.name AS author_name
+SELECT notes.id, notes.target_kind, notes.target_id, notes.kind, notes.body, notes.status, notes.parent_id, notes.by_human, notes.created_by, notes.created_at, notes.updated_at, notes.deleted_at, notes.game_id, api_keys.name AS author_name
 FROM notes
 LEFT JOIN api_keys ON api_keys.id = notes.created_by
-WHERE notes.deleted_at IS NULL
-  AND ($1::text IS NULL OR notes.status = $1)
-  AND ($2::text IS NULL OR notes.target_kind = $2)
-  AND ($3::text IS NULL OR notes.target_id = $3)
+WHERE notes.game_id = $1 AND notes.deleted_at IS NULL
+  AND ($2::text IS NULL OR notes.status = $2)
+  AND ($3::text IS NULL OR notes.target_kind = $3)
+  AND ($4::text IS NULL OR notes.target_id = $4)
 ORDER BY notes.created_at, notes.id
 `
 
 type ListNotesParams struct {
+	GameID     string  `json:"game_id"`
 	Status     *string `json:"status"`
 	TargetKind *string `json:"target_kind"`
 	TargetID   *string `json:"target_id"`
@@ -139,7 +144,12 @@ type ListNotesRow struct {
 // Filters left NULL match everything. Oldest first, so a thread reads in
 // order.
 func (q *Queries) ListNotes(ctx context.Context, arg ListNotesParams) ([]ListNotesRow, error) {
-	rows, err := q.db.Query(ctx, listNotes, arg.Status, arg.TargetKind, arg.TargetID)
+	rows, err := q.db.Query(ctx, listNotes,
+		arg.GameID,
+		arg.Status,
+		arg.TargetKind,
+		arg.TargetID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -160,6 +170,7 @@ func (q *Queries) ListNotes(ctx context.Context, arg ListNotesParams) ([]ListNot
 			&i.Note.CreatedAt,
 			&i.Note.UpdatedAt,
 			&i.Note.DeletedAt,
+			&i.Note.GameID,
 			&i.AuthorName,
 		); err != nil {
 			return nil, err
@@ -175,7 +186,7 @@ func (q *Queries) ListNotes(ctx context.Context, arg ListNotesParams) ([]ListNot
 const setNoteStatus = `-- name: SetNoteStatus :one
 UPDATE notes SET status = $2, updated_at = NOW()
 WHERE id = $1 AND deleted_at IS NULL
-RETURNING id, target_kind, target_id, kind, body, status, parent_id, by_human, created_by, created_at, updated_at, deleted_at
+RETURNING id, target_kind, target_id, kind, body, status, parent_id, by_human, created_by, created_at, updated_at, deleted_at, game_id
 `
 
 type SetNoteStatusParams struct {
@@ -199,6 +210,7 @@ func (q *Queries) SetNoteStatus(ctx context.Context, arg SetNoteStatusParams) (N
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.GameID,
 	)
 	return i, err
 }

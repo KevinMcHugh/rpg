@@ -8,6 +8,7 @@ package world
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/KevinMcHugh/rpg/internal/app"
 	"github.com/KevinMcHugh/rpg/internal/auth"
 	dbgen "github.com/KevinMcHugh/rpg/internal/db/gen"
+	"github.com/KevinMcHugh/rpg/internal/rules"
 )
 
 // Limits, in characters.
@@ -37,8 +39,28 @@ func clean(field, s string, limit int, required bool) (string, error) {
 	return s, nil
 }
 
+// cleanAbility checks a skill's ability: one of the six, or empty for none.
+func cleanAbility(a string) (*string, error) {
+	a = strings.TrimSpace(a)
+	if a == "" {
+		return nil, nil
+	}
+	if !slices.Contains(rules.Abilities, a) {
+		return nil, fmt.Errorf("%w: ability %q is not one of %s", app.ErrBadInput, a, strings.Join(rules.Abilities, ", "))
+	}
+	return &a, nil
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
 // TxStore runs the writes that record a text revision beside the row.
 type TxStore interface {
+	app.AccessStore
 	InTx(ctx context.Context, fn func(q *dbgen.Queries) error) error
 }
 
@@ -49,6 +71,7 @@ type TxStore interface {
 // Flag is a named number in the world state; 0 is false.
 type Flag struct {
 	ID           string `json:"id"`
+	GameID       string `json:"gameId"`
 	Key          string `json:"key"`
 	Description  string `json:"description"`
 	InitialValue int    `json:"initialValue"`
@@ -56,25 +79,29 @@ type Flag struct {
 }
 
 func flagView(row dbgen.Flag, links app.Links) Flag {
-	return Flag{ID: row.ID, Key: row.Key, Description: row.Description, InitialValue: int(row.InitialValue), URL: links.World() + "#flag-" + row.ID}
+	return Flag{ID: row.ID, GameID: row.GameID, Key: row.Key, Description: row.Description, InitialValue: int(row.InitialValue), URL: links.World(row.GameID) + "#flag-" + row.ID}
 }
 
 func flagAPI(f Flag) apigen.Flag {
-	return apigen.Flag{Id: f.ID, Key: f.Key, Description: f.Description, InitialValue: f.InitialValue, Url: f.URL}
+	return apigen.Flag{Id: f.ID, GameId: f.GameID, Key: f.Key, Description: f.Description, InitialValue: f.InitialValue, Url: f.URL}
 }
 
 type ListFlagsStore interface {
-	ListFlags(ctx context.Context) ([]dbgen.Flag, error)
+	app.GameStore
+	ListFlags(ctx context.Context, gameID string) ([]dbgen.Flag, error)
 }
 
-// ListFlagsEndpoint is every flag, by key.
+// ListFlagsEndpoint is every flag in a game, by key.
 type ListFlagsEndpoint struct {
 	Store ListFlagsStore
 	Links app.Links
 }
 
-func (e ListFlagsEndpoint) Interact(ctx context.Context, _ apigen.ListFlagsRequestObject) ([]dbgen.Flag, error) {
-	return e.Store.ListFlags(ctx)
+func (e ListFlagsEndpoint) Interact(ctx context.Context, req apigen.ListFlagsRequestObject) ([]dbgen.Flag, error) {
+	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
+		return nil, err
+	}
+	return e.Store.ListFlags(ctx, req.GameId)
 }
 
 func (e ListFlagsEndpoint) Build(rows []dbgen.Flag) []Flag {
@@ -94,6 +121,7 @@ func (ListFlagsEndpoint) Render(vms []Flag) apigen.ListFlagsResponseObject {
 }
 
 type CreateFlagStore interface {
+	app.GameStore
 	CreateFlag(ctx context.Context, arg dbgen.CreateFlagParams) (dbgen.Flag, error)
 }
 
@@ -104,6 +132,9 @@ type CreateFlagEndpoint struct {
 }
 
 func (e CreateFlagEndpoint) Interact(ctx context.Context, req apigen.CreateFlagRequestObject) (dbgen.Flag, error) {
+	if _, err := app.Access(ctx, e.Store, "game", req.GameId); err != nil {
+		return dbgen.Flag{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return dbgen.Flag{}, err
 	}
@@ -115,8 +146,11 @@ func (e CreateFlagEndpoint) Interact(ctx context.Context, req apigen.CreateFlagR
 	if err != nil {
 		return dbgen.Flag{}, err
 	}
+	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
+		return dbgen.Flag{}, err
+	}
 	row, err := e.Store.CreateFlag(ctx, dbgen.CreateFlagParams{
-		ID: xid.New().String(), Key: key, Description: desc, InitialValue: int32(req.Body.InitialValue), CreatedBy: auth.KeyIDPtr(ctx),
+		ID: xid.New().String(), GameID: req.GameId, Key: key, Description: desc, InitialValue: int32(req.Body.InitialValue), CreatedBy: auth.KeyIDPtr(ctx),
 	})
 	return row, app.KeyTaken(err, "flag", key)
 }
@@ -128,6 +162,7 @@ func (CreateFlagEndpoint) Render(vm Flag) apigen.CreateFlagResponseObject {
 }
 
 type UpdateFlagStore interface {
+	app.AccessStore
 	UpdateFlag(ctx context.Context, arg dbgen.UpdateFlagParams) (dbgen.Flag, error)
 }
 
@@ -139,6 +174,9 @@ type UpdateFlagEndpoint struct {
 }
 
 func (e UpdateFlagEndpoint) Interact(ctx context.Context, req apigen.UpdateFlagRequestObject) (dbgen.Flag, error) {
+	if _, err := app.Access(ctx, e.Store, "flag", req.FlagId); err != nil {
+		return dbgen.Flag{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return dbgen.Flag{}, err
 	}
@@ -175,6 +213,7 @@ func (UpdateFlagEndpoint) Render(vm Flag) apigen.UpdateFlagResponseObject {
 }
 
 type DeleteFlagStore interface {
+	app.AccessStore
 	DeleteFlag(ctx context.Context, id string) (int64, error)
 }
 
@@ -183,6 +222,9 @@ type DeleteFlagStore interface {
 type DeleteFlagEndpoint struct{ Store DeleteFlagStore }
 
 func (e DeleteFlagEndpoint) Interact(ctx context.Context, req apigen.DeleteFlagRequestObject) (bool, error) {
+	if _, err := app.Access(ctx, e.Store, "flag", req.FlagId); err != nil {
+		return false, err
+	}
 	return deleted(ctx, "flag", req.FlagId, e.Store.DeleteFlag)
 }
 
@@ -214,32 +256,38 @@ func deleted(ctx context.Context, kind, id string, del func(context.Context, str
 // Skill is something the player is good at, at a level.
 type Skill struct {
 	ID           string `json:"id"`
+	GameID       string `json:"gameId"`
 	Key          string `json:"key"`
 	Name         string `json:"name"`
 	InitialLevel int    `json:"initialLevel"`
+	Ability      string `json:"ability"`
 	URL          string `json:"url"`
 }
 
 func skillView(row dbgen.Skill, links app.Links) Skill {
-	return Skill{ID: row.ID, Key: row.Key, Name: row.Name, InitialLevel: int(row.InitialLevel), URL: links.World() + "#skill-" + row.ID}
+	return Skill{ID: row.ID, GameID: row.GameID, Key: row.Key, Name: row.Name, InitialLevel: int(row.InitialLevel), Ability: deref(row.Ability), URL: links.World(row.GameID) + "#skill-" + row.ID}
 }
 
 func skillAPI(s Skill) apigen.Skill {
-	return apigen.Skill{Id: s.ID, Key: s.Key, Name: s.Name, InitialLevel: s.InitialLevel, Url: s.URL}
+	return apigen.Skill{Id: s.ID, GameId: s.GameID, Key: s.Key, Name: s.Name, InitialLevel: s.InitialLevel, Ability: s.Ability, Url: s.URL}
 }
 
 type ListSkillsStore interface {
-	ListSkills(ctx context.Context) ([]dbgen.Skill, error)
+	app.GameStore
+	ListSkills(ctx context.Context, gameID string) ([]dbgen.Skill, error)
 }
 
-// ListSkillsEndpoint is every skill, by name.
+// ListSkillsEndpoint is every skill in a game, by name.
 type ListSkillsEndpoint struct {
 	Store ListSkillsStore
 	Links app.Links
 }
 
-func (e ListSkillsEndpoint) Interact(ctx context.Context, _ apigen.ListSkillsRequestObject) ([]dbgen.Skill, error) {
-	return e.Store.ListSkills(ctx)
+func (e ListSkillsEndpoint) Interact(ctx context.Context, req apigen.ListSkillsRequestObject) ([]dbgen.Skill, error) {
+	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
+		return nil, err
+	}
+	return e.Store.ListSkills(ctx, req.GameId)
 }
 
 func (e ListSkillsEndpoint) Build(rows []dbgen.Skill) []Skill {
@@ -266,6 +314,9 @@ type CreateSkillEndpoint struct {
 }
 
 func (e CreateSkillEndpoint) Interact(ctx context.Context, req apigen.CreateSkillRequestObject) (dbgen.Skill, error) {
+	if _, err := app.Access(ctx, e.Store, "game", req.GameId); err != nil {
+		return dbgen.Skill{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return dbgen.Skill{}, err
 	}
@@ -277,15 +328,23 @@ func (e CreateSkillEndpoint) Interact(ctx context.Context, req apigen.CreateSkil
 	if err != nil {
 		return dbgen.Skill{}, err
 	}
+	ability, err := cleanAbility(string(req.Body.Ability))
+	if err != nil {
+		return dbgen.Skill{}, err
+	}
 	var row dbgen.Skill
 	err = e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+		if _, err := app.Game(ctx, q, req.GameId); err != nil {
+			return err
+		}
 		id := xid.New().String()
 		rev, err := app.Revise(ctx, q, "skill", id, "name", name)
 		if err != nil {
 			return err
 		}
 		row, err = q.CreateSkill(ctx, dbgen.CreateSkillParams{
-			ID: id, Key: key, Name: name, NameRevisionID: rev, InitialLevel: int32(req.Body.InitialLevel), CreatedBy: auth.KeyIDPtr(ctx),
+			ID: id, GameID: req.GameId, Key: key, Name: name, NameRevisionID: rev, InitialLevel: int32(req.Body.InitialLevel),
+			Ability: ability, CreatedBy: auth.KeyIDPtr(ctx),
 		})
 		return app.KeyTaken(err, "skill", key)
 	})
@@ -305,6 +364,9 @@ type UpdateSkillEndpoint struct {
 }
 
 func (e UpdateSkillEndpoint) Interact(ctx context.Context, req apigen.UpdateSkillRequestObject) (dbgen.Skill, error) {
+	if _, err := app.Access(ctx, e.Store, "skill", req.SkillId); err != nil {
+		return dbgen.Skill{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return dbgen.Skill{}, err
 	}
@@ -319,6 +381,13 @@ func (e UpdateSkillEndpoint) Interact(ctx context.Context, req apigen.UpdateSkil
 	if l := req.Body.InitialLevel; l != nil {
 		n := int32(*l)
 		arg.InitialLevel = &n
+	}
+	if a := req.Body.Ability; a != nil {
+		ability, err := cleanAbility(*a)
+		if err != nil {
+			return dbgen.Skill{}, err
+		}
+		arg.SetAbility, arg.Ability = true, ability
 	}
 	var name string
 	if n := req.Body.Name; n != nil {
@@ -356,6 +425,7 @@ func (UpdateSkillEndpoint) Render(vm Skill) apigen.UpdateSkillResponseObject {
 }
 
 type DeleteSkillStore interface {
+	app.AccessStore
 	DeleteSkill(ctx context.Context, id string) (int64, error)
 }
 
@@ -363,6 +433,9 @@ type DeleteSkillStore interface {
 type DeleteSkillEndpoint struct{ Store DeleteSkillStore }
 
 func (e DeleteSkillEndpoint) Interact(ctx context.Context, req apigen.DeleteSkillRequestObject) (bool, error) {
+	if _, err := app.Access(ctx, e.Store, "skill", req.SkillId); err != nil {
+		return false, err
+	}
 	return deleted(ctx, "skill", req.SkillId, e.Store.DeleteSkill)
 }
 
@@ -379,6 +452,7 @@ func (DeleteSkillEndpoint) Render(bool) apigen.DeleteSkillResponseObject {
 // Quest is a quest with its stages, in order.
 type Quest struct {
 	ID      string  `json:"id"`
+	GameID  string  `json:"gameId"`
 	Key     string  `json:"key"`
 	Name    string  `json:"name"`
 	Summary string  `json:"summary"`
@@ -405,7 +479,7 @@ func questView(m questModel, links app.Links) Quest {
 	for i, s := range m.Stages {
 		stages[i] = Stage{ID: s.ID, QuestID: s.QuestID, Number: int(s.Number), Journal: s.Journal, Completes: s.Completes}
 	}
-	return Quest{ID: m.Quest.ID, Key: m.Quest.Key, Name: m.Quest.Name, Summary: m.Quest.Summary, Stages: stages, URL: links.Quest(m.Quest.ID)}
+	return Quest{ID: m.Quest.ID, GameID: m.Quest.GameID, Key: m.Quest.Key, Name: m.Quest.Name, Summary: m.Quest.Summary, Stages: stages, URL: links.Quest(m.Quest.ID)}
 }
 
 func questAPI(q Quest) apigen.Quest {
@@ -413,10 +487,11 @@ func questAPI(q Quest) apigen.Quest {
 	for i, s := range q.Stages {
 		stages[i] = apigen.QuestStage{Id: s.ID, QuestId: s.QuestID, Number: s.Number, Journal: s.Journal, Completes: s.Completes}
 	}
-	return apigen.Quest{Id: q.ID, Key: q.Key, Name: q.Name, Summary: q.Summary, Stages: stages, Url: q.URL}
+	return apigen.Quest{Id: q.ID, GameId: q.GameID, Key: q.Key, Name: q.Name, Summary: q.Summary, Stages: stages, Url: q.URL}
 }
 
 type QuestReadStore interface {
+	app.AccessStore
 	GetQuest(ctx context.Context, id string) (dbgen.Quest, error)
 	ListQuestStages(ctx context.Context, questID string) ([]dbgen.QuestStage, error)
 }
@@ -431,22 +506,26 @@ func loadQuest(ctx context.Context, s QuestReadStore, id string) (questModel, er
 }
 
 type ListQuestsStore interface {
-	ListQuests(ctx context.Context) ([]dbgen.Quest, error)
-	ListAllQuestStages(ctx context.Context) ([]dbgen.QuestStage, error)
+	app.GameStore
+	ListQuests(ctx context.Context, gameID string) ([]dbgen.Quest, error)
+	ListAllQuestStages(ctx context.Context, gameID string) ([]dbgen.QuestStage, error)
 }
 
-// ListQuestsEndpoint is every quest, by name, with its stages.
+// ListQuestsEndpoint is every quest in a game, by name, with its stages.
 type ListQuestsEndpoint struct {
 	Store ListQuestsStore
 	Links app.Links
 }
 
-func (e ListQuestsEndpoint) Interact(ctx context.Context, _ apigen.ListQuestsRequestObject) ([]questModel, error) {
-	quests, err := e.Store.ListQuests(ctx)
+func (e ListQuestsEndpoint) Interact(ctx context.Context, req apigen.ListQuestsRequestObject) ([]questModel, error) {
+	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
+		return nil, err
+	}
+	quests, err := e.Store.ListQuests(ctx, req.GameId)
 	if err != nil {
 		return nil, err
 	}
-	stages, err := e.Store.ListAllQuestStages(ctx)
+	stages, err := e.Store.ListAllQuestStages(ctx, req.GameId)
 	if err != nil {
 		return nil, err
 	}
@@ -484,6 +563,9 @@ type GetQuestEndpoint struct {
 }
 
 func (e GetQuestEndpoint) Interact(ctx context.Context, req apigen.GetQuestRequestObject) (questModel, error) {
+	if _, err := app.Access(ctx, e.Store, "quest", req.QuestId); err != nil {
+		return questModel{}, err
+	}
 	return loadQuest(ctx, e.Store, req.QuestId)
 }
 
@@ -501,6 +583,9 @@ type CreateQuestEndpoint struct {
 }
 
 func (e CreateQuestEndpoint) Interact(ctx context.Context, req apigen.CreateQuestRequestObject) (questModel, error) {
+	if _, err := app.Access(ctx, e.Store, "game", req.GameId); err != nil {
+		return questModel{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return questModel{}, err
 	}
@@ -518,13 +603,16 @@ func (e CreateQuestEndpoint) Interact(ctx context.Context, req apigen.CreateQues
 	}
 	var row dbgen.Quest
 	err = e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+		if _, err := app.Game(ctx, q, req.GameId); err != nil {
+			return err
+		}
 		id := xid.New().String()
 		rev, err := app.Revise(ctx, q, "quest", id, "name", name)
 		if err != nil {
 			return err
 		}
 		row, err = q.CreateQuest(ctx, dbgen.CreateQuestParams{
-			ID: id, Key: key, Name: name, NameRevisionID: rev, Summary: summary, CreatedBy: auth.KeyIDPtr(ctx),
+			ID: id, GameID: req.GameId, Key: key, Name: name, NameRevisionID: rev, Summary: summary, CreatedBy: auth.KeyIDPtr(ctx),
 		})
 		return app.KeyTaken(err, "quest", key)
 	})
@@ -544,6 +632,9 @@ type UpdateQuestEndpoint struct {
 }
 
 func (e UpdateQuestEndpoint) Interact(ctx context.Context, req apigen.UpdateQuestRequestObject) (questModel, error) {
+	if _, err := app.Access(ctx, e.Store, "quest", req.QuestId); err != nil {
+		return questModel{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return questModel{}, err
 	}
@@ -604,6 +695,9 @@ func (UpdateQuestEndpoint) Render(vm Quest) apigen.UpdateQuestResponseObject {
 type DeleteQuestEndpoint struct{ Store TxStore }
 
 func (e DeleteQuestEndpoint) Interact(ctx context.Context, req apigen.DeleteQuestRequestObject) (bool, error) {
+	if _, err := app.Access(ctx, e.Store, "quest", req.QuestId); err != nil {
+		return false, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return false, err
 	}
@@ -654,6 +748,9 @@ type CreateStageEndpoint struct {
 }
 
 func (e CreateStageEndpoint) Interact(ctx context.Context, req apigen.CreateQuestStageRequestObject) (questModel, error) {
+	if _, err := app.Access(ctx, e.Store, "quest", req.QuestId); err != nil {
+		return questModel{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return questModel{}, err
 	}
@@ -701,6 +798,9 @@ type UpdateStageEndpoint struct {
 }
 
 func (e UpdateStageEndpoint) Interact(ctx context.Context, req apigen.UpdateQuestStageRequestObject) (questModel, error) {
+	if _, err := app.Access(ctx, e.Store, "quest_stage", req.StageId); err != nil {
+		return questModel{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return questModel{}, err
 	}
@@ -751,6 +851,7 @@ func (UpdateStageEndpoint) Render(vm Quest) apigen.UpdateQuestStageResponseObjec
 }
 
 type DeleteStageStore interface {
+	app.AccessStore
 	DeleteQuestStage(ctx context.Context, id string) (int64, error)
 }
 
@@ -759,6 +860,9 @@ type DeleteStageStore interface {
 type DeleteStageEndpoint struct{ Store DeleteStageStore }
 
 func (e DeleteStageEndpoint) Interact(ctx context.Context, req apigen.DeleteQuestStageRequestObject) (bool, error) {
+	if _, err := app.Access(ctx, e.Store, "quest_stage", req.StageId); err != nil {
+		return false, err
+	}
 	return deleted(ctx, "stage", req.StageId, e.Store.DeleteQuestStage)
 }
 

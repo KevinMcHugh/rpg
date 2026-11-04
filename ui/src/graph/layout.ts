@@ -13,7 +13,7 @@ const GAP_Y = 36;
 const PAD = 90;
 export const END_R = 16;
 
-export type Kind = "next" | "fail";
+export type Kind = "next" | "fail" | "critSuccess" | "critFail";
 
 export type Box = {
   id: string;
@@ -44,6 +44,9 @@ export function layout(g: Graph): Layout {
     for (const c of n.choices) {
       const targets: [string, Kind][] = [[c.toNodeId, "next"]];
       if (c.checkSkillId) targets.push([c.failNodeId, "fail"]);
+      // A critical branch only gets an arrow when it goes somewhere of its own.
+      if (c.checkSkillId && c.critSuccessNodeId) targets.push([c.critSuccessNodeId, "critSuccess"]);
+      if (c.checkSkillId && c.critFailNodeId) targets.push([c.critFailNodeId, "critFail"]);
       for (const [to, kind] of targets) {
         // A target that is missing (deleted) or empty ends the conversation.
         const target = to && live.has(to) ? to : "end:" + n.id;

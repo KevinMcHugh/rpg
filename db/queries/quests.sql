@@ -1,6 +1,6 @@
 -- name: CreateQuest :one
-INSERT INTO quests (id, key, name, name_revision_id, summary, created_by)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO quests (id, game_id, key, name, name_revision_id, summary, created_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING *;
 
 -- name: GetQuest :one
@@ -9,7 +9,7 @@ WHERE id = $1 AND deleted_at IS NULL;
 
 -- name: ListQuests :many
 SELECT * FROM quests
-WHERE deleted_at IS NULL
+WHERE game_id = $1 AND deleted_at IS NULL
 ORDER BY name, id;
 
 -- A new name comes with its new revision.
@@ -46,11 +46,11 @@ SELECT * FROM quest_stages
 WHERE quest_id = $1 AND deleted_at IS NULL
 ORDER BY number;
 
--- Every live stage of every live quest, for the build.
+-- Every live stage of every live quest in a game, for the build.
 -- name: ListAllQuestStages :many
 SELECT quest_stages.* FROM quest_stages
 JOIN quests ON quests.id = quest_stages.quest_id AND quests.deleted_at IS NULL
-WHERE quest_stages.deleted_at IS NULL
+WHERE quests.game_id = $1 AND quest_stages.deleted_at IS NULL
 ORDER BY quest_stages.quest_id, quest_stages.number;
 
 -- A new journal entry comes with its new revision.

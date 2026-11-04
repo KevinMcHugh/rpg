@@ -17,20 +17,21 @@ Every surface ends in the same `Endpoint`. REST runs all three steps (`server.Ru
 
 | package | holds |
 | --- | --- |
-| `cmd/server` | `main`: `serve`, `build` (writes the game's bundle), and the `keys` and `invites` admin commands |
+| `cmd/server` | `main`: `serve`, `build` (writes a game's bundle), `import` (licensed text), and the `keys`, `users`, `members` and `invites` admin commands |
 | `cmd/game` | the game: plays `content.json`, with saves in its own database |
 | `internal/script` | the condition and effect language: parse, format, evaluate |
+| `internal/rules` | the rulesets (classic, srd52, srd35, pf2e): how a check resolves, its odds and its degrees of success |
 | `internal/game` | the engine: a state and a choice in, a state out; skill checks seeded from the save |
 | `internal/game/play` | the game's pages, shared by the playtest (`/play`) and `cmd/game` |
-| `internal/app` | `Store` (every sqlc query plus `InTx`), `Revise` (records who wrote a player-facing string), `RequireHuman`, `Links` (absolute URLs for view models), `ErrNotFound`/`ErrBadInput`/`ErrForbidden`, `Name` |
+| `internal/app` | `Store` (every sqlc query plus `InTx` and `Import`, for licensed text), `Revise` (records who wrote a player-facing string), `RequireHuman`, `Access`, `RequireOwner`, `Game` and `SameGame`, `Links` (absolute URLs for view models), `ErrNotFound`/`ErrBadInput`/`ErrForbidden`, `Name` |
 | `internal/content` | the build: `Load` the content, `Compile` it into the game's bundle, and check it on the way (provenance, start nodes, dangling choices, unreachable nodes) |
 | `internal/server` | `Endpoint`, `Run`, `BuildViewModel`; `Server`, which implements the generated `StrictServerInterface`, maps errors to typed responses, and mounts the API with the spec-driven auth guard |
 | `internal/server/<resource>` | one `Endpoint` per operation, each with its own narrow `Store` interface, plus the resource's view model and its API conversion |
 | `internal/appmcp` | MCP tools and the server's `Instructions` |
 | `ui/` | the authoring app: React, TypeScript, Vite. Its API types are generated from the spec (`ui/src/api/schema.ts`) |
 | `internal/ui` | embeds the app's build and serves it, with its CSP |
-| `internal/web` | the router, the sign-in page, the redirects notes link through, and the end-to-end tests |
-| `internal/auth` | key and token formats, hashing, `Require`/`Optional` middleware, and the caller (`KeyID`, `IsHuman`) on the context |
+| `internal/web` | the router, the sign-in and join pages, Google sign-in, the redirects notes link through, and the end-to-end tests |
+| `internal/auth` | key and token formats, hashing, `Require`/`Optional` middleware, and the caller (`KeyID`, `UserID`, `IsHuman`, `System`) on the context |
 | `internal/oauth` | the OAuth 2.1 authorization server (discovery, registration, authorize, token, refresh) |
 | `internal/api/gen`, `internal/db/gen` | generated; never edited |
 
@@ -54,7 +55,7 @@ type Endpoint[Req, M, VM, Res any] interface {
 - **xid ids** in `CHAR(20)`. They are sortable, URL-safe and short enough to read aloud.
 - **Soft delete everywhere.** Every live table has `created_at`, `updated_at`, `deleted_at`, and every query filters `deleted_at IS NULL`. A delete is an `UPDATE`, and `:execrows` tells the endpoint whether anything was there.
 - **Partial updates.** `COALESCE(sqlc.narg(x), x)` in SQL and a pointer field in the spec (`x-go-type-skip-optional-pointer: false`) mean a PATCH sends only what changes. Everything else optional stays a plain value (`prefer-skip-optional-pointer`), so conversions need no pointer per field.
-- **No tenants.** Everyone sees the same data, and the api key behind a request is recorded on what it creates (`created_by`). See "Adding tenants" below if your app needs isolation.
+- **Games belong to their members.** Content is split into games (`games`, and a `game_id` on everything that belongs to one), each with its own keys, opening conversation, build and ruleset, and its own members: an owner and writers (`game_members`). A user, and their agents, see only their games; everything else is a 404 (`app.Access`, [auth.md](auth.md)). The api key behind a request is recorded on what it creates (`created_by`). This is the "Adding tenants" recipe below with the game as the tenant, except that a user can be in many games, so the game comes from what a request is about rather than from the key.
 - **People write the content; agents leave notes.** Every player-facing string goes through `app.Revise`, and every content endpoint starts with `app.RequireHuman`. See [authorship.md](authorship.md).
 - **Authoring and runtime are different shapes.** The database tolerates work in progress; the game runs on the bundle `server build` writes, which holds only player-facing text and the graph, and which refuses to build while there are errors.
 

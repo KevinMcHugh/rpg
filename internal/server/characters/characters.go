@@ -31,6 +31,7 @@ const (
 // Character is a character as every surface shows it.
 type Character struct {
 	ID        string    `json:"id"`
+	GameID    string    `json:"gameId"`
 	Key       string    `json:"key"`
 	Companion bool      `json:"companion"`
 	Name      string    `json:"name"`
@@ -44,6 +45,7 @@ type Character struct {
 func ToViewModel(row dbgen.Character, links app.Links) Character {
 	return Character{
 		ID:        row.ID,
+		GameID:    row.GameID,
 		Key:       row.Key,
 		Companion: row.Companion,
 		Name:      row.Name,
@@ -57,6 +59,7 @@ func ToViewModel(row dbgen.Character, links app.Links) Character {
 func toAPI(c Character) apigen.Character {
 	return apigen.Character{
 		Id:        c.ID,
+		GameId:    c.GameID,
 		Key:       c.Key,
 		Companion: c.Companion,
 		Name:      c.Name,
@@ -95,17 +98,21 @@ func cleanBible(s string) (string, error) {
 // -----------------------------------------------------------------------------
 
 type ListStore interface {
-	ListCharacters(ctx context.Context) ([]dbgen.Character, error)
+	app.GameStore
+	ListCharacters(ctx context.Context, gameID string) ([]dbgen.Character, error)
 }
 
-// ListEndpoint is every character, by name.
+// ListEndpoint is every character in a game, by name.
 type ListEndpoint struct {
 	Store ListStore
 	Links app.Links
 }
 
-func (e ListEndpoint) Interact(ctx context.Context, _ apigen.ListCharactersRequestObject) ([]dbgen.Character, error) {
-	return e.Store.ListCharacters(ctx)
+func (e ListEndpoint) Interact(ctx context.Context, req apigen.ListCharactersRequestObject) ([]dbgen.Character, error) {
+	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
+		return nil, err
+	}
+	return e.Store.ListCharacters(ctx, req.GameId)
 }
 
 func (e ListEndpoint) Build(rows []dbgen.Character) []Character {
@@ -129,6 +136,7 @@ func (e ListEndpoint) Render(vms []Character) apigen.ListCharactersResponseObjec
 // -----------------------------------------------------------------------------
 
 type GetStore interface {
+	app.AccessStore
 	GetCharacter(ctx context.Context, id string) (dbgen.Character, error)
 }
 
@@ -139,6 +147,9 @@ type GetEndpoint struct {
 }
 
 func (e GetEndpoint) Interact(ctx context.Context, req apigen.GetCharacterRequestObject) (dbgen.Character, error) {
+	if _, err := app.Access(ctx, e.Store, "character", req.CharacterId); err != nil {
+		return dbgen.Character{}, err
+	}
 	row, err := e.Store.GetCharacter(ctx, req.CharacterId)
 	return row, app.NotFound(err, "character", req.CharacterId)
 }
@@ -154,17 +165,21 @@ func (e GetEndpoint) Render(vm Character) apigen.GetCharacterResponseObject {
 // -----------------------------------------------------------------------------
 
 type TxStore interface {
+	app.AccessStore
 	InTx(ctx context.Context, fn func(q *dbgen.Queries) error) error
 }
 
-// CreateEndpoint saves a new character, with a revision recording who
-// wrote the name. People only.
+// CreateEndpoint saves a new character in a game, with a revision
+// recording who wrote the name. People only.
 type CreateEndpoint struct {
 	Store TxStore
 	Links app.Links
 }
 
 func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateCharacterRequestObject) (dbgen.Character, error) {
+	if _, err := app.Access(ctx, e.Store, "game", req.GameId); err != nil {
+		return dbgen.Character{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return dbgen.Character{}, err
 	}
@@ -182,6 +197,9 @@ func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateCharacter
 	}
 	var row dbgen.Character
 	err = e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+		if _, err := app.Game(ctx, q, req.GameId); err != nil {
+			return err
+		}
 		id := xid.New().String()
 		rev, err := app.Revise(ctx, q, "character", id, "name", name)
 		if err != nil {
@@ -189,6 +207,7 @@ func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateCharacter
 		}
 		row, err = q.CreateCharacter(ctx, dbgen.CreateCharacterParams{
 			ID:             id,
+			GameID:         req.GameId,
 			Key:            key,
 			Name:           name,
 			NameRevisionID: rev,
@@ -218,6 +237,9 @@ type UpdateEndpoint struct {
 }
 
 func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateCharacterRequestObject) (dbgen.Character, error) {
+	if _, err := app.Access(ctx, e.Store, "character", req.CharacterId); err != nil {
+		return dbgen.Character{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return dbgen.Character{}, err
 	}
@@ -277,6 +299,7 @@ func (e UpdateEndpoint) Render(vm Character) apigen.UpdateCharacterResponseObjec
 // -----------------------------------------------------------------------------
 
 type DeleteStore interface {
+	app.AccessStore
 	DeleteCharacter(ctx context.Context, id string) (int64, error)
 }
 
@@ -285,6 +308,9 @@ type DeleteStore interface {
 type DeleteEndpoint struct{ Store DeleteStore }
 
 func (e DeleteEndpoint) Interact(ctx context.Context, req apigen.DeleteCharacterRequestObject) (bool, error) {
+	if _, err := app.Access(ctx, e.Store, "character", req.CharacterId); err != nil {
+		return false, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return false, err
 	}

@@ -56,12 +56,14 @@ func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{Queries: dbgen.New(pool), Pool: pool}
 }
 
-// RedeemInvite spends a single-use invite: it mints the newcomer's api key
-// (named after the invite's note) and runs approve with that key on the same
-// transaction, so an invite is only used up if what it was redeemed for
-// (an OAuth code) is stored too. An unknown, used, expired or deleted invite
-// is pgx.ErrNoRows. The raw key is never shown to anyone: the newcomer acts
-// through the OAuth tokens it approves, and deleting the key cuts them off.
+// RedeemInvite spends a single-use invite: it makes the newcomer a user and
+// mints their api key (both named after the invite's note), and runs approve
+// with that key on the same transaction, so an invite is only used up if
+// what it was redeemed for (an OAuth code) is stored too. An unknown, used,
+// expired or deleted invite is pgx.ErrNoRows. The raw key is never shown to
+// anyone: the newcomer acts through the OAuth tokens it approves, and
+// deleting the key cuts them off. They are in no game until someone invites
+// them to one.
 func (s *Store) RedeemInvite(ctx context.Context, raw string, approve func(q *dbgen.Queries, apiKeyID string) error) error {
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
@@ -81,13 +83,17 @@ func (s *Store) RedeemInvite(ctx context.Context, raw string, approve func(q *db
 	if err != nil {
 		return err
 	}
-	// The key only ever acts through the connector it approves, so it is an
-	// agent's.
-	row, err := q.CreateAPIKey(ctx, dbgen.CreateAPIKeyParams{ID: xid.New().String(), Name: name, KeyHash: auth.Hash(key), Kind: auth.KindAgent})
+	user, err := q.CreateUser(ctx, dbgen.CreateUserParams{ID: xid.New().String(), Name: name})
 	if err != nil {
 		return err
 	}
-	if err := q.SetInviteKey(ctx, dbgen.SetInviteKeyParams{ID: inv.ID, ApiKeyID: &row.ID}); err != nil {
+	// The key only ever acts through the connector it approves, so it is an
+	// agent's.
+	row, err := q.CreateAPIKey(ctx, dbgen.CreateAPIKeyParams{ID: xid.New().String(), Name: name, KeyHash: auth.Hash(key), Kind: auth.KindAgent, UserID: &user.ID})
+	if err != nil {
+		return err
+	}
+	if err := q.SetInviteKey(ctx, dbgen.SetInviteKeyParams{ID: inv.ID, ApiKeyID: &row.ID, UserID: &user.ID}); err != nil {
 		return err
 	}
 	if err := approve(q, row.ID); err != nil {
@@ -123,7 +129,7 @@ func Revise(ctx context.Context, q *dbgen.Queries, targetKind, targetID, field, 
 		TargetID:   targetID,
 		Field:      field,
 		Body:       body,
-		AuthorKey:  auth.KeyID(ctx),
+		AuthorKey:  auth.KeyIDPtr(ctx),
 	})
 	return row.ID, err
 }
@@ -156,9 +162,19 @@ func (l Links) NodeByID(id string) string { return l.Base + "/nodes/" + id }
 // ChoiceByID is the place of a choice's node, by way of a redirect.
 func (l Links) ChoiceByID(id string) string { return l.Base + "/choices/" + id }
 
-// Target is the page of a character, conversation, node or choice by kind,
-// and the notes page for anything else (a note on the whole game).
-func (l Links) Target(kind, id string) string {
+// Join is where a game invite's link goes.
+func (l Links) Join(code string) string { return l.Base + "/join/" + code }
+
+// Members is a game's page of members and invites.
+func (l Links) Members(gameID string) string { return l.Game(gameID) + "/members" }
+
+// Game is a game's page.
+func (l Links) Game(id string) string { return l.Base + "/games/" + id }
+
+// Target is the page of what a note or build issue in a game is about:
+// a character, conversation, node, choice, flag, skill or quest, or the
+// game itself.
+func (l Links) Target(gameID, kind, id string) string {
 	switch kind {
 	case "character":
 		return l.Character(id)
@@ -169,29 +185,108 @@ func (l Links) Target(kind, id string) string {
 	case "choice":
 		return l.ChoiceByID(id)
 	case "flag":
-		return l.World() + "#flag-" + id
+		return l.World(gameID) + "#flag-" + id
 	case "skill":
-		return l.World() + "#skill-" + id
+		return l.World(gameID) + "#skill-" + id
 	case "quest":
 		return l.Quest(id)
 	case "quest_stage":
 		return l.Base + "/stages/" + id
 	default:
-		return l.Notes()
+		return l.Game(gameID)
 	}
 }
 
-// World is the page of flags, skills and quests.
-func (l Links) World() string { return l.Base + "/world" }
+// World is a game's page of flags, skills and quests.
+func (l Links) World(gameID string) string { return l.Game(gameID) + "/world" }
 
 // Quest is a quest's page.
 func (l Links) Quest(id string) string { return l.Base + "/quests/" + id }
 
-// Notes is the page of every open note.
-func (l Links) Notes() string { return l.Base + "/notes" }
+// Notes is a game's page of notes.
+func (l Links) Notes(gameID string) string { return l.Game(gameID) + "/notes" }
 
-// Build is the build report's page.
-func (l Links) Build() string { return l.Base + "/build" }
+// Build is a game's build report.
+func (l Links) Build(gameID string) string { return l.Game(gameID) + "/build" }
+
+// Roles a member may have in a game.
+const (
+	// RoleOwner may change or delete the game and invite people, and write.
+	RoleOwner = "owner"
+	// RoleWriter may write the game's content and leave notes.
+	RoleWriter = "writer"
+)
+
+// AccessStore is what finding a caller's way into a game reads.
+type AccessStore interface {
+	GameAccess(ctx context.Context, arg dbgen.GameAccessParams) (dbgen.GameAccessRow, error)
+}
+
+// Membership is the game something belongs to and the caller's role in it.
+type Membership struct {
+	GameID string
+	Role   string
+}
+
+// Access finds the game that kind/id belongs to ("character", "node",
+// "quest_stage", "invite", "game", ...) and the caller's role in it. A
+// thing in a game the caller's user is not a member of is ErrNotFound,
+// exactly like a thing that does not exist, so a game's existence does not
+// leak. Every endpoint calls it (or Game) before touching anything, which
+// is what keeps a game private to its members on every surface. A command
+// run on the server (auth.System) reaches every game as its owner.
+func Access(ctx context.Context, s AccessStore, kind, id string) (Membership, error) {
+	c := auth.CallerFrom(ctx)
+	row, err := s.GameAccess(ctx, dbgen.GameAccessParams{UserID: c.UserID, Kind: kind, TargetID: id})
+	if err != nil {
+		return Membership{}, NotFound(err, strings.ReplaceAll(kind, "_", " "), id)
+	}
+	if c.System {
+		return Membership{GameID: row.GameID, Role: RoleOwner}, nil
+	}
+	if c.UserID == "" || row.Role == "" {
+		return Membership{}, fmt.Errorf("%w: %s %s", ErrNotFound, strings.ReplaceAll(kind, "_", " "), id)
+	}
+	return Membership{GameID: row.GameID, Role: row.Role}, nil
+}
+
+// RequireOwner is Access to a game, refused unless the caller owns it.
+func RequireOwner(ctx context.Context, s AccessStore, gameID, doing string) (Membership, error) {
+	m, err := Access(ctx, s, "game", gameID)
+	if err != nil {
+		return m, err
+	}
+	if m.Role != RoleOwner {
+		return m, fmt.Errorf("%w: only the game's owner may %s", ErrForbidden, doing)
+	}
+	return m, nil
+}
+
+// GameStore is what checking a caller may reach a game reads.
+type GameStore interface {
+	AccessStore
+	GetGame(ctx context.Context, id string) (dbgen.Game, error)
+}
+
+// Game is a live game the caller is a member of, or ErrNotFound. Endpoints
+// that list or create in a game call it first, so a game the caller cannot
+// see is a 404 rather than an empty list.
+func Game(ctx context.Context, s GameStore, id string) (dbgen.Game, error) {
+	if _, err := Access(ctx, s, "game", id); err != nil {
+		return dbgen.Game{}, err
+	}
+	g, err := s.GetGame(ctx, id)
+	return g, NotFound(err, "game", id)
+}
+
+// SameGame refuses to connect things in different games: a speaker, a
+// check's skill, a note's target.
+func SameGame(what, gameID, want string) error {
+	if gameID != want {
+		return fmt.Errorf("%w: %s is in another game", ErrBadInput, what)
+	}
+	return nil
+}
 
 // NotFound turns pgx's no-rows into ErrNotFound, naming what was missing.
 func NotFound(err error, what, id string) error {

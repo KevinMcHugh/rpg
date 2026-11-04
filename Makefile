@@ -38,19 +38,19 @@ new-migration: ## Create a migration file (usage: make new-migration NAME=create
 	@if [ -z "$(NAME)" ]; then echo "usage: make new-migration NAME=<description>"; exit 1; fi
 	$(DBMATE) new "$(NAME)"
 
-key: ## Mint a person's api key, which may write content (usage: make key NAME=kev)
-	@if [ -z "$(NAME)" ]; then echo "usage: make key NAME=<label>"; exit 1; fi
-	go run ./cmd/server keys create --name "$(NAME)" --human
+key: ## Mint a person's api key, which may write content; a new user unless FOR names one (usage: make key NAME=kev [FOR=kev])
+	@if [ -z "$(NAME)" ]; then echo "usage: make key NAME=<label> [FOR=<user>]"; exit 1; fi
+	go run ./cmd/server keys create --name "$(NAME)" --human $(if $(FOR),--user "$(FOR)",)
 
-agent-key: ## Mint an agent's api key, which may only read and leave notes (usage: make agent-key NAME=claude-code)
-	@if [ -z "$(NAME)" ]; then echo "usage: make agent-key NAME=<label>"; exit 1; fi
-	go run ./cmd/server keys create --name "$(NAME)"
+agent-key: ## Mint an agent's api key, which may only read and leave notes, for a user (usage: make agent-key NAME=claude-code [FOR=kev])
+	@if [ -z "$(NAME)" ]; then echo "usage: make agent-key NAME=<label> [FOR=<user>]"; exit 1; fi
+	go run ./cmd/server keys create --name "$(NAME)" $(if $(FOR),--user "$(FOR)",)
 
 invite: ## Mint a single-use invite for a newcomer (usage: make invite NOTE=ana)
 	go run ./cmd/server invites create --note "$(NOTE)"
 
-bundle: ## Check the content and write the game's bundle to content.json (needs DATABASE_URL)
-	go run ./cmd/server build --out content.json
+bundle: ## Check a game's content and write its bundle to content.json (GAME=key or id when there is more than one; needs DATABASE_URL)
+	go run ./cmd/server build $(if $(GAME),--game "$(GAME)") --out content.json
 
 play: ## Play content.json in the game binary on :8090 (GAME_DATABASE_URL: its own database, migrated like the authoring one)
 	@if [ -z "$(GAME_DATABASE_URL)" ]; then echo "set GAME_DATABASE_URL to the game's own database"; exit 1; fi

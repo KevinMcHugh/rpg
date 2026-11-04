@@ -15,46 +15,46 @@ import (
 
 // NamesStore is what LoadNames reads.
 type NamesStore interface {
-	ListFlags(ctx context.Context) ([]dbgen.Flag, error)
-	ListSkills(ctx context.Context) ([]dbgen.Skill, error)
-	ListCharacters(ctx context.Context) ([]dbgen.Character, error)
-	ListQuests(ctx context.Context) ([]dbgen.Quest, error)
-	ListConversations(ctx context.Context) ([]dbgen.Conversation, error)
+	ListFlags(ctx context.Context, gameID string) ([]dbgen.Flag, error)
+	ListSkills(ctx context.Context, gameID string) ([]dbgen.Skill, error)
+	ListCharacters(ctx context.Context, gameID string) ([]dbgen.Character, error)
+	ListQuests(ctx context.Context, gameID string) ([]dbgen.Quest, error)
+	ListConversations(ctx context.Context, gameID string) ([]dbgen.Conversation, error)
 }
 
-// LoadNames is every key a script can use, for parsing what an author typed
-// and formatting what is stored.
-func LoadNames(ctx context.Context, s NamesStore) (*script.Names, error) {
+// LoadNames is every key a script in a game can use, for parsing what an
+// author typed and formatting what is stored.
+func LoadNames(ctx context.Context, s NamesStore, gameID string) (*script.Names, error) {
 	n := script.NewNames()
-	flags, err := s.ListFlags(ctx)
+	flags, err := s.ListFlags(ctx, gameID)
 	if err != nil {
 		return nil, err
 	}
 	for _, f := range flags {
 		n.Add(script.KindFlag, f.ID, f.Key)
 	}
-	skills, err := s.ListSkills(ctx)
+	skills, err := s.ListSkills(ctx, gameID)
 	if err != nil {
 		return nil, err
 	}
 	for _, sk := range skills {
 		n.Add(script.KindSkill, sk.ID, sk.Key)
 	}
-	chars, err := s.ListCharacters(ctx)
+	chars, err := s.ListCharacters(ctx, gameID)
 	if err != nil {
 		return nil, err
 	}
 	for _, c := range chars {
 		n.Add(script.KindCharacter, c.ID, c.Key)
 	}
-	quests, err := s.ListQuests(ctx)
+	quests, err := s.ListQuests(ctx, gameID)
 	if err != nil {
 		return nil, err
 	}
 	for _, q := range quests {
 		n.Add(script.KindQuest, q.ID, q.Key)
 	}
-	convs, err := s.ListConversations(ctx)
+	convs, err := s.ListConversations(ctx, gameID)
 	if err != nil {
 		return nil, err
 	}

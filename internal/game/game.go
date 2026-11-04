@@ -16,6 +16,7 @@ import (
 	"math/rand/v2"
 
 	"github.com/KevinMcHugh/rpg/internal/content"
+	"github.com/KevinMcHugh/rpg/internal/rules"
 	"github.com/KevinMcHugh/rpg/internal/script"
 )
 
@@ -35,6 +36,7 @@ type State struct {
 	Node         string          `json:"node,omitempty"`
 	Flags        map[string]int  `json:"flags"`
 	Skills       map[string]int  `json:"skills"`
+	Abilities    map[string]int  `json:"abilities"` // str … cha, and "level"
 	Approval     map[string]int  `json:"approval"`
 	Quests       map[string]int  `json:"quests"` // quest id → stage number; absent is 0, not started
 	Done         map[string]bool `json:"done"`   // conversations finished at least once
@@ -56,14 +58,16 @@ type Entry struct {
 	Delta   int    `json:"delta,omitempty"`   // an approval or skill change
 	Done    bool   `json:"done,omitempty"`    // a journal entry that completes its quest
 	Dice    []int  `json:"dice,omitempty"`    // a check's two dice
-	Bonus   int    `json:"bonus,omitempty"`   // a check's skill level
+	Bonus   int    `json:"bonus,omitempty"`   // what a check added to the dice
 	Target  int    `json:"target,omitempty"`  // a check's difficulty
 	Success bool   `json:"success,omitempty"` // a check's outcome
+	Degree  string `json:"degree,omitempty"`  // a check's degree: success, failure, critical_success, critical_failure
 }
 
 // Game is a bundle, indexed for play.
 type Game struct {
 	b      content.Bundle
+	rules  rules.Ruleset
 	convs  map[string]*content.Conversation
 	nodes  map[string]*content.Node
 	inConv map[string]string // node id → conversation id
@@ -76,6 +80,7 @@ type Game struct {
 func New(b content.Bundle) *Game {
 	g := &Game{
 		b:      b,
+		rules:  rulesetOf(b),
 		convs:  map[string]*content.Conversation{},
 		nodes:  map[string]*content.Node{},
 		inConv: map[string]string{},
@@ -103,6 +108,19 @@ func New(b content.Bundle) *Game {
 	return g
 }
 
+// rulesetOf is the bundle's ruleset; an unknown one plays as classic, and
+// the build has already said so.
+func rulesetOf(b content.Bundle) rules.Ruleset {
+	if r, err := rules.For(b.Ruleset); err == nil {
+		return r
+	}
+	r, _ := rules.For("classic")
+	return r
+}
+
+// Ruleset is how the game resolves checks.
+func (g *Game) Ruleset() rules.Ruleset { return g.rules }
+
 // Bundle is what the game plays.
 func (g *Game) Bundle() content.Bundle { return g.b }
 
@@ -120,6 +138,10 @@ func (g *Game) Blank(seed uint64) *State {
 	s := &State{
 		Flags: map[string]int{}, Skills: map[string]int{}, Approval: map[string]int{},
 		Quests: map[string]int{}, Done: map[string]bool{}, Seed: seed, Log: []Entry{},
+		Abilities: map[string]int{"level": 1},
+	}
+	for _, a := range rules.Abilities {
+		s.Abilities[a] = g.rules.InitialAbility()
 	}
 	for _, f := range g.b.Flags {
 		if f.Initial != 0 {
@@ -151,6 +173,7 @@ func (w world) Skill(id string) int           { return w.s.Skills[id] }
 func (w world) Approval(id string) int        { return w.s.Approval[id] }
 func (w world) Quest(id string) int           { return w.s.Quests[id] }
 func (w world) Done(conversation string) bool { return w.s.Done[conversation] }
+func (w world) Ability(key string) int        { return w.s.Abilities[key] }
 
 func (w world) QuestDone(id string) bool {
 	at := w.s.Quests[id]
@@ -234,9 +257,20 @@ type Option struct {
 // CheckOption is what the player sees of a skill check before rolling.
 type CheckOption struct {
 	Skill      string `json:"skill"`
-	Level      int    `json:"level"`
+	Level      int    `json:"level"` // the skill's value
+	Bonus      int    `json:"bonus"` // what the ruleset adds to the dice
 	Difficulty int    `json:"difficulty"`
-	Chance     int    `json:"chance"` // percent
+	Chance     int    `json:"chance"` // percent, of succeeding (critically or not)
+}
+
+// check is what the ruleset needs to resolve a check on skill.
+func (g *Game) check(s *State, skill string, difficulty int) rules.Check {
+	return rules.Check{
+		Skill:      s.Skills[skill],
+		Ability:    s.Abilities[g.skills[skill].Ability],
+		Level:      s.Abilities["level"],
+		Difficulty: difficulty,
+	}
 }
 
 // Speaker is who says the current line: a character's name, or "" for the
@@ -257,8 +291,11 @@ func (g *Game) Options(s *State) []Option {
 		}
 		o := Option{ID: c.ID, Text: c.Text}
 		if c.Check != nil {
-			level := s.Skills[c.Check.Skill]
-			o.Check = &CheckOption{Skill: g.skills[c.Check.Skill].Name, Level: level, Difficulty: c.Check.Difficulty, Chance: Chance(level, c.Check.Difficulty)}
+			ck := g.check(s, c.Check.Skill, c.Check.Difficulty)
+			o.Check = &CheckOption{
+				Skill: g.skills[c.Check.Skill].Name, Level: ck.Skill, Bonus: g.rules.Bonus(ck),
+				Difficulty: ck.Difficulty, Chance: rules.PassChance(g.rules, ck),
+			}
 		}
 		out = append(out, o)
 	}
@@ -281,17 +318,30 @@ func (g *Game) Choose(s *State, choiceID string) error {
 		return ErrUnavailable
 	}
 	s.log(Entry{Kind: "choice", Text: choice.Text})
-	g.Apply(s, choice.Effects)
+	// The check rolls first, against the odds the player was shown; the
+	// choice's effects follow, whatever the dice said.
 	to := choice.To
 	if ck := choice.Check; ck != nil {
-		dice := s.roll()
-		level := s.Skills[ck.Skill]
-		success := dice[0]+dice[1]+level >= ck.Difficulty
-		s.log(Entry{Kind: "check", Speaker: g.skills[ck.Skill].Name, Dice: dice[:], Bonus: level, Target: ck.Difficulty, Success: success})
-		if !success {
+		r := g.rules.Resolve(g.check(s, ck.Skill, ck.Difficulty), s.die)
+		s.log(Entry{
+			Kind: "check", Speaker: g.skills[ck.Skill].Name, Dice: r.Dice, Bonus: r.Bonus,
+			Target: ck.Difficulty, Success: r.Degree.Passed(), Degree: r.Degree.String(),
+		})
+		switch r.Degree {
+		case rules.CriticalSuccess:
+			if ck.CritSuccess != "" {
+				to = ck.CritSuccess
+			}
+		case rules.Failure:
 			to = ck.Fail
+		case rules.CriticalFailure:
+			to = ck.Fail
+			if ck.CritFail != "" {
+				to = ck.CritFail
+			}
 		}
 	}
+	g.Apply(s, choice.Effects)
 	return g.enter(s, s.Conversation, to)
 }
 
@@ -337,6 +387,12 @@ func (g *Game) Apply(s *State, effects []script.Effect) {
 			if d := s.Skills[e.Skill] - before; d != 0 {
 				s.log(Entry{Kind: "skill", Speaker: g.skills[e.Skill].Name, Delta: d})
 			}
+		case e.Ability != "":
+			before := s.Abilities[e.Ability]
+			s.Abilities[e.Ability] = e.Apply(before)
+			if d := s.Abilities[e.Ability] - before; d != 0 {
+				s.log(Entry{Kind: "ability", Speaker: e.Ability, Delta: d})
+			}
 		case e.Approval != "":
 			before := s.Approval[e.Approval]
 			s.Approval[e.Approval] = e.Apply(before)
@@ -358,11 +414,11 @@ func (g *Game) Apply(s *State, effects []script.Effect) {
 	}
 }
 
-// roll is two six-sided dice, the next from the State's seed.
-func (s *State) roll() [2]int {
+// die rolls one die with sides sides, the next from the State's seed.
+func (s *State) die(sides int) int {
 	r := rand.New(rand.NewPCG(s.Seed, s.Rolls))
 	s.Rolls++
-	return [2]int{r.IntN(6) + 1, r.IntN(6) + 1}
+	return r.IntN(sides) + 1
 }
 
 func (s *State) log(e Entry) {
@@ -370,19 +426,6 @@ func (s *State) log(e Entry) {
 	if len(s.Log) > MaxLog {
 		s.Log = append([]Entry(nil), s.Log[len(s.Log)-MaxLog:]...)
 	}
-}
-
-// Chance is the percent chance that 2d6 plus level meets difficulty.
-func Chance(level, difficulty int) int {
-	hits := 0
-	for a := 1; a <= 6; a++ {
-		for b := 1; b <= 6; b++ {
-			if a+b+level >= difficulty {
-				hits++
-			}
-		}
-	}
-	return hits * 100 / 36
 }
 
 // ---- the journal ------------------------------------------------------------

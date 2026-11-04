@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, must, type Character, type Choice, type Graph, type Node, type Note, type Skill } from "../api/client";
-import { useAct, useLoad, useMe } from "../hooks";
+import { hasCriticals, useAct, useGame, useGameId, useLoad, useMe } from "../hooks";
 import { Badge, Form, Id, Key, Loading, Notes, Rule, Script, notesFor, num, str } from "../components/ui";
 import GraphView from "../graph/Graph";
 
@@ -27,14 +27,16 @@ export default function ConversationPage() {
   const [params, setParams] = useSearchParams();
   const graph = params.get("view") === "graph";
   const { data, error, reload } = useLoad(async () => {
-    const [g, chars, skills, notes] = await Promise.all([
-      api.GET("/conversations/{conversationId}", { params: { path: { conversationId: id } } }).then(must),
-      api.GET("/characters").then(must),
-      api.GET("/skills").then(must),
-      api.GET("/notes").then(must),
+    const g = must(await api.GET("/conversations/{conversationId}", { params: { path: { conversationId: id } } }));
+    const path = { params: { path: { gameId: g.conversation.gameId } } };
+    const [chars, skills, notes] = await Promise.all([
+      api.GET("/games/{gameId}/characters", path).then(must),
+      api.GET("/games/{gameId}/skills", path).then(must),
+      api.GET("/games/{gameId}/notes", path).then(must),
     ]);
     return { g, chars: chars.characters, skills: skills.skills, notes: notes.notes };
   }, [id]);
+  useGameId(data?.g.conversation.gameId);
 
   const labels = useMemo(() => {
     const m = new Map<string, string>();
@@ -64,7 +66,7 @@ export default function ConversationPage() {
   return (
     <>
       <p>
-        <Link to="/">← Content</Link>
+        <Link to={"/games/" + c.gameId}>← Content</Link>
       </p>
       <Header ctx={ctx} />
       <div className="tabs" role="tablist">
@@ -100,7 +102,7 @@ export default function ConversationPage() {
       </div>
       )}
       <h2>Notes on this conversation</h2>
-      <Notes kind="conversation" id={c.id} notes={notesFor(data.notes, "conversation", c.id)} onChange={reload} />
+      <Notes game={c.gameId} kind="conversation" id={c.id} notes={notesFor(data.notes, "conversation", c.id)} onChange={reload} />
     </>
   );
 }
@@ -137,7 +139,7 @@ function Header({ ctx }: { ctx: Ctx }) {
     confirm(`Delete “${c.title}”? Its lines stop shipping.`) &&
     act(async () => {
       must(await api.DELETE("/conversations/{conversationId}", { params: { path: { conversationId: c.id } } }));
-      nav("/");
+      nav("/games/" + c.gameId);
     }, "Deleted.");
 
   return (
@@ -146,7 +148,7 @@ function Header({ ctx }: { ctx: Ctx }) {
         <h1>{c.title}</h1>
         <div className="row tight">
           {c.startNodeId && (
-            <a className="btn ghost" href={"/play?node=" + c.startNodeId}>
+            <a className="btn ghost" href={"/play?game=" + c.gameId + "&node=" + c.startNodeId}>
               Playtest
             </a>
           )}
@@ -287,7 +289,7 @@ function NodeCard({ n, index, ctx, focused, focus }: { n: Node; index: number; c
           {start && <Badge tone="ok">start</Badge>}
         </div>
         <div className="row tight small">
-          <a href={"/play?node=" + n.id}>Playtest from here</a>
+          <a href={"/play?game=" + ctx.g.conversation.gameId + "&node=" + n.id}>Playtest from here</a>
           {me.human && !editing && (
             <button className="ghost small" onClick={() => setEditing(true)}>
               Edit
@@ -340,7 +342,7 @@ function NodeCard({ n, index, ctx, focused, focus }: { n: Node; index: number; c
             </button>
           </div>
         ))}
-      <Notes kind="node" id={n.id} notes={notesFor(ctx.notes, "node", n.id)} onChange={ctx.reload} compact />
+      <Notes game={ctx.g.conversation.gameId} kind="node" id={n.id} notes={notesFor(ctx.notes, "node", n.id)} onChange={ctx.reload} compact />
     </article>
   );
 }
@@ -374,10 +376,12 @@ function ChoiceRow({ c, ctx, focused }: { c: Choice; ctx: Ctx; focused: boolean 
         )}
       </div>
       {c.checkSkillId && <div className="to">on failure → {to(c.failNodeId)}</div>}
+      {c.critSuccessNodeId && <div className="to">on a critical success → {to(c.critSuccessNodeId)}</div>}
+      {c.critFailNodeId && <div className="to">on a critical failure → {to(c.critFailNodeId)}</div>}
       {c.condition && <Rule word="if">{c.condition}</Rule>}
       {c.effects && <Rule word="then">{c.effects}</Rule>}
       {notesFor(ctx.notes, "choice", c.id).length > 0 && (
-        <Notes kind="choice" id={c.id} notes={notesFor(ctx.notes, "choice", c.id)} onChange={ctx.reload} compact />
+        <Notes game={ctx.g.conversation.gameId} kind="choice" id={c.id} notes={notesFor(ctx.notes, "choice", c.id)} onChange={ctx.reload} compact />
       )}
     </li>
   );
@@ -386,6 +390,7 @@ function ChoiceRow({ c, ctx, focused }: { c: Choice; ctx: Ctx; focused: boolean 
 /** ChoiceForm adds a choice to nodeId, or edits choice. */
 function ChoiceForm({ ctx, nodeId, choice, order, onDone }: { ctx: Ctx; nodeId?: string; choice?: Choice; order?: number; onDone: () => void }) {
   const act = useAct();
+  const crits = hasCriticals(useGame()?.ruleset);
   const [check, setCheck] = useState(Boolean(choice?.checkSkillId));
   const submit = (f: FormData) =>
     act(async () => {
@@ -398,6 +403,11 @@ function ChoiceForm({ ctx, nodeId, choice, order, onDone }: { ctx: Ctx; nodeId?:
         checkSkillId: check ? str(f, "skill") : "",
         checkDifficulty: check ? num(f, "difficulty") : 0,
         failNodeId: check ? str(f, "fail") : "",
+        // Under a ruleset with no criticals the fields are not shown, so
+        // keep what is stored; the build warns about it.
+        ...(crits || !check
+          ? { critSuccessNodeId: check ? str(f, "critSuccess") : "", critFailNodeId: check ? str(f, "critFail") : "" }
+          : {}),
       };
       if (choice) must(await api.PATCH("/choices/{choiceId}", { params: { path: { choiceId: choice.id } }, body }));
       else must(await api.POST("/nodes/{nodeId}/choices", { params: { path: { nodeId: nodeId! } }, body }));
@@ -453,9 +463,21 @@ function ChoiceForm({ ctx, nodeId, choice, order, onDone }: { ctx: Ctx; nodeId?:
           </label>
         </div>
       )}
+      {check && crits && (
+        <div className="row">
+          <label className="field grow">
+            On a critical success
+            <NodeSelect ctx={ctx} name="critSuccess" value={choice?.critSuccessNodeId} none="Same as success" />
+          </label>
+          <label className="field grow">
+            On a critical failure
+            <NodeSelect ctx={ctx} name="critFail" value={choice?.critFailNodeId} none="Same as failure" />
+          </label>
+        </div>
+      )}
       {check && !ctx.skills.length && (
         <p className="muted small">
-          There are no skills yet. Add one on the <Link to="/world#skills">World</Link> page.
+          There are no skills yet. Add one on the <Link to={"/games/" + ctx.g.conversation.gameId + "/world#skills"}>World</Link> page.
         </p>
       )}
       <div className="row tight">

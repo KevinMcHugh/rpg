@@ -27,7 +27,7 @@ func Resolve(ctx context.Context, q *dbgen.Queries, token string) (Caller, error
 		}
 		// A web session (no client) is the person who signed in; a
 		// connector token is the model they connected.
-		return Caller{KeyID: row.ApiKeyID, Human: row.Kind == KindHuman && row.ClientID == nil}, nil
+		return Caller{KeyID: row.ApiKeyID, Human: row.Kind == KindHuman && row.ClientID == nil, UserID: deref(row.UserID)}, nil
 	}
 	if !strings.HasPrefix(token, KeyPrefix) {
 		return Caller{}, pgx.ErrNoRows
@@ -37,7 +37,14 @@ func Resolve(ctx context.Context, q *dbgen.Queries, token string) (Caller, error
 		return Caller{}, err
 	}
 	_ = q.TouchAPIKey(ctx, row.ID) // best effort: a failed stamp must not fail the request
-	return Caller{KeyID: row.ID, Human: row.Kind == KindHuman}, nil
+	return Caller{KeyID: row.ID, Human: row.Kind == KindHuman, UserID: deref(row.UserID)}, nil
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // TokenFrom is the request's credential: the Authorization bearer, else the

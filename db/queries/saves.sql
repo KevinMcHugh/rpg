@@ -1,6 +1,6 @@
 -- name: CreateSave :one
-INSERT INTO saves (id, name, state, created_by)
-VALUES ($1, $2, $3, $4)
+INSERT INTO saves (id, game_id, name, state, created_by)
+VALUES ($1, $2, $3, $4, $5)
 RETURNING *;
 
 -- Saves are private to whoever made them; the game binary has no keys, so
@@ -11,7 +11,9 @@ WHERE id = $1 AND created_by IS NOT DISTINCT FROM sqlc.narg(created_by) AND dele
 
 -- name: ListSaves :many
 SELECT * FROM saves
-WHERE created_by IS NOT DISTINCT FROM sqlc.narg(created_by) AND deleted_at IS NULL
+WHERE created_by IS NOT DISTINCT FROM sqlc.narg(created_by)
+  AND game_id IS NOT DISTINCT FROM sqlc.narg(game_id)
+  AND deleted_at IS NULL
 ORDER BY updated_at DESC
 LIMIT 50;
 

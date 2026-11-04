@@ -9,19 +9,62 @@ import (
 	"context"
 )
 
+const createLicensedRevision = `-- name: CreateLicensedRevision :one
+INSERT INTO text_revisions (id, target_kind, target_id, field, body, source, license_notice)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, target_kind, target_id, field, body, author_key, created_at, source, license_notice
+`
+
+type CreateLicensedRevisionParams struct {
+	ID            string  `json:"id"`
+	TargetKind    string  `json:"target_kind"`
+	TargetID      string  `json:"target_id"`
+	Field         string  `json:"field"`
+	Body          string  `json:"body"`
+	Source        *string `json:"source"`
+	LicenseNotice *string `json:"license_notice"`
+}
+
+// Licensed text, imported by `server import`: it names its source and
+// license notice instead of a key.
+func (q *Queries) CreateLicensedRevision(ctx context.Context, arg CreateLicensedRevisionParams) (TextRevision, error) {
+	row := q.db.QueryRow(ctx, createLicensedRevision,
+		arg.ID,
+		arg.TargetKind,
+		arg.TargetID,
+		arg.Field,
+		arg.Body,
+		arg.Source,
+		arg.LicenseNotice,
+	)
+	var i TextRevision
+	err := row.Scan(
+		&i.ID,
+		&i.TargetKind,
+		&i.TargetID,
+		&i.Field,
+		&i.Body,
+		&i.AuthorKey,
+		&i.CreatedAt,
+		&i.Source,
+		&i.LicenseNotice,
+	)
+	return i, err
+}
+
 const createTextRevision = `-- name: CreateTextRevision :one
 INSERT INTO text_revisions (id, target_kind, target_id, field, body, author_key)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, target_kind, target_id, field, body, author_key, created_at
+RETURNING id, target_kind, target_id, field, body, author_key, created_at, source, license_notice
 `
 
 type CreateTextRevisionParams struct {
-	ID         string `json:"id"`
-	TargetKind string `json:"target_kind"`
-	TargetID   string `json:"target_id"`
-	Field      string `json:"field"`
-	Body       string `json:"body"`
-	AuthorKey  string `json:"author_key"`
+	ID         string  `json:"id"`
+	TargetKind string  `json:"target_kind"`
+	TargetID   string  `json:"target_id"`
+	Field      string  `json:"field"`
+	Body       string  `json:"body"`
+	AuthorKey  *string `json:"author_key"`
 }
 
 func (q *Queries) CreateTextRevision(ctx context.Context, arg CreateTextRevisionParams) (TextRevision, error) {
@@ -42,6 +85,8 @@ func (q *Queries) CreateTextRevision(ctx context.Context, arg CreateTextRevision
 		&i.Body,
 		&i.AuthorKey,
 		&i.CreatedAt,
+		&i.Source,
+		&i.LicenseNotice,
 	)
 	return i, err
 }
@@ -49,24 +94,28 @@ func (q *Queries) CreateTextRevision(ctx context.Context, arg CreateTextRevision
 const listTextRevisionsByIDs = `-- name: ListTextRevisionsByIDs :many
 SELECT text_revisions.id, text_revisions.target_kind, text_revisions.target_id,
        text_revisions.field, text_revisions.body,
-       api_keys.kind AS author_kind, api_keys.name AS author_name
+       COALESCE(api_keys.kind, '')::text AS author_kind, COALESCE(api_keys.name, '')::text AS author_name,
+       COALESCE(text_revisions.source, '')::text AS source,
+       COALESCE(text_revisions.license_notice, '')::text AS license_notice
 FROM text_revisions
-JOIN api_keys ON api_keys.id = text_revisions.author_key
+LEFT JOIN api_keys ON api_keys.id = text_revisions.author_key
 WHERE text_revisions.id = ANY($1::text[])
 `
 
 type ListTextRevisionsByIDsRow struct {
-	ID         string `json:"id"`
-	TargetKind string `json:"target_kind"`
-	TargetID   string `json:"target_id"`
-	Field      string `json:"field"`
-	Body       string `json:"body"`
-	AuthorKind string `json:"author_kind"`
-	AuthorName string `json:"author_name"`
+	ID            string `json:"id"`
+	TargetKind    string `json:"target_kind"`
+	TargetID      string `json:"target_id"`
+	Field         string `json:"field"`
+	Body          string `json:"body"`
+	AuthorKind    string `json:"author_kind"`
+	AuthorName    string `json:"author_name"`
+	Source        string `json:"source"`
+	LicenseNotice string `json:"license_notice"`
 }
 
-// Revisions with the kind and name of the key that wrote them, for the
-// build's provenance check.
+// Revisions with the kind and name of the key that wrote them, or the
+// source and notice of licensed text, for the build's provenance check.
 func (q *Queries) ListTextRevisionsByIDs(ctx context.Context, ids []string) ([]ListTextRevisionsByIDsRow, error) {
 	rows, err := q.db.Query(ctx, listTextRevisionsByIDs, ids)
 	if err != nil {
@@ -84,6 +133,8 @@ func (q *Queries) ListTextRevisionsByIDs(ctx context.Context, ids []string) ([]L
 			&i.Body,
 			&i.AuthorKind,
 			&i.AuthorName,
+			&i.Source,
+			&i.LicenseNotice,
 		); err != nil {
 			return nil, err
 		}

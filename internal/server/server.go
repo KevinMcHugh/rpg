@@ -18,7 +18,9 @@ import (
 	"github.com/KevinMcHugh/rpg/internal/server/build"
 	"github.com/KevinMcHugh/rpg/internal/server/characters"
 	"github.com/KevinMcHugh/rpg/internal/server/conversations"
+	"github.com/KevinMcHugh/rpg/internal/server/games"
 	"github.com/KevinMcHugh/rpg/internal/server/me"
+	"github.com/KevinMcHugh/rpg/internal/server/members"
 	"github.com/KevinMcHugh/rpg/internal/server/notes"
 	"github.com/KevinMcHugh/rpg/internal/server/world"
 )
@@ -213,11 +215,135 @@ func (s *Server) GetMe(ctx context.Context, req apigen.GetMeRequestObject) (apig
 }
 
 // -----------------------------------------------------------------------------
+// Games
+// -----------------------------------------------------------------------------
+
+func (s *Server) ListGames(ctx context.Context, req apigen.ListGamesRequestObject) (apigen.ListGamesResponseObject, error) {
+	return Run(ctx, games.ListEndpoint{Store: s.store, Links: s.links}, req)
+}
+
+func (s *Server) GetGame(ctx context.Context, req apigen.GetGameRequestObject) (apigen.GetGameResponseObject, error) {
+	resp, err := Run(ctx, games.GetEndpoint{Store: s.store, Links: s.links}, req)
+	if isNotFound(err) {
+		return apigen.GetGame404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) CreateGame(ctx context.Context, req apigen.CreateGameRequestObject) (apigen.CreateGameResponseObject, error) {
+	if req.Body == nil {
+		return apigen.CreateGame400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
+	}
+	resp, err := Run(ctx, games.CreateEndpoint{Store: s.store, Links: s.links}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.CreateGame403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isUnprocessable(err):
+		return apigen.CreateGame422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) UpdateGame(ctx context.Context, req apigen.UpdateGameRequestObject) (apigen.UpdateGameResponseObject, error) {
+	if req.Body == nil {
+		return apigen.UpdateGame400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
+	}
+	resp, err := Run(ctx, games.UpdateEndpoint{Store: s.store, Links: s.links}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.UpdateGame403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.UpdateGame404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	case isUnprocessable(err):
+		return apigen.UpdateGame422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) DeleteGame(ctx context.Context, req apigen.DeleteGameRequestObject) (apigen.DeleteGameResponseObject, error) {
+	resp, err := Run(ctx, games.DeleteEndpoint{Store: s.store}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.DeleteGame403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.DeleteGame404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	}
+	return resp, err
+}
+
+// -----------------------------------------------------------------------------
+// Members and invites
+// -----------------------------------------------------------------------------
+
+func (s *Server) ListMembers(ctx context.Context, req apigen.ListMembersRequestObject) (apigen.ListMembersResponseObject, error) {
+	resp, err := Run(ctx, members.ListEndpoint{Store: s.store}, req)
+	if isNotFound(err) {
+		return apigen.ListMembers404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) RemoveMember(ctx context.Context, req apigen.RemoveMemberRequestObject) (apigen.RemoveMemberResponseObject, error) {
+	resp, err := Run(ctx, members.RemoveEndpoint{Store: s.store}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.RemoveMember403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.RemoveMember404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	case isUnprocessable(err):
+		return apigen.RemoveMember422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) ListInvites(ctx context.Context, req apigen.ListInvitesRequestObject) (apigen.ListInvitesResponseObject, error) {
+	resp, err := Run(ctx, members.ListInvitesEndpoint{Store: s.store}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.ListInvites403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.ListInvites404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) CreateInvite(ctx context.Context, req apigen.CreateInviteRequestObject) (apigen.CreateInviteResponseObject, error) {
+	if req.Body == nil {
+		return apigen.CreateInvite400JSONResponse{BadRequestJSONResponse: bodyRequired()}, nil
+	}
+	resp, err := Run(ctx, members.CreateInviteEndpoint{Store: s.store, Links: s.links}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.CreateInvite403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.CreateInvite404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	case isUnprocessable(err):
+		return apigen.CreateInvite422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
+	}
+	return resp, err
+}
+
+func (s *Server) DeleteInvite(ctx context.Context, req apigen.DeleteInviteRequestObject) (apigen.DeleteInviteResponseObject, error) {
+	resp, err := Run(ctx, members.DeleteInviteEndpoint{Store: s.store}, req)
+	switch {
+	case isForbidden(err):
+		return apigen.DeleteInvite403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.DeleteInvite404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	}
+	return resp, err
+}
+
+// -----------------------------------------------------------------------------
 // Characters
 // -----------------------------------------------------------------------------
 
 func (s *Server) ListCharacters(ctx context.Context, req apigen.ListCharactersRequestObject) (apigen.ListCharactersResponseObject, error) {
-	return Run(ctx, characters.ListEndpoint{Store: s.store, Links: s.links}, req)
+	resp, err := Run(ctx, characters.ListEndpoint{Store: s.store, Links: s.links}, req)
+	if isNotFound(err) {
+		return apigen.ListCharacters404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	}
+	return resp, err
 }
 
 func (s *Server) GetCharacter(ctx context.Context, req apigen.GetCharacterRequestObject) (apigen.GetCharacterResponseObject, error) {
@@ -236,6 +362,8 @@ func (s *Server) CreateCharacter(ctx context.Context, req apigen.CreateCharacter
 	switch {
 	case isForbidden(err):
 		return apigen.CreateCharacter403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.CreateCharacter404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
 	case isUnprocessable(err):
 		return apigen.CreateCharacter422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
 	}
@@ -274,7 +402,11 @@ func (s *Server) DeleteCharacter(ctx context.Context, req apigen.DeleteCharacter
 // -----------------------------------------------------------------------------
 
 func (s *Server) ListConversations(ctx context.Context, req apigen.ListConversationsRequestObject) (apigen.ListConversationsResponseObject, error) {
-	return Run(ctx, conversations.ListEndpoint{Store: s.store, Links: s.links}, req)
+	resp, err := Run(ctx, conversations.ListEndpoint{Store: s.store, Links: s.links}, req)
+	if isNotFound(err) {
+		return apigen.ListConversations404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	}
+	return resp, err
 }
 
 func (s *Server) GetConversation(ctx context.Context, req apigen.GetConversationRequestObject) (apigen.GetConversationResponseObject, error) {
@@ -293,6 +425,8 @@ func (s *Server) CreateConversation(ctx context.Context, req apigen.CreateConver
 	switch {
 	case isForbidden(err):
 		return apigen.CreateConversation403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.CreateConversation404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
 	case isUnprocessable(err):
 		return apigen.CreateConversation422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
 	}
@@ -425,7 +559,11 @@ func (s *Server) DeleteChoice(ctx context.Context, req apigen.DeleteChoiceReques
 // -----------------------------------------------------------------------------
 
 func (s *Server) ListFlags(ctx context.Context, req apigen.ListFlagsRequestObject) (apigen.ListFlagsResponseObject, error) {
-	return Run(ctx, world.ListFlagsEndpoint{Store: s.store, Links: s.links}, req)
+	resp, err := Run(ctx, world.ListFlagsEndpoint{Store: s.store, Links: s.links}, req)
+	if isNotFound(err) {
+		return apigen.ListFlags404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	}
+	return resp, err
 }
 
 func (s *Server) CreateFlag(ctx context.Context, req apigen.CreateFlagRequestObject) (apigen.CreateFlagResponseObject, error) {
@@ -436,6 +574,8 @@ func (s *Server) CreateFlag(ctx context.Context, req apigen.CreateFlagRequestObj
 	switch {
 	case isForbidden(err):
 		return apigen.CreateFlag403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.CreateFlag404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
 	case isUnprocessable(err):
 		return apigen.CreateFlag422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
 	}
@@ -470,7 +610,11 @@ func (s *Server) DeleteFlag(ctx context.Context, req apigen.DeleteFlagRequestObj
 }
 
 func (s *Server) ListSkills(ctx context.Context, req apigen.ListSkillsRequestObject) (apigen.ListSkillsResponseObject, error) {
-	return Run(ctx, world.ListSkillsEndpoint{Store: s.store, Links: s.links}, req)
+	resp, err := Run(ctx, world.ListSkillsEndpoint{Store: s.store, Links: s.links}, req)
+	if isNotFound(err) {
+		return apigen.ListSkills404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	}
+	return resp, err
 }
 
 func (s *Server) CreateSkill(ctx context.Context, req apigen.CreateSkillRequestObject) (apigen.CreateSkillResponseObject, error) {
@@ -481,6 +625,8 @@ func (s *Server) CreateSkill(ctx context.Context, req apigen.CreateSkillRequestO
 	switch {
 	case isForbidden(err):
 		return apigen.CreateSkill403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.CreateSkill404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
 	case isUnprocessable(err):
 		return apigen.CreateSkill422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
 	}
@@ -515,7 +661,11 @@ func (s *Server) DeleteSkill(ctx context.Context, req apigen.DeleteSkillRequestO
 }
 
 func (s *Server) ListQuests(ctx context.Context, req apigen.ListQuestsRequestObject) (apigen.ListQuestsResponseObject, error) {
-	return Run(ctx, world.ListQuestsEndpoint{Store: s.store, Links: s.links}, req)
+	resp, err := Run(ctx, world.ListQuestsEndpoint{Store: s.store, Links: s.links}, req)
+	if isNotFound(err) {
+		return apigen.ListQuests404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	}
+	return resp, err
 }
 
 func (s *Server) GetQuest(ctx context.Context, req apigen.GetQuestRequestObject) (apigen.GetQuestResponseObject, error) {
@@ -534,6 +684,8 @@ func (s *Server) CreateQuest(ctx context.Context, req apigen.CreateQuestRequestO
 	switch {
 	case isForbidden(err):
 		return apigen.CreateQuest403JSONResponse{ForbiddenJSONResponse: forbidden(err)}, nil
+	case isNotFound(err):
+		return apigen.CreateQuest404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
 	case isUnprocessable(err):
 		return apigen.CreateQuest422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
 	}
@@ -616,7 +768,10 @@ func (s *Server) DeleteQuestStage(ctx context.Context, req apigen.DeleteQuestSta
 
 func (s *Server) ListNotes(ctx context.Context, req apigen.ListNotesRequestObject) (apigen.ListNotesResponseObject, error) {
 	resp, err := Run(ctx, notes.ListEndpoint{Store: s.store, Links: s.links}, req)
-	if isUnprocessable(err) {
+	switch {
+	case isNotFound(err):
+		return apigen.ListNotes404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	case isUnprocessable(err):
 		return apigen.ListNotes422JSONResponse{UnprocessableJSONResponse: unprocessable(err)}, nil
 	}
 	return resp, err
@@ -676,5 +831,9 @@ func (s *Server) DeleteNote(ctx context.Context, req apigen.DeleteNoteRequestObj
 // -----------------------------------------------------------------------------
 
 func (s *Server) GetBuildReport(ctx context.Context, req apigen.GetBuildReportRequestObject) (apigen.GetBuildReportResponseObject, error) {
-	return Run(ctx, build.Endpoint{Store: s.store, Links: s.links}, req)
+	resp, err := Run(ctx, build.Endpoint{Store: s.store, Links: s.links}, req)
+	if isNotFound(err) {
+		return apigen.GetBuildReport404JSONResponse{NotFoundJSONResponse: notFound(err)}, nil
+	}
+	return resp, err
 }

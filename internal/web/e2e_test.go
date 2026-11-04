@@ -28,14 +28,20 @@ import (
 	"github.com/KevinMcHugh/rpg/internal/app"
 	"github.com/KevinMcHugh/rpg/internal/appmcp"
 	"github.com/KevinMcHugh/rpg/internal/auth"
+	"github.com/KevinMcHugh/rpg/internal/content"
 	dbgen "github.com/KevinMcHugh/rpg/internal/db/gen"
 	"github.com/KevinMcHugh/rpg/internal/server/build"
 	"github.com/KevinMcHugh/rpg/internal/server/characters"
 	"github.com/KevinMcHugh/rpg/internal/server/conversations"
+	"github.com/KevinMcHugh/rpg/internal/server/games"
 	"github.com/KevinMcHugh/rpg/internal/server/notes"
 	"github.com/KevinMcHugh/rpg/internal/server/world"
 	"github.com/KevinMcHugh/rpg/internal/web"
 )
+
+// first is the game the migrations make, which holds everything from
+// before there were games.
+const first = "00000000000000000000"
 
 // The end-to-end tests need a Postgres they may wipe: point
 // TEST_DATABASE_URL at a scratch database. Without it they skip, so
@@ -49,6 +55,7 @@ type env struct {
 	keyID   string
 	agent   string // an agent's key
 	agentID string
+	userID  string // whose both keys are, and who owns the first game
 	q       *dbgen.Queries
 	pool    *pgxpool.Pool
 	client  *http.Client // never follows redirects
@@ -70,25 +77,83 @@ func newEnv(t *testing.T) *env {
 	ts := httptest.NewServer(nil)
 	t.Cleanup(ts.Close)
 	store := app.NewStore(pool)
-	ts.Config.Handler = web.New(store, ts.URL).Handler()
+	srv := web.New(store, ts.URL)
+	srv.Google = fakeGoogle(t)
+	ts.Config.Handler = srv.Handler()
 
-	mint := func(name, kind string) (raw, id string) {
-		raw, err := auth.GenerateKey()
-		if err != nil {
-			t.Fatal(err)
-		}
-		key, err := store.CreateAPIKey(ctx, dbgen.CreateAPIKeyParams{ID: xid.New().String(), Name: name, KeyHash: auth.Hash(raw), Kind: kind})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return raw, key.ID
-	}
 	e := &env{t: t, url: ts.URL, q: store.Queries, pool: pool, client: &http.Client{
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}}
-	e.key, e.keyID = mint("test", auth.KindHuman)
-	e.agent, e.agentID = mint("claude", auth.KindAgent)
+	e.userID = e.user("test")
+	e.key, e.keyID = e.mint("test", auth.KindHuman, e.userID)
+	e.agent, e.agentID = e.mint("claude", auth.KindAgent, e.userID)
+	if err := store.AddGameMember(ctx, dbgen.AddGameMemberParams{GameID: first, UserID: e.userID, Role: app.RoleOwner}); err != nil {
+		t.Fatal(err)
+	}
 	return e
+}
+
+// user makes a user.
+func (e *env) user(name string) string {
+	e.t.Helper()
+	u, err := e.q.CreateUser(context.Background(), dbgen.CreateUserParams{ID: xid.New().String(), Name: name})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return u.ID
+}
+
+// mint makes an api key of kind for userID.
+func (e *env) mint(name, kind, userID string) (raw, id string) {
+	e.t.Helper()
+	raw, err := auth.GenerateKey()
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	key, err := e.q.CreateAPIKey(context.Background(), dbgen.CreateAPIKeyParams{ID: xid.New().String(), Name: name, KeyHash: auth.Hash(raw), Kind: kind, UserID: &userID})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return raw, key.ID
+}
+
+// person makes a user with a human key, in no game.
+func (e *env) person(name string) (key, userID string) {
+	userID = e.user(name)
+	key, _ = e.mint(name, auth.KindHuman, userID)
+	return key, userID
+}
+
+// googleAccounts are the people the fake Google knows, by the code its
+// consent screen would hand back: the test sends the browser's callback
+// itself, with one of these codes.
+var googleAccounts = map[string]map[string]any{
+	"code-bea": {"sub": "g-bea", "email": "bea@example.com", "name": "Bea", "email_verified": true},
+	"code-cal": {"sub": "g-cal", "email": "cal@example.com", "name": "Cal", "email_verified": true},
+	"code-dee": {"sub": "g-dee", "email": "dee@example.com", "name": "Dee", "email_verified": true},
+}
+
+// fakeGoogle stands in for Google's token and userinfo endpoints.
+func fakeGoogle(t *testing.T) web.GoogleConfig {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /token", func(w http.ResponseWriter, r *http.Request) {
+		if r.FormValue("client_secret") != "secret" || googleAccounts[r.FormValue("code")] == nil {
+			http.Error(w, `{"error":"invalid_grant"}`, http.StatusBadRequest)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"access_token": "at-" + r.FormValue("code")})
+	})
+	mux.HandleFunc("GET /userinfo", func(w http.ResponseWriter, r *http.Request) {
+		info := googleAccounts[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer at-")]
+		if info == nil {
+			http.Error(w, "no", http.StatusUnauthorized)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(info)
+	})
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+	return web.GoogleConfig{ClientID: "client", ClientSecret: "secret", AuthURL: ts.URL + "/auth", TokenURL: ts.URL + "/token", UserInfoURL: ts.URL + "/userinfo"}
 }
 
 // migrate rebuilds the schema from the dbmate files' up sections.
@@ -155,7 +220,7 @@ func TestAPIFlow(t *testing.T) {
 		t.Fatalf("401 does not point at OAuth discovery: %q", resp.Header.Get("WWW-Authenticate"))
 	}
 	e.do("GET", "/api/me", auth.KeyPrefix+"not-a-key", nil, http.StatusUnauthorized, nil)
-	e.do("GET", "/api/characters", "", nil, http.StatusUnauthorized, nil)
+	e.do("GET", "/api/games/"+first+"/characters", "", nil, http.StatusUnauthorized, nil)
 
 	var me struct {
 		KeyID, Name string
@@ -172,14 +237,14 @@ func TestAPIFlow(t *testing.T) {
 
 	// A person writes a character and a small conversation.
 	var aria characters.Character
-	e.do("POST", "/api/characters", e.key, map[string]any{"name": "  Aria ", "bible": "Wants her brother back."}, http.StatusCreated, &aria)
+	e.do("POST", "/api/games/"+first+"/characters", e.key, map[string]any{"name": "  Aria ", "bible": "Wants her brother back."}, http.StatusCreated, &aria)
 	if aria.Name != "Aria" || aria.URL != e.url+"/characters/"+aria.ID {
 		t.Fatalf("character %+v", aria)
 	}
-	e.do("POST", "/api/characters", e.key, map[string]any{"name": " "}, http.StatusUnprocessableEntity, nil)
+	e.do("POST", "/api/games/"+first+"/characters", e.key, map[string]any{"name": " "}, http.StatusUnprocessableEntity, nil)
 
 	var g conversations.Graph
-	e.do("POST", "/api/conversations", e.key, map[string]any{"title": "Homecoming"}, http.StatusCreated, &g)
+	e.do("POST", "/api/games/"+first+"/conversations", e.key, map[string]any{"title": "Homecoming"}, http.StatusCreated, &g)
 	conv := g.Conversation.ID
 	var n1, n2 conversations.Node
 	e.do("POST", "/api/conversations/"+conv+"/nodes", e.key, map[string]any{"speakerId": aria.ID, "text": "You came back."}, http.StatusCreated, &n1)
@@ -219,9 +284,9 @@ func TestAPIFlow(t *testing.T) {
 		method, path string
 		body         map[string]any
 	}{
-		{"POST", "/api/characters", map[string]any{"name": "Mallory"}},
+		{"POST", "/api/games/" + first + "/characters", map[string]any{"name": "Mallory"}},
 		{"PATCH", "/api/characters/" + aria.ID, map[string]any{"bible": "x"}},
-		{"POST", "/api/conversations", map[string]any{"title": "x"}},
+		{"POST", "/api/games/" + first + "/conversations", map[string]any{"title": "x"}},
 		{"POST", "/api/conversations/" + conv + "/nodes", map[string]any{"text": "A line Claude wrote."}},
 		{"PATCH", "/api/nodes/" + n1.ID, map[string]any{"text": "A line Claude wrote."}},
 		{"POST", "/api/nodes/" + n1.ID + "/choices", map[string]any{"text": "A choice Claude wrote."}},
@@ -231,28 +296,28 @@ func TestAPIFlow(t *testing.T) {
 		e.do(w.method, w.path, e.agent, w.body, http.StatusForbidden, nil)
 	}
 	var note notes.Note
-	e.do("POST", "/api/notes", e.agent, map[string]any{"targetKind": "node", "targetId": n2.ID, "kind": "gap", "body": "Nothing here acknowledges the letter from act one."}, http.StatusCreated, &note)
+	e.do("POST", "/api/games/"+first+"/notes", e.agent, map[string]any{"targetKind": "node", "targetId": n2.ID, "kind": "gap", "body": "Nothing here acknowledges the letter from act one."}, http.StatusCreated, &note)
 	if note.ByHuman || note.AuthorName != "claude" || note.Status != "open" || note.URL != e.url+"/nodes/"+n2.ID {
 		t.Fatalf("note %+v", note)
 	}
 	var reply notes.Note
-	e.do("POST", "/api/notes", e.key, map[string]any{"parentId": note.ID, "body": "Good catch."}, http.StatusCreated, &reply)
+	e.do("POST", "/api/games/"+first+"/notes", e.key, map[string]any{"parentId": note.ID, "body": "Good catch."}, http.StatusCreated, &reply)
 	if reply.TargetID != n2.ID || reply.Kind != "gap" || !reply.ByHuman {
 		t.Fatalf("reply %+v", reply)
 	}
-	e.do("POST", "/api/notes", e.agent, map[string]any{"targetKind": "node", "targetId": "nope", "body": "x"}, http.StatusNotFound, nil)
-	e.do("POST", "/api/notes", e.agent, map[string]any{"kind": "rant", "body": "x"}, http.StatusUnprocessableEntity, nil)
+	e.do("POST", "/api/games/"+first+"/notes", e.agent, map[string]any{"targetKind": "node", "targetId": "nope", "body": "x"}, http.StatusNotFound, nil)
+	e.do("POST", "/api/games/"+first+"/notes", e.agent, map[string]any{"kind": "rant", "body": "x"}, http.StatusUnprocessableEntity, nil)
 	e.do("PATCH", "/api/notes/"+note.ID, e.agent, map[string]any{"status": "resolved"}, http.StatusForbidden, nil)
 	e.do("PATCH", "/api/notes/"+note.ID, e.key, map[string]any{"status": "resolved"}, http.StatusOK, &note)
 	var list struct{ Notes []notes.Note }
-	e.do("GET", "/api/notes?status=open", e.agent, nil, http.StatusOK, &list)
+	e.do("GET", "/api/games/"+first+"/notes?status=open", e.agent, nil, http.StatusOK, &list)
 	if len(list.Notes) != 1 || list.Notes[0].ID != reply.ID {
 		t.Fatalf("open notes %+v", list.Notes)
 	}
 
 	// The content builds.
 	var report build.Report
-	e.do("GET", "/api/build", e.agent, nil, http.StatusOK, &report)
+	e.do("GET", "/api/games/"+first+"/build", e.agent, nil, http.StatusOK, &report)
 	if !report.OK || report.Stats.Nodes != 2 || report.Stats.Choices != 2 {
 		t.Fatalf("report %+v", report)
 	}
@@ -260,12 +325,12 @@ func TestAPIFlow(t *testing.T) {
 	// Deleting a node leaves the choice into it dangling, and the build says so.
 	e.do("DELETE", "/api/nodes/"+n2.ID, e.key, nil, http.StatusNoContent, nil)
 	e.do("DELETE", "/api/nodes/"+n2.ID, e.key, nil, http.StatusNotFound, nil)
-	e.do("GET", "/api/build", e.key, nil, http.StatusOK, &report)
+	e.do("GET", "/api/games/"+first+"/build", e.key, nil, http.StatusOK, &report)
 	if report.OK || len(report.Errors) != 1 || report.Errors[0].Code != "dangling_choice" || report.Errors[0].URL != e.url+"/choices/"+c1.ID {
 		t.Fatalf("report after delete %+v", report)
 	}
 	e.do("PATCH", "/api/choices/"+c1.ID, e.key, map[string]any{"toNodeId": ""}, http.StatusOK, nil)
-	e.do("GET", "/api/build", e.key, nil, http.StatusOK, &report)
+	e.do("GET", "/api/games/"+first+"/build", e.key, nil, http.StatusOK, &report)
 	if !report.OK {
 		t.Fatalf("report after repointing %+v", report)
 	}
@@ -277,21 +342,21 @@ func TestProvenanceBackstops(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
 	_, err := e.q.CreateTextRevision(ctx, dbgen.CreateTextRevisionParams{
-		ID: xid.New().String(), TargetKind: "node", TargetID: xid.New().String(), Field: "text", Body: "A line Claude wrote.", AuthorKey: e.agentID,
+		ID: xid.New().String(), TargetKind: "node", TargetID: xid.New().String(), Field: "text", Body: "A line Claude wrote.", AuthorKey: &e.agentID,
 	})
 	if err == nil || !strings.Contains(err.Error(), "only a human key") {
 		t.Fatalf("an agent's revision was stored: %v", err)
 	}
 
 	var g conversations.Graph
-	e.do("POST", "/api/conversations", e.key, map[string]any{"title": "Homecoming"}, http.StatusCreated, &g)
+	e.do("POST", "/api/games/"+first+"/conversations", e.key, map[string]any{"title": "Homecoming"}, http.StatusCreated, &g)
 	var n conversations.Node
 	e.do("POST", "/api/conversations/"+g.Conversation.ID+"/nodes", e.key, map[string]any{"text": "You came back."}, http.StatusCreated, &n)
 	if _, err := e.pool.Exec(ctx, `UPDATE nodes SET text = 'Edited in psql.' WHERE id = $1`, n.ID); err != nil {
 		t.Fatal(err)
 	}
 	var report build.Report
-	e.do("GET", "/api/build", e.key, nil, http.StatusOK, &report)
+	e.do("GET", "/api/games/"+first+"/build", e.key, nil, http.StatusOK, &report)
 	if report.OK || report.Errors[0].Code != "provenance" || report.Errors[0].TargetID != n.ID {
 		t.Fatalf("report %+v", report)
 	}
@@ -364,9 +429,9 @@ func TestOAuthFlow(t *testing.T) {
 	if me.Human {
 		t.Fatal("a connector token reads as human")
 	}
-	e.do("POST", "/api/characters", access, map[string]any{"name": "Mallory"}, http.StatusForbidden, nil)
+	e.do("POST", "/api/games/"+first+"/characters", access, map[string]any{"name": "Mallory"}, http.StatusForbidden, nil)
 	var note notes.Note
-	e.do("POST", "/api/notes", access, map[string]any{"body": "Act two drags."}, http.StatusCreated, &note)
+	e.do("POST", "/api/games/"+first+"/notes", access, map[string]any{"body": "Act two drags."}, http.StatusCreated, &note)
 	if note.ByHuman || note.AuthorName != "test" {
 		t.Fatalf("a connector's note %+v", note)
 	}
@@ -501,14 +566,14 @@ func TestAuthoringApp(t *testing.T) {
 	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/login?next=%2Fconversations%2Fabc" {
 		t.Fatalf("signed-out app: %d %s", resp.StatusCode, resp.Header.Get("Location"))
 	}
-	call("POST", "/api/characters", "", map[string]any{"name": "x"}, http.StatusUnauthorized)
+	call("POST", "/api/games/"+first+"/characters", "", map[string]any{"name": "x"}, http.StatusUnauthorized)
 	resp, _ = browser.PostForm(e.url+"/login", url.Values{"api_key": {"wrong"}, "next": {"/"}})
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("bad login: %d", resp.StatusCode)
 	}
 
 	login(e.key)
-	for _, path := range []string{"/", "/conversations/abc", "/world", "/quests/q", "/notes", "/build", "/characters/c"} {
+	for _, path := range []string{"/games", "/games/" + first, "/games/" + first + "/world", "/conversations/abc", "/quests/q", "/games/" + first + "/notes", "/games/" + first + "/build", "/characters/c"} {
 		resp, err := browser.Get(e.url + path)
 		if err != nil {
 			t.Fatal(err)
@@ -524,10 +589,10 @@ func TestAuthoringApp(t *testing.T) {
 	}
 
 	// The app writes through the API with the cookie, from this site only.
-	call("POST", "/api/characters", e.url, map[string]any{"name": "Aria"}, http.StatusCreated)
-	call("POST", "/api/characters", "https://evil.example", map[string]any{"name": "Mallory"}, http.StatusForbidden)
+	call("POST", "/api/games/"+first+"/characters", e.url, map[string]any{"name": "Aria"}, http.StatusCreated)
+	call("POST", "/api/games/"+first+"/characters", "https://evil.example", map[string]any{"name": "Mallory"}, http.StatusForbidden)
 	var g conversations.Graph
-	e.do("POST", "/api/conversations", e.key, map[string]any{"title": "Docks"}, http.StatusCreated, &g)
+	e.do("POST", "/api/games/"+first+"/conversations", e.key, map[string]any{"title": "Docks"}, http.StatusCreated, &g)
 	var n conversations.Node
 	e.do("POST", "/api/conversations/"+g.Conversation.ID+"/nodes", e.key, map[string]any{"text": "You came back."}, http.StatusCreated, &n)
 	resp, _ = browser.Get(e.url + "/nodes/" + n.ID)
@@ -539,8 +604,8 @@ func TestAuthoringApp(t *testing.T) {
 	// Signed in with an agent key, the app reads everything and the API
 	// refuses its edits.
 	login(e.agent)
-	call("POST", "/api/characters", e.url, map[string]any{"name": "Mallory"}, http.StatusForbidden)
-	call("POST", "/api/notes", e.url, map[string]any{"body": "Act one drags."}, http.StatusCreated)
+	call("POST", "/api/games/"+first+"/characters", e.url, map[string]any{"name": "Mallory"}, http.StatusForbidden)
+	call("POST", "/api/games/"+first+"/notes", e.url, map[string]any{"body": "Act one drags."}, http.StatusCreated)
 }
 
 // TestMechanics builds a small game over the API (a flag, a skill, a quest,
@@ -551,33 +616,33 @@ func TestMechanics(t *testing.T) {
 	e := newEnv(t)
 
 	var flag world.Flag
-	e.do("POST", "/api/flags", e.key, map[string]any{"key": "met_mayor", "description": "The player has met the mayor."}, http.StatusCreated, &flag)
-	e.do("POST", "/api/flags", e.key, map[string]any{"key": "met_mayor"}, http.StatusUnprocessableEntity, nil)
-	e.do("POST", "/api/flags", e.key, map[string]any{"key": "Bad Key"}, http.StatusUnprocessableEntity, nil)
+	e.do("POST", "/api/games/"+first+"/flags", e.key, map[string]any{"key": "met_mayor", "description": "The player has met the mayor."}, http.StatusCreated, &flag)
+	e.do("POST", "/api/games/"+first+"/flags", e.key, map[string]any{"key": "met_mayor"}, http.StatusUnprocessableEntity, nil)
+	e.do("POST", "/api/games/"+first+"/flags", e.key, map[string]any{"key": "Bad Key"}, http.StatusUnprocessableEntity, nil)
 	var skill world.Skill
-	e.do("POST", "/api/skills", e.key, map[string]any{"name": "Persuasion", "initialLevel": 2}, http.StatusCreated, &skill)
+	e.do("POST", "/api/games/"+first+"/skills", e.key, map[string]any{"name": "Persuasion", "initialLevel": 2}, http.StatusCreated, &skill)
 	if skill.Key != "persuasion" {
 		t.Fatalf("skill key %q", skill.Key)
 	}
 	var quest world.Quest
-	e.do("POST", "/api/quests", e.key, map[string]any{"name": "Find Her Brother", "key": "find_brother"}, http.StatusCreated, &quest)
+	e.do("POST", "/api/games/"+first+"/quests", e.key, map[string]any{"name": "Find Her Brother", "key": "find_brother"}, http.StatusCreated, &quest)
 	e.do("POST", "/api/quests/"+quest.ID+"/stages", e.key, map[string]any{"number": 1, "journal": "Aria has a brother in the Citadel."}, http.StatusCreated, &quest)
 	e.do("POST", "/api/quests/"+quest.ID+"/stages", e.key, map[string]any{"number": 1, "journal": "Twice."}, http.StatusUnprocessableEntity, nil)
 	if len(quest.Stages) != 1 {
 		t.Fatalf("quest %+v", quest)
 	}
 	var aria characters.Character
-	e.do("POST", "/api/characters", e.key, map[string]any{"name": "Aria Venn", "companion": true}, http.StatusCreated, &aria)
+	e.do("POST", "/api/games/"+first+"/characters", e.key, map[string]any{"name": "Aria Venn", "companion": true}, http.StatusCreated, &aria)
 	if aria.Key != "aria_venn" || !aria.Companion {
 		t.Fatalf("character %+v", aria)
 	}
 
 	// An agent may not touch the world.
-	e.do("POST", "/api/flags", e.agent, map[string]any{"key": "x"}, http.StatusForbidden, nil)
+	e.do("POST", "/api/games/"+first+"/flags", e.agent, map[string]any{"key": "x"}, http.StatusForbidden, nil)
 	e.do("POST", "/api/quests/"+quest.ID+"/stages", e.agent, map[string]any{"number": 2, "journal": "A line Claude wrote."}, http.StatusForbidden, nil)
 
 	var g conversations.Graph
-	e.do("POST", "/api/conversations", e.key, map[string]any{"title": "Docks", "key": "docks"}, http.StatusCreated, &g)
+	e.do("POST", "/api/games/"+first+"/conversations", e.key, map[string]any{"title": "Docks", "key": "docks"}, http.StatusCreated, &g)
 	if !g.Conversation.Opening {
 		t.Fatal("the first conversation does not open the game")
 	}
@@ -621,18 +686,18 @@ func TestMechanics(t *testing.T) {
 
 	// The build: the flag is read but nothing sets it.
 	var report build.Report
-	e.do("GET", "/api/build", e.agent, nil, http.StatusOK, &report)
+	e.do("GET", "/api/games/"+first+"/build", e.agent, nil, http.StatusOK, &report)
 	if !report.OK || len(report.Warnings) != 1 || report.Warnings[0].Code != "flag_never_set" || report.Stats.Quests != 1 {
 		t.Fatalf("report %+v", report)
 	}
 	// Deleting the skill breaks the check, and the build says so.
 	e.do("DELETE", "/api/skills/"+skill.ID, e.key, nil, http.StatusNoContent, nil)
-	e.do("GET", "/api/build", e.key, nil, http.StatusOK, &report)
+	e.do("GET", "/api/games/"+first+"/build", e.key, nil, http.StatusOK, &report)
 	if report.OK || report.Errors[0].Code != "bad_check" {
 		t.Fatalf("report after deleting the skill %+v", report)
 	}
 	var restored world.Skill
-	e.do("POST", "/api/skills", e.key, map[string]any{"name": "Persuasion", "initialLevel": 2}, http.StatusCreated, &restored)
+	e.do("POST", "/api/games/"+first+"/skills", e.key, map[string]any{"name": "Persuasion", "initialLevel": 2}, http.StatusCreated, &restored)
 	e.do("PATCH", "/api/choices/"+ask.ID, e.key, map[string]any{"checkSkillId": restored.ID}, http.StatusOK, &ask)
 	if ask.CheckDifficulty != 2 || ask.FailNodeID != n3.ID {
 		t.Fatalf("a check keeps the parts not sent: %+v", ask)
@@ -664,12 +729,17 @@ func TestMechanics(t *testing.T) {
 		loc, _, _ := strings.Cut(resp.Header.Get("Location"), "#")
 		return loc
 	}
-	if !strings.Contains(get("/play"), "Begin") {
+	// With no game named, the playtest picks the first.
+	resp, _ := browser.Get(e.url + "/play")
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/play/?game="+first {
+		t.Fatalf("playtest with no game: %d %s", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	if !strings.Contains(get("/play/?game="+first), "Begin") {
 		t.Fatal("the playtest page offers no new game")
 	}
-	savePath, _, _ := strings.Cut(post("/play/new", url.Values{"name": {"first run"}}), "?")
+	savePath, _, _ := strings.Cut(post("/play/new", url.Values{"game": {first}, "name": {"first run"}}), "?")
 	page := get(savePath)
-	for _, want := range []string{"ARIA VENN", "You came back.", "Tell me about your brother.", "[Persuasion 2 · 2 · 100%]", "I'm new here."} {
+	for _, want := range []string{"ARIA VENN", "You came back.", "Tell me about your brother.", "[Persuasion +2 · 2 · 100%]", "I'm new here."} {
 		if !strings.Contains(page, want) {
 			t.Errorf("play page lacks %q", want)
 		}
@@ -683,11 +753,11 @@ func TestMechanics(t *testing.T) {
 	}
 
 	// A playtest can set the world up and start anywhere.
-	savePath, _, _ = strings.Cut(post("/play/new", url.Values{"name": {"setup"}, "node": {n1.ID}, "setup": {"knows_mayor"}}), "?")
+	savePath, _, _ = strings.Cut(post("/play/new", url.Values{"game": {first}, "name": {"setup"}, "node": {n1.ID}, "setup": {"knows_mayor"}}), "?")
 	if page = get(savePath); strings.Contains(page, "I'm new here.") {
 		t.Error("the setup did not hide the choice")
 	}
-	if loc := post("/play/new", url.Values{"setup": {"nonsense ="}}); !strings.Contains(loc, "msg=") {
+	if loc := post("/play/new", url.Values{"game": {first}, "setup": {"nonsense ="}}); !strings.Contains(loc, "msg=") {
 		t.Errorf("a bad setup should come back as a message: %s", loc)
 	}
 
@@ -698,6 +768,166 @@ func TestMechanics(t *testing.T) {
 	agentBrowser.PostForm(e.url+"/login", url.Values{"api_key": {e.agent}, "next": {"/"}}) //nolint:errcheck
 	if resp, _ := agentBrowser.Get(e.url + savePath); resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("another key's save: %d", resp.StatusCode)
+	}
+}
+
+// TestGames checks that games keep their content apart: keys repeat
+// across games, a line cannot be spoken by another game's character, a
+// note cannot be about another game's content, and each game builds alone.
+func TestGames(t *testing.T) {
+	e := newEnv(t)
+
+	var list struct{ Games []games.Game }
+	e.do("GET", "/api/games", e.agent, nil, http.StatusOK, &list)
+	if len(list.Games) != 1 || list.Games[0].ID != first || list.Games[0].Ruleset != "classic" {
+		t.Fatalf("games %+v", list.Games)
+	}
+	e.do("POST", "/api/games", e.agent, map[string]any{"name": "Second"}, http.StatusForbidden, nil)
+	e.do("POST", "/api/games", e.key, map[string]any{"name": "Bad", "ruleset": "gurps"}, http.StatusUnprocessableEntity, nil)
+	var g2 games.Game
+	e.do("POST", "/api/games", e.key, map[string]any{"name": "Space Opera", "ruleset": "srd52"}, http.StatusCreated, &g2)
+	if g2.Key != "space_opera" || g2.Ruleset != "srd52" {
+		t.Fatalf("game %+v", g2)
+	}
+	e.do("GET", "/api/games/nope/characters", e.key, nil, http.StatusNotFound, nil)
+
+	// The same keys in two games.
+	var a1, a2 characters.Character
+	e.do("POST", "/api/games/"+first+"/characters", e.key, map[string]any{"name": "Aria"}, http.StatusCreated, &a1)
+	e.do("POST", "/api/games/"+g2.ID+"/characters", e.key, map[string]any{"name": "Aria"}, http.StatusCreated, &a2)
+	e.do("POST", "/api/games/"+first+"/flags", e.key, map[string]any{"key": "met_mayor"}, http.StatusCreated, nil)
+	e.do("POST", "/api/games/"+g2.ID+"/flags", e.key, map[string]any{"key": "met_mayor"}, http.StatusCreated, nil)
+	if a1.Key != "aria" || a2.Key != "aria" || a2.GameID != g2.ID {
+		t.Fatalf("characters %+v %+v", a1, a2)
+	}
+	var chars struct{ Characters []characters.Character }
+	e.do("GET", "/api/games/"+g2.ID+"/characters", e.key, nil, http.StatusOK, &chars)
+	if len(chars.Characters) != 1 || chars.Characters[0].ID != a2.ID {
+		t.Fatalf("second game's characters %+v", chars.Characters)
+	}
+
+	// Each game's first conversation opens it.
+	var c1, c2 conversations.Graph
+	e.do("POST", "/api/games/"+first+"/conversations", e.key, map[string]any{"title": "Docks"}, http.StatusCreated, &c1)
+	e.do("POST", "/api/games/"+g2.ID+"/conversations", e.key, map[string]any{"title": "Bridge"}, http.StatusCreated, &c2)
+	if !c1.Conversation.Opening || !c2.Conversation.Opening {
+		t.Fatal("each game's first conversation should open it")
+	}
+	// Another game's character cannot speak here.
+	e.do("POST", "/api/conversations/"+c2.Conversation.ID+"/nodes", e.key, map[string]any{"speakerId": a1.ID, "text": "Hello."}, http.StatusUnprocessableEntity, nil)
+	var n conversations.Node
+	e.do("POST", "/api/conversations/"+c2.Conversation.ID+"/nodes", e.key, map[string]any{"speakerId": a2.ID, "text": "Hello."}, http.StatusCreated, &n)
+	// A script names this game's flag, not the other's.
+	var ch conversations.Choice
+	e.do("POST", "/api/nodes/"+n.ID+"/choices", e.key, map[string]any{"text": "Goodbye.", "effects": "met_mayor"}, http.StatusCreated, &ch)
+
+	// A note about this game's line, filed under another game, is refused.
+	e.do("POST", "/api/games/"+first+"/notes", e.agent, map[string]any{"targetKind": "node", "targetId": n.ID, "body": "x"}, http.StatusUnprocessableEntity, nil)
+	var note notes.Note
+	e.do("POST", "/api/games/"+g2.ID+"/notes", e.agent, map[string]any{"targetKind": "node", "targetId": n.ID, "kind": "gap", "body": "Who is speaking?"}, http.StatusCreated, &note)
+	if note.GameID != g2.ID || note.URL != e.url+"/nodes/"+n.ID {
+		t.Fatalf("note %+v", note)
+	}
+	var ns struct{ Notes []notes.Note }
+	e.do("GET", "/api/games/"+first+"/notes", e.key, nil, http.StatusOK, &ns)
+	if len(ns.Notes) != 0 {
+		t.Fatalf("the first game sees the second's notes: %+v", ns.Notes)
+	}
+
+	// Each game builds alone: the first has a conversation with no lines.
+	var r1, r2 build.Report
+	e.do("GET", "/api/games/"+first+"/build", e.key, nil, http.StatusOK, &r1)
+	e.do("GET", "/api/games/"+g2.ID+"/build", e.key, nil, http.StatusOK, &r2)
+	if r1.OK || !r2.OK || r2.Stats.Nodes != 1 || r2.Stats.Characters != 1 {
+		t.Fatalf("reports %+v / %+v", r1, r2)
+	}
+
+	// Renaming and deleting.
+	var renamed games.Game
+	e.do("PATCH", "/api/games/"+g2.ID, e.key, map[string]any{"name": "Star Saga", "ruleset": "pf2e"}, http.StatusOK, &renamed)
+	if renamed.Name != "Star Saga" || renamed.Ruleset != "pf2e" || renamed.Key != "space_opera" {
+		t.Fatalf("renamed %+v", renamed)
+	}
+	e.do("DELETE", "/api/games/"+g2.ID, e.agent, nil, http.StatusForbidden, nil)
+	e.do("DELETE", "/api/games/"+g2.ID, e.key, nil, http.StatusNoContent, nil)
+	e.do("GET", "/api/games/"+g2.ID+"/characters", e.key, nil, http.StatusNotFound, nil)
+}
+
+// TestRulesetsAndLicensedText makes a pf2e game, imports a skill as
+// licensed text (placeholder text: the test makes up its own source), and
+// checks a choice with critical branches through the API and the build.
+func TestRulesetsAndLicensedText(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	var g games.Game
+	e.do("POST", "/api/games", e.key, map[string]any{"name": "Pathfinder Test", "ruleset": "pf2e"}, http.StatusCreated, &g)
+
+	store := app.NewStore(e.pool)
+	var in app.Licensed
+	if err := json.Unmarshal([]byte(`{"source": "Test SRD", "notice": "Test notice: placeholder attribution.",
+		"skills": [{"key": "test_skill", "name": "Test Skill", "ability": "cha"}]}`), &in); err != nil {
+		t.Fatal(err)
+	}
+	if added, kept, err := store.Import(ctx, g.ID, in); err != nil || added != 1 || kept != 0 {
+		t.Fatalf("import: %d %d %v", added, kept, err)
+	}
+	if added, kept, err := store.Import(ctx, g.ID, in); err != nil || added != 0 || kept != 1 {
+		t.Fatalf("second import: %d %d %v", added, kept, err)
+	}
+	in.Notice = ""
+	if _, _, err := store.Import(ctx, g.ID, in); err == nil {
+		t.Fatal("licensed text with no notice was imported")
+	}
+	var skills struct{ Skills []world.Skill }
+	e.do("GET", "/api/games/"+g.ID+"/skills", e.agent, nil, http.StatusOK, &skills)
+	if len(skills.Skills) != 1 || skills.Skills[0].Ability != "cha" {
+		t.Fatalf("skills %+v", skills.Skills)
+	}
+	sk := skills.Skills[0]
+	e.do("PATCH", "/api/skills/"+sk.ID, e.key, map[string]any{"ability": "luck"}, http.StatusUnprocessableEntity, nil)
+
+	var conv conversations.Graph
+	e.do("POST", "/api/games/"+g.ID+"/conversations", e.key, map[string]any{"title": "Gate"}, http.StatusCreated, &conv)
+	var n1, ok, no, great, awful conversations.Node
+	for _, n := range []*conversations.Node{&n1, &ok, &no, &great, &awful} {
+		e.do("POST", "/api/conversations/"+conv.Conversation.ID+"/nodes", e.key, map[string]any{"text": "A line."}, http.StatusCreated, n)
+	}
+	var ch conversations.Choice
+	e.do("POST", "/api/nodes/"+n1.ID+"/choices", e.key, map[string]any{
+		"text": "Try.", "toNodeId": ok.ID, "checkSkillId": sk.ID, "checkDifficulty": 15,
+		"failNodeId": no.ID, "critSuccessNodeId": great.ID, "critFailNodeId": awful.ID,
+		"effects": "ability cha = 2; level = 3",
+	}, http.StatusCreated, &ch)
+	if ch.CritSuccessID != great.ID || ch.CritFailID != awful.ID || ch.Effects != "ability cha = 2\nlevel = 3" {
+		t.Fatalf("choice %+v", ch)
+	}
+	// Dropping one branch keeps the others.
+	e.do("PATCH", "/api/choices/"+ch.ID, e.key, map[string]any{"critFailNodeId": ""}, http.StatusOK, &ch)
+	if ch.CritSuccessID != great.ID || ch.CritFailID != "" || ch.FailNodeID != no.ID {
+		t.Fatalf("choice after dropping a branch %+v", ch)
+	}
+
+	// The build accepts the licensed name and credits its source.
+	c, err := content.Load(auth.System(ctx), store, g.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle, report := content.Compile(c)
+	if !report.OK() || bundle.Ruleset != "pf2e" || len(bundle.Credits) != 1 || bundle.Credits[0].Source != "Test SRD" || bundle.Skills[0].Ability != "cha" {
+		t.Fatalf("errors %+v, bundle ruleset %q credits %+v skills %+v", report.Errors, bundle.Ruleset, bundle.Credits, bundle.Skills)
+	}
+	// Renaming the skill makes the name a person's, and the credit goes.
+	e.do("PATCH", "/api/skills/"+sk.ID, e.key, map[string]any{"name": "Our Own Name"}, http.StatusOK, nil)
+	c, _ = content.Load(auth.System(ctx), store, g.ID)
+	if bundle, report = content.Compile(c); !report.OK() || len(bundle.Credits) != 0 {
+		t.Fatalf("after renaming: errors %+v credits %+v", report.Errors, bundle.Credits)
+	}
+	// Under a ruleset with no critical degrees, the critical branch warns.
+	e.do("PATCH", "/api/games/"+g.ID, e.key, map[string]any{"ruleset": "srd52"}, http.StatusOK, nil)
+	var r build.Report
+	e.do("GET", "/api/games/"+g.ID+"/build", e.key, nil, http.StatusOK, &r)
+	if !r.OK || len(r.Warnings) == 0 || r.Warnings[0].Code != "crit_unused" {
+		t.Fatalf("report under srd52 %+v", r)
 	}
 }
 
@@ -727,9 +957,9 @@ func TestMCPTools(t *testing.T) {
 
 	// Content for Claude to read, written by a person over the API.
 	var aria characters.Character
-	e.do("POST", "/api/characters", e.key, map[string]any{"name": "Aria", "bible": "Wants her brother back."}, http.StatusCreated, &aria)
+	e.do("POST", "/api/games/"+first+"/characters", e.key, map[string]any{"name": "Aria", "bible": "Wants her brother back."}, http.StatusCreated, &aria)
 	var g conversations.Graph
-	e.do("POST", "/api/conversations", e.key, map[string]any{"title": "Homecoming"}, http.StatusCreated, &g)
+	e.do("POST", "/api/games/"+first+"/conversations", e.key, map[string]any{"title": "Homecoming"}, http.StatusCreated, &g)
 	var n1, n2 conversations.Node
 	e.do("POST", "/api/conversations/"+g.Conversation.ID+"/nodes", e.key, map[string]any{"speakerId": aria.ID, "text": "You came back."}, http.StatusCreated, &n1)
 	e.do("POST", "/api/conversations/"+g.Conversation.ID+"/nodes", e.key, map[string]any{"text": "She looks away."}, http.StatusCreated, &n2)
@@ -803,23 +1033,23 @@ func TestMCPTools(t *testing.T) {
 		t.Fatalf("get_path_to %+v", path)
 	}
 	var report struct{ Report build.Report }
-	call("check_build", nil, &report)
+	call("check_build", map[string]any{"game_id": first}, &report)
 	if !report.Report.OK {
 		t.Fatalf("check_build %+v", report)
 	}
 
 	var added struct{ Note notes.Note }
-	call("add_note", map[string]any{"target_kind": "node", "target_id": n2.ID, "kind": "continuity", "body": "In node X she said she never had a brother."}, &added)
+	call("add_note", map[string]any{"game_id": first, "target_kind": "node", "target_id": n2.ID, "kind": "continuity", "body": "In node X she said she never had a brother."}, &added)
 	if added.Note.ByHuman || added.Note.Kind != "continuity" {
 		t.Fatalf("add_note %+v", added)
 	}
 	var reply struct{ Note notes.Note }
-	call("reply_to_note", map[string]any{"note_id": added.Note.ID, "body": "Checked again: node X is in a cut conversation."}, &reply)
+	call("reply_to_note", map[string]any{"game_id": first, "note_id": added.Note.ID, "body": "Checked again: node X is in a cut conversation."}, &reply)
 	if reply.Note.ParentID != added.Note.ID || reply.Note.TargetID != n2.ID {
 		t.Fatalf("reply_to_note %+v", reply)
 	}
 	var list struct{ Notes []notes.Note }
-	call("list_notes", map[string]any{"target_kind": "node", "target_id": n2.ID}, &list)
+	call("list_notes", map[string]any{"game_id": first, "target_kind": "node", "target_id": n2.ID}, &list)
 	if len(list.Notes) != 2 {
 		t.Fatalf("list_notes %+v", list)
 	}

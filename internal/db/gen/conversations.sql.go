@@ -11,24 +11,31 @@ import (
 
 const clearOpening = `-- name: ClearOpening :exec
 UPDATE conversations SET opening = FALSE, updated_at = NOW()
-WHERE opening AND id <> $1 AND deleted_at IS NULL
+WHERE game_id = $2 AND opening AND id <> $1 AND deleted_at IS NULL
 `
 
-// Only one conversation opens the game.
-func (q *Queries) ClearOpening(ctx context.Context, id string) error {
-	_, err := q.db.Exec(ctx, clearOpening, id)
+type ClearOpeningParams struct {
+	ID     string `json:"id"`
+	GameID string `json:"game_id"`
+}
+
+// Only one conversation opens a game.
+func (q *Queries) ClearOpening(ctx context.Context, arg ClearOpeningParams) error {
+	_, err := q.db.Exec(ctx, clearOpening, arg.ID, arg.GameID)
 	return err
 }
 
 const createConversation = `-- name: CreateConversation :one
-INSERT INTO conversations (id, key, title, summary, opening, created_by)
-VALUES ($1, $2, $3, $4,
-    NOT EXISTS (SELECT 1 FROM conversations WHERE opening AND deleted_at IS NULL), $5)
-RETURNING id, title, summary, start_node_id, created_by, created_at, updated_at, deleted_at, key, label, label_revision_id, condition, repeatable, opening
+INSERT INTO conversations (id, game_id, key, title, summary, opening, created_by)
+VALUES ($1, $2, $3, $4, $5,
+    NOT EXISTS (SELECT 1 FROM conversations c WHERE c.game_id = $2 AND c.opening AND c.deleted_at IS NULL),
+    $6)
+RETURNING id, title, summary, start_node_id, created_by, created_at, updated_at, deleted_at, key, label, label_revision_id, condition, repeatable, opening, game_id
 `
 
 type CreateConversationParams struct {
 	ID        string  `json:"id"`
+	GameID    string  `json:"game_id"`
 	Key       string  `json:"key"`
 	Title     string  `json:"title"`
 	Summary   string  `json:"summary"`
@@ -40,6 +47,7 @@ type CreateConversationParams struct {
 func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversationParams) (Conversation, error) {
 	row := q.db.QueryRow(ctx, createConversation,
 		arg.ID,
+		arg.GameID,
 		arg.Key,
 		arg.Title,
 		arg.Summary,
@@ -61,6 +69,7 @@ func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversation
 		&i.Condition,
 		&i.Repeatable,
 		&i.Opening,
+		&i.GameID,
 	)
 	return i, err
 }
@@ -81,7 +90,7 @@ func (q *Queries) DeleteConversation(ctx context.Context, id string) (int64, err
 }
 
 const getConversation = `-- name: GetConversation :one
-SELECT id, title, summary, start_node_id, created_by, created_at, updated_at, deleted_at, key, label, label_revision_id, condition, repeatable, opening FROM conversations
+SELECT id, title, summary, start_node_id, created_by, created_at, updated_at, deleted_at, key, label, label_revision_id, condition, repeatable, opening, game_id FROM conversations
 WHERE id = $1 AND deleted_at IS NULL
 `
 
@@ -103,18 +112,19 @@ func (q *Queries) GetConversation(ctx context.Context, id string) (Conversation,
 		&i.Condition,
 		&i.Repeatable,
 		&i.Opening,
+		&i.GameID,
 	)
 	return i, err
 }
 
 const listConversations = `-- name: ListConversations :many
-SELECT id, title, summary, start_node_id, created_by, created_at, updated_at, deleted_at, key, label, label_revision_id, condition, repeatable, opening FROM conversations
-WHERE deleted_at IS NULL
+SELECT id, title, summary, start_node_id, created_by, created_at, updated_at, deleted_at, key, label, label_revision_id, condition, repeatable, opening, game_id FROM conversations
+WHERE game_id = $1 AND deleted_at IS NULL
 ORDER BY created_at DESC
 `
 
-func (q *Queries) ListConversations(ctx context.Context) ([]Conversation, error) {
-	rows, err := q.db.Query(ctx, listConversations)
+func (q *Queries) ListConversations(ctx context.Context, gameID string) ([]Conversation, error) {
+	rows, err := q.db.Query(ctx, listConversations, gameID)
 	if err != nil {
 		return nil, err
 	}
@@ -137,6 +147,7 @@ func (q *Queries) ListConversations(ctx context.Context) ([]Conversation, error)
 			&i.Condition,
 			&i.Repeatable,
 			&i.Opening,
+			&i.GameID,
 		); err != nil {
 			return nil, err
 		}
@@ -161,7 +172,7 @@ UPDATE conversations SET
     opening = COALESCE($12, opening),
     updated_at = NOW()
 WHERE id = $1 AND deleted_at IS NULL
-RETURNING id, title, summary, start_node_id, created_by, created_at, updated_at, deleted_at, key, label, label_revision_id, condition, repeatable, opening
+RETURNING id, title, summary, start_node_id, created_by, created_at, updated_at, deleted_at, key, label, label_revision_id, condition, repeatable, opening, game_id
 `
 
 type UpdateConversationParams struct {
@@ -212,6 +223,7 @@ func (q *Queries) UpdateConversation(ctx context.Context, arg UpdateConversation
 		&i.Condition,
 		&i.Repeatable,
 		&i.Opening,
+		&i.GameID,
 	)
 	return i, err
 }

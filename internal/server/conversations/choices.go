@@ -27,37 +27,50 @@ type choiceModel struct {
 
 // check is a skill check as a choice stores it.
 type check struct {
-	skill      *string
-	difficulty int32
-	fail       *string
+	skill                 *string
+	difficulty            int32
+	fail, critS, critFail *string
 }
 
-// cleanCheck validates a skill check on a choice from node from. No skill
-// is no check; a check needs a difficulty, and its failure node (optional:
-// none ends the conversation) must be in the same conversation.
-func cleanCheck(ctx context.Context, q *dbgen.Queries, from dbgen.Node, skillID string, difficulty int, failID string) (check, error) {
-	skillID, failID = strings.TrimSpace(skillID), strings.TrimSpace(failID)
+// branches are where a check can go besides the choice's target.
+type branches struct{ fail, critSuccess, critFail string }
+
+// cleanCheck validates a skill check on a choice from node from, in game
+// gameID. No skill is no check; a check needs a difficulty and a skill in
+// the same game, and its failure node (optional: none ends the
+// conversation) must be in the same conversation.
+func cleanCheck(ctx context.Context, q *dbgen.Queries, from dbgen.Node, gameID, skillID string, difficulty int, to branches) (check, error) {
+	skillID = strings.TrimSpace(skillID)
 	if skillID == "" {
-		if failID != "" {
-			return check{}, fmt.Errorf("%w: a failure node needs a skill check", app.ErrBadInput)
+		if to != (branches{}) {
+			return check{}, fmt.Errorf("%w: a failure or critical node needs a skill check", app.ErrBadInput)
 		}
 		return check{}, nil
 	}
-	if _, err := q.GetSkill(ctx, skillID); err != nil {
+	sk, err := q.GetSkill(ctx, skillID)
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return check{}, fmt.Errorf("%w: no skill %s", app.ErrBadInput, skillID)
 		}
+		return check{}, err
+	}
+	if err := app.SameGame("skill "+skillID, sk.GameID, gameID); err != nil {
 		return check{}, err
 	}
 	if difficulty < 1 || difficulty > MaxDifficulty {
 		return check{}, fmt.Errorf("%w: a skill check's difficulty is 1 to %d, not %d", app.ErrBadInput, MaxDifficulty, difficulty)
 	}
 	c := check{skill: &skillID, difficulty: int32(difficulty)}
-	if failID != "" {
-		if err := inConversation(ctx, q, failID, from.ConversationID); err != nil {
-			return check{}, err
+	for _, b := range []struct {
+		id   string
+		into **string
+	}{{to.fail, &c.fail}, {to.critSuccess, &c.critS}, {to.critFail, &c.critFail}} {
+		if id := strings.TrimSpace(b.id); id != "" {
+			if err := inConversation(ctx, q, id, from.ConversationID); err != nil {
+				return check{}, err
+			}
+			*b.into = &id
 		}
-		c.fail = &failID
 	}
 	return c, nil
 }
@@ -72,6 +85,9 @@ func cleanCheck(ctx context.Context, q *dbgen.Queries, from dbgen.Node, skillID 
 type CreateChoiceEndpoint struct{ Store TxStore }
 
 func (e CreateChoiceEndpoint) Interact(ctx context.Context, req apigen.CreateChoiceRequestObject) (choiceModel, error) {
+	if _, err := app.Access(ctx, e.Store, "node", req.NodeId); err != nil {
+		return choiceModel{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return choiceModel{}, err
 	}
@@ -93,11 +109,15 @@ func (e CreateChoiceEndpoint) Interact(ctx context.Context, req apigen.CreateCho
 			}
 			to = &id
 		}
-		chk, err := cleanCheck(ctx, q, from, b.CheckSkillId, b.CheckDifficulty, b.FailNodeId)
+		game, err := gameOf(ctx, q, from)
 		if err != nil {
 			return err
 		}
-		w, err := loadWorld(ctx, q)
+		chk, err := cleanCheck(ctx, q, from, game, b.CheckSkillId, b.CheckDifficulty, branches{b.FailNodeId, b.CritSuccessNodeId, b.CritFailNodeId})
+		if err != nil {
+			return err
+		}
+		w, err := loadWorld(ctx, q, game)
 		if err != nil {
 			return err
 		}
@@ -115,18 +135,20 @@ func (e CreateChoiceEndpoint) Interact(ctx context.Context, req apigen.CreateCho
 			return err
 		}
 		row, err := q.CreateChoice(ctx, dbgen.CreateChoiceParams{
-			ID:              id,
-			FromNodeID:      from.ID,
-			ToNodeID:        to,
-			Text:            text,
-			TextRevisionID:  rev,
-			SortOrder:       int32(b.SortOrder),
-			Condition:       cond,
-			Effects:         effects,
-			CheckSkillID:    chk.skill,
-			CheckDifficulty: chk.difficulty,
-			FailNodeID:      chk.fail,
-			CreatedBy:       auth.KeyIDPtr(ctx),
+			ID:                id,
+			FromNodeID:        from.ID,
+			ToNodeID:          to,
+			Text:              text,
+			TextRevisionID:    rev,
+			SortOrder:         int32(b.SortOrder),
+			Condition:         cond,
+			Effects:           effects,
+			CheckSkillID:      chk.skill,
+			CheckDifficulty:   chk.difficulty,
+			FailNodeID:        chk.fail,
+			CritSuccessNodeID: chk.critS,
+			CritFailNodeID:    chk.critFail,
+			CreatedBy:         auth.KeyIDPtr(ctx),
 		})
 		m = choiceModel{Choice: row, World: w}
 		return err
@@ -149,6 +171,9 @@ func (CreateChoiceEndpoint) Render(vm Choice) apigen.CreateChoiceResponseObject 
 type UpdateChoiceEndpoint struct{ Store TxStore }
 
 func (e UpdateChoiceEndpoint) Interact(ctx context.Context, req apigen.UpdateChoiceRequestObject) (choiceModel, error) {
+	if _, err := app.Access(ctx, e.Store, "choice", req.ChoiceId); err != nil {
+		return choiceModel{}, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return choiceModel{}, err
 	}
@@ -170,7 +195,11 @@ func (e UpdateChoiceEndpoint) Interact(ctx context.Context, req apigen.UpdateCho
 		if err != nil {
 			return fmt.Errorf("choice %s: its node: %w", cur.ID, err)
 		}
-		w, err := loadWorld(ctx, q)
+		game, err := gameOf(ctx, q, from)
+		if err != nil {
+			return err
+		}
+		w, err := loadWorld(ctx, q, game)
 		if err != nil {
 			return err
 		}
@@ -201,25 +230,32 @@ func (e UpdateChoiceEndpoint) Interact(ctx context.Context, req apigen.UpdateCho
 		}
 		// Any part of the check sent replaces the check, keeping the parts
 		// not sent.
-		if b.CheckSkillId != nil || b.CheckDifficulty != nil || b.FailNodeId != nil {
-			skill, difficulty, fail := deref(cur.CheckSkillID), int(cur.CheckDifficulty), deref(cur.FailNodeID)
+		if b.CheckSkillId != nil || b.CheckDifficulty != nil || b.FailNodeId != nil || b.CritSuccessNodeId != nil || b.CritFailNodeId != nil {
+			skill, difficulty := deref(cur.CheckSkillID), int(cur.CheckDifficulty)
+			to := branches{deref(cur.FailNodeID), deref(cur.CritSuccessNodeID), deref(cur.CritFailNodeID)}
 			if b.CheckSkillId != nil {
 				skill = *b.CheckSkillId
 			}
 			if b.CheckDifficulty != nil {
 				difficulty = *b.CheckDifficulty
 			}
-			if b.FailNodeId != nil {
-				fail = *b.FailNodeId
+			for _, f := range []struct {
+				sent *string
+				into *string
+			}{{b.FailNodeId, &to.fail}, {b.CritSuccessNodeId, &to.critSuccess}, {b.CritFailNodeId, &to.critFail}} {
+				if f.sent != nil {
+					*f.into = *f.sent
+				}
 			}
 			if strings.TrimSpace(skill) == "" {
-				fail = "" // no check, so nothing to fail to
+				to = branches{} // no check, so nowhere else to go
 			}
-			chk, err := cleanCheck(ctx, q, from, skill, difficulty, fail)
+			chk, err := cleanCheck(ctx, q, from, game, skill, difficulty, to)
 			if err != nil {
 				return err
 			}
-			arg.SetCheck, arg.CheckSkillID, arg.CheckDifficulty, arg.FailNodeID = true, chk.skill, chk.difficulty, chk.fail
+			arg.SetCheck, arg.CheckSkillID, arg.CheckDifficulty = true, chk.skill, chk.difficulty
+			arg.FailNodeID, arg.CritSuccessNodeID, arg.CritFailNodeID = chk.fail, chk.critS, chk.critFail
 		}
 		// Unchanged text needs no new revision.
 		if text != "" && text != cur.Text {
@@ -247,6 +283,7 @@ func (UpdateChoiceEndpoint) Render(vm Choice) apigen.UpdateChoiceResponseObject 
 // -----------------------------------------------------------------------------
 
 type DeleteChoiceStore interface {
+	app.AccessStore
 	DeleteChoice(ctx context.Context, id string) (int64, error)
 }
 
@@ -254,6 +291,9 @@ type DeleteChoiceStore interface {
 type DeleteChoiceEndpoint struct{ Store DeleteChoiceStore }
 
 func (e DeleteChoiceEndpoint) Interact(ctx context.Context, req apigen.DeleteChoiceRequestObject) (bool, error) {
+	if _, err := app.Access(ctx, e.Store, "choice", req.ChoiceId); err != nil {
+		return false, err
+	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return false, err
 	}

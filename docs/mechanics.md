@@ -2,6 +2,12 @@
 
 The content is more than dialogue. Choices check skills, change approval and move quests on, and what the player did decides what they see later. This page covers how that is authored, built and played.
 
+## Games
+
+The tool holds several games. Each has its own characters, conversations, world, notes, build and playtest saves, and keys are unique only within a game, so two games can both have a flag called `met_mayor`. A line cannot be spoken by another game's character, a check cannot use another game's skill, and a note must be about something in its game. `make bundle GAME=key` builds one game. A game's own key is only a label for commands like that one, and two people's games may share it: a command takes the game's id instead when its key is ambiguous.
+
+Each game also has a ruleset, which decides how its checks resolve: `classic` (2d6 plus the skill, below), `srd52`, `srd35` or `pf2e`. Content from before there were games is the first game, `first`, on `classic`.
+
 ## The world
 
 | thing | key example | player-facing | authoring-only |
@@ -31,6 +37,8 @@ approval aria > 10             a character's approval of the player
 quest find_brother >= 2        a quest's stage number
 quest find_brother done        it reached a stage that completes it
 done docks                     a conversation was finished at least once
+ability str >= 14              an ability (str dex con int wis cha)
+level >= 3                     the character's level
 a and (b or not c)             and binds tighter than or
 ```
 
@@ -43,13 +51,28 @@ gold += 10                     -= subtracts
 skill persuasion += 1
 approval aria -= 5
 quest find_brother = 2         move a quest to a stage
+ability str = 16               set or change an ability
+level += 1                     set or change the level
 ```
 
 A script that names something unknown is refused when saved, with the keys that do exist. One that names something later deleted keeps working in the editor (the key shows as `?id`) and fails the build.
 
-## Skill checks
+## Rulesets and checks
 
-A choice can be a check: 2d6 plus the player's skill level against a difficulty (1 to 30). Success goes where the choice leads; failure goes to the failure line, or ends the conversation. The player sees the skill, their level, the difficulty and the chance before choosing, as in Disco Elysium. The choice's effects run either way. Dice come from the save's seed, so reloading does not reroll.
+A choice can be a check: the player rolls against a difficulty, the game's ruleset decides what they add and how well they did, and the result picks where the conversation goes. The player sees the skill, what they add, the difficulty and their chance before choosing, as in Disco Elysium. The check rolls first, against those odds, and the choice's effects run after, whatever the dice said. Dice come from the save's seed, so reloading does not reroll.
+
+| ruleset | roll | adds | outcomes |
+| --- | --- | --- | --- |
+| `classic` | 2d6 | the skill's level | success, failure |
+| `srd52` (SRD 5.2) | d20 | the ability's modifier, plus the proficiency bonus (+2 at level 1, +1 every four levels) times the skill's tier: 0 none, 1 proficient, 2 expertise | success, failure |
+| `srd35` (3.5 SRD) | d20 | the skill's ranks and the ability's modifier; a natural 20 is not an automatic success | success, failure |
+| `pf2e` (Pathfinder 2e) | d20 | the attribute modifier, and if the skill's proficiency rank is 1 (trained) or more, the level plus 2 per rank | critical success (beat the DC by 10), success, failure, critical failure (miss it by 10); a natural 20 or 1 moves the result one step |
+
+A skill names the ability it adds (`str`, `dex`, `con`, `int`, `wis`, `cha`); classic ignores it, and the build warns about a skill checked under a d20 ruleset without one. In srd52 and srd35 abilities are scores (10 is +0); in pf2e they are the modifiers themselves. Every ability starts at its ruleset's default (10, or 0 in pf2e and classic) and the level at 1; content sets the character up with effects (`ability str = 15`, `level = 3`), for instance in an opening conversation where the player chooses who they are, and a playtest's setup can do the same.
+
+Success goes where the choice leads and failure to its failure line (or ends the conversation). Under pf2e a check can also send a critical success and a critical failure somewhere of their own; left empty, they go where an ordinary success or failure would. The build warns about critical branches under a ruleset that has no criticals, which can happen after changing a game's ruleset.
+
+The rules are mechanics only (`internal/rules`): no rules text ships from them. Skill names and anything else a player reads are the game's content.
 
 ## How the game flows
 

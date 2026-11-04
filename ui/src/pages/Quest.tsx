@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, must, type S } from "../api/client";
-import { useAct, useLoad, useMe } from "../hooks";
+import { useAct, useGameId, useLoad, useMe } from "../hooks";
 import { Badge, Form, Id, Key, Loading, Notes, notesFor, num, str } from "../components/ui";
 
 type Stage = S["QuestStage"];
@@ -14,12 +14,13 @@ export default function QuestPage() {
   const loc = useLocation();
   const [editing, setEditing] = useState(false);
   const { data, error, reload } = useLoad(async () => {
-    const [q, notes] = await Promise.all([
-      api.GET("/quests/{questId}", { params: { path: { questId: id } } }).then(must),
-      api.GET("/notes", { params: { query: { targetKind: "quest", targetId: id } } }).then(must),
-    ]);
+    const q = must(await api.GET("/quests/{questId}", { params: { path: { questId: id } } }));
+    const notes = must(
+      await api.GET("/games/{gameId}/notes", { params: { path: { gameId: q.gameId }, query: { targetKind: "quest", targetId: id } } }),
+    );
     return { q, notes: notes.notes };
   }, [id]);
+  useGameId(data?.q.gameId);
   useEffect(() => {
     if (data && loc.hash) document.getElementById(loc.hash.slice(1))?.scrollIntoView({ block: "center" });
   }, [data, loc.hash]);
@@ -42,7 +43,7 @@ export default function QuestPage() {
     confirm(`Delete ${q.name} and its stages?`) &&
     act(async () => {
       must(await api.DELETE("/quests/{questId}", { params: { path: { questId: id } } }));
-      nav("/world#quests");
+      nav("/games/" + q.gameId + "/world#quests");
     }, "Deleted.");
   const addStage = (f: FormData) =>
     act(async () => {
@@ -58,7 +59,7 @@ export default function QuestPage() {
   return (
     <>
       <p>
-        <Link to="/world#quests">← World</Link>
+        <Link to={"/games/" + q.gameId + "/world#quests"}>← World</Link>
       </p>
       <div className="row spread">
         <h1>{q.name}</h1>
@@ -114,7 +115,7 @@ export default function QuestPage() {
         </Form>
       )}
       <h2>Notes</h2>
-      <Notes kind="quest" id={q.id} notes={notesFor(data.notes, "quest", q.id)} onChange={reload} />
+      <Notes game={q.gameId} kind="quest" id={q.id} notes={notesFor(data.notes, "quest", q.id)} onChange={reload} />
     </>
   );
 }

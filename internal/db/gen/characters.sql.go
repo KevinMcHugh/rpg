@@ -10,13 +10,14 @@ import (
 )
 
 const createCharacter = `-- name: CreateCharacter :one
-INSERT INTO characters (id, key, name, name_revision_id, bible, companion, created_by)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, name, name_revision_id, bible, created_by, created_at, updated_at, deleted_at, key, companion
+INSERT INTO characters (id, game_id, key, name, name_revision_id, bible, companion, created_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, name, name_revision_id, bible, created_by, created_at, updated_at, deleted_at, key, companion, game_id
 `
 
 type CreateCharacterParams struct {
 	ID             string  `json:"id"`
+	GameID         string  `json:"game_id"`
 	Key            string  `json:"key"`
 	Name           string  `json:"name"`
 	NameRevisionID string  `json:"name_revision_id"`
@@ -28,6 +29,7 @@ type CreateCharacterParams struct {
 func (q *Queries) CreateCharacter(ctx context.Context, arg CreateCharacterParams) (Character, error) {
 	row := q.db.QueryRow(ctx, createCharacter,
 		arg.ID,
+		arg.GameID,
 		arg.Key,
 		arg.Name,
 		arg.NameRevisionID,
@@ -47,6 +49,7 @@ func (q *Queries) CreateCharacter(ctx context.Context, arg CreateCharacterParams
 		&i.DeletedAt,
 		&i.Key,
 		&i.Companion,
+		&i.GameID,
 	)
 	return i, err
 }
@@ -65,7 +68,7 @@ func (q *Queries) DeleteCharacter(ctx context.Context, id string) (int64, error)
 }
 
 const getCharacter = `-- name: GetCharacter :one
-SELECT id, name, name_revision_id, bible, created_by, created_at, updated_at, deleted_at, key, companion FROM characters
+SELECT id, name, name_revision_id, bible, created_by, created_at, updated_at, deleted_at, key, companion, game_id FROM characters
 WHERE id = $1 AND deleted_at IS NULL
 `
 
@@ -83,18 +86,19 @@ func (q *Queries) GetCharacter(ctx context.Context, id string) (Character, error
 		&i.DeletedAt,
 		&i.Key,
 		&i.Companion,
+		&i.GameID,
 	)
 	return i, err
 }
 
 const listCharacters = `-- name: ListCharacters :many
-SELECT id, name, name_revision_id, bible, created_by, created_at, updated_at, deleted_at, key, companion FROM characters
-WHERE deleted_at IS NULL
+SELECT id, name, name_revision_id, bible, created_by, created_at, updated_at, deleted_at, key, companion, game_id FROM characters
+WHERE game_id = $1 AND deleted_at IS NULL
 ORDER BY name, id
 `
 
-func (q *Queries) ListCharacters(ctx context.Context) ([]Character, error) {
-	rows, err := q.db.Query(ctx, listCharacters)
+func (q *Queries) ListCharacters(ctx context.Context, gameID string) ([]Character, error) {
+	rows, err := q.db.Query(ctx, listCharacters, gameID)
 	if err != nil {
 		return nil, err
 	}
@@ -113,6 +117,7 @@ func (q *Queries) ListCharacters(ctx context.Context) ([]Character, error) {
 			&i.DeletedAt,
 			&i.Key,
 			&i.Companion,
+			&i.GameID,
 		); err != nil {
 			return nil, err
 		}
@@ -133,7 +138,7 @@ UPDATE characters SET
     companion = COALESCE($6, companion),
     updated_at = NOW()
 WHERE id = $1 AND deleted_at IS NULL
-RETURNING id, name, name_revision_id, bible, created_by, created_at, updated_at, deleted_at, key, companion
+RETURNING id, name, name_revision_id, bible, created_by, created_at, updated_at, deleted_at, key, companion, game_id
 `
 
 type UpdateCharacterParams struct {
@@ -167,6 +172,7 @@ func (q *Queries) UpdateCharacter(ctx context.Context, arg UpdateCharacterParams
 		&i.DeletedAt,
 		&i.Key,
 		&i.Companion,
+		&i.GameID,
 	)
 	return i, err
 }

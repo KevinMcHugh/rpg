@@ -1,9 +1,10 @@
 -- The first conversation opens the game, as the first line of a
 -- conversation becomes its start.
 -- name: CreateConversation :one
-INSERT INTO conversations (id, key, title, summary, opening, created_by)
-VALUES ($1, $2, $3, $4,
-    NOT EXISTS (SELECT 1 FROM conversations WHERE opening AND deleted_at IS NULL), $5)
+INSERT INTO conversations (id, game_id, key, title, summary, opening, created_by)
+VALUES (sqlc.arg(id), sqlc.arg(game_id), sqlc.arg(key), sqlc.arg(title), sqlc.arg(summary),
+    NOT EXISTS (SELECT 1 FROM conversations c WHERE c.game_id = sqlc.arg(game_id) AND c.opening AND c.deleted_at IS NULL),
+    sqlc.arg(created_by))
 RETURNING *;
 
 -- name: GetConversation :one
@@ -12,7 +13,7 @@ WHERE id = $1 AND deleted_at IS NULL;
 
 -- name: ListConversations :many
 SELECT * FROM conversations
-WHERE deleted_at IS NULL
+WHERE game_id = $1 AND deleted_at IS NULL
 ORDER BY created_at DESC;
 
 -- set_start and set_condition say whether to change those columns, so a
@@ -38,7 +39,7 @@ RETURNING *;
 UPDATE conversations SET deleted_at = NOW(), updated_at = NOW()
 WHERE id = $1 AND deleted_at IS NULL;
 
--- Only one conversation opens the game.
+-- Only one conversation opens a game.
 -- name: ClearOpening :exec
 UPDATE conversations SET opening = FALSE, updated_at = NOW()
-WHERE opening AND id <> $1 AND deleted_at IS NULL;
+WHERE game_id = $2 AND opening AND id <> $1 AND deleted_at IS NULL;

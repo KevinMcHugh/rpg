@@ -10,13 +10,14 @@ import (
 )
 
 const createFlag = `-- name: CreateFlag :one
-INSERT INTO flags (id, key, description, initial_value, created_by)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, key, description, initial_value, created_by, created_at, updated_at, deleted_at
+INSERT INTO flags (id, game_id, key, description, initial_value, created_by)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, key, description, initial_value, created_by, created_at, updated_at, deleted_at, game_id
 `
 
 type CreateFlagParams struct {
 	ID           string  `json:"id"`
+	GameID       string  `json:"game_id"`
 	Key          string  `json:"key"`
 	Description  string  `json:"description"`
 	InitialValue int32   `json:"initial_value"`
@@ -26,6 +27,7 @@ type CreateFlagParams struct {
 func (q *Queries) CreateFlag(ctx context.Context, arg CreateFlagParams) (Flag, error) {
 	row := q.db.QueryRow(ctx, createFlag,
 		arg.ID,
+		arg.GameID,
 		arg.Key,
 		arg.Description,
 		arg.InitialValue,
@@ -41,6 +43,7 @@ func (q *Queries) CreateFlag(ctx context.Context, arg CreateFlagParams) (Flag, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.GameID,
 	)
 	return i, err
 }
@@ -59,7 +62,7 @@ func (q *Queries) DeleteFlag(ctx context.Context, id string) (int64, error) {
 }
 
 const getFlag = `-- name: GetFlag :one
-SELECT id, key, description, initial_value, created_by, created_at, updated_at, deleted_at FROM flags
+SELECT id, key, description, initial_value, created_by, created_at, updated_at, deleted_at, game_id FROM flags
 WHERE id = $1 AND deleted_at IS NULL
 `
 
@@ -75,18 +78,19 @@ func (q *Queries) GetFlag(ctx context.Context, id string) (Flag, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.GameID,
 	)
 	return i, err
 }
 
 const listFlags = `-- name: ListFlags :many
-SELECT id, key, description, initial_value, created_by, created_at, updated_at, deleted_at FROM flags
-WHERE deleted_at IS NULL
+SELECT id, key, description, initial_value, created_by, created_at, updated_at, deleted_at, game_id FROM flags
+WHERE game_id = $1 AND deleted_at IS NULL
 ORDER BY key
 `
 
-func (q *Queries) ListFlags(ctx context.Context) ([]Flag, error) {
-	rows, err := q.db.Query(ctx, listFlags)
+func (q *Queries) ListFlags(ctx context.Context, gameID string) ([]Flag, error) {
+	rows, err := q.db.Query(ctx, listFlags, gameID)
 	if err != nil {
 		return nil, err
 	}
@@ -103,6 +107,7 @@ func (q *Queries) ListFlags(ctx context.Context) ([]Flag, error) {
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.GameID,
 		); err != nil {
 			return nil, err
 		}
@@ -121,7 +126,7 @@ UPDATE flags SET
     initial_value = COALESCE($4, initial_value),
     updated_at = NOW()
 WHERE id = $1 AND deleted_at IS NULL
-RETURNING id, key, description, initial_value, created_by, created_at, updated_at, deleted_at
+RETURNING id, key, description, initial_value, created_by, created_at, updated_at, deleted_at, game_id
 `
 
 type UpdateFlagParams struct {
@@ -148,6 +153,7 @@ func (q *Queries) UpdateFlag(ctx context.Context, arg UpdateFlagParams) (Flag, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.GameID,
 	)
 	return i, err
 }

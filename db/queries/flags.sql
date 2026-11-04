@@ -1,6 +1,6 @@
 -- name: CreateFlag :one
-INSERT INTO flags (id, key, description, initial_value, created_by)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO flags (id, game_id, key, description, initial_value, created_by)
+VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING *;
 
 -- name: GetFlag :one
@@ -9,7 +9,7 @@ WHERE id = $1 AND deleted_at IS NULL;
 
 -- name: ListFlags :many
 SELECT * FROM flags
-WHERE deleted_at IS NULL
+WHERE game_id = $1 AND deleted_at IS NULL
 ORDER BY key;
 
 -- name: UpdateFlag :one
