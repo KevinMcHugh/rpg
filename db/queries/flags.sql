@@ -25,7 +25,9 @@ RETURNING *;
 UPDATE flags SET deleted_at = NOW(), updated_at = NOW()
 WHERE id = $1 AND deleted_at IS NULL;
 
--- name: PageFlags :many
+-- Up to lim rows after the sort key of the last row on the page before;
+-- app.Store.PageFlags pages them.
+-- name: FlagsAfter :many
 SELECT * FROM flags
 WHERE game_id = sqlc.arg(game_id) AND deleted_at IS NULL
   AND (sqlc.narg(after_id)::text IS NULL OR (key, id) > (sqlc.narg(after_key)::text, sqlc.narg(after_id)::text))

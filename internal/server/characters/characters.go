@@ -99,7 +99,7 @@ func cleanBible(s string) (string, error) {
 
 type ListStore interface {
 	app.GameStore
-	PageCharacters(ctx context.Context, arg dbgen.PageCharactersParams) ([]dbgen.Character, error)
+	PageCharacters(ctx context.Context, gameID string, p app.PageRequest) (app.Page[dbgen.Character], error)
 }
 
 // ListEndpoint is a page of the characters in a game, by name.
@@ -113,22 +113,11 @@ func (ListEndpoint) Page(req apigen.ListCharactersRequestObject) app.PageRequest
 	return app.PageRequest{List: "character", Limit: req.Params.Limit, After: req.Params.After}
 }
 
-// byName is where a page of a list sorted by name starts.
-type byName struct{ Name, ID string }
-
 func (e ListEndpoint) Interact(ctx context.Context, req apigen.ListCharactersRequestObject) (app.Page[dbgen.Character], error) {
 	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
 		return app.Page[dbgen.Character]{}, err
 	}
-	return app.Paginate(e.Page(req),
-		func(after *byName, limit int32) ([]dbgen.Character, error) {
-			arg := dbgen.PageCharactersParams{GameID: req.GameId, Lim: limit}
-			if after != nil {
-				arg.AfterName, arg.AfterID = &after.Name, &after.ID
-			}
-			return e.Store.PageCharacters(ctx, arg)
-		},
-		func(c dbgen.Character) byName { return byName{c.Name, c.ID} })
+	return e.Store.PageCharacters(ctx, req.GameId, e.Page(req))
 }
 
 func (e ListEndpoint) Build(p app.Page[dbgen.Character]) app.Page[Character] {
@@ -275,6 +264,9 @@ func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateCharacter
 	}
 	var row dbgen.Character
 	err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+		if err := app.Claim(ctx, q, e.Guard(req)); err != nil {
+			return err
+		}
 		cur, err := q.GetCharacter(ctx, req.CharacterId)
 		if err != nil {
 			return app.NotFound(err, "character", req.CharacterId)

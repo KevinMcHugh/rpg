@@ -187,6 +187,9 @@ func (e UpdateChoiceEndpoint) Interact(ctx context.Context, req apigen.UpdateCho
 	}
 	var m choiceModel
 	err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+		if err := app.Claim(ctx, q, e.Guard(req)); err != nil {
+			return err
+		}
 		cur, err := q.GetChoice(ctx, req.ChoiceId)
 		if err != nil {
 			return app.NotFound(err, "choice", req.ChoiceId)

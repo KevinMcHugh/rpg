@@ -44,7 +44,9 @@ WHERE id = $1 AND deleted_at IS NULL;
 UPDATE conversations SET opening = FALSE, updated_at = NOW()
 WHERE game_id = $2 AND opening AND id <> $1 AND deleted_at IS NULL;
 
--- name: PageConversations :many
+-- Up to lim rows after the sort key of the last row on the page before;
+-- app.Store.PageConversations pages them.
+-- name: ConversationsAfter :many
 SELECT * FROM conversations
 WHERE game_id = sqlc.arg(game_id) AND deleted_at IS NULL
   AND (sqlc.narg(after_id)::text IS NULL OR (created_at, id) < (sqlc.narg(after_created_at)::timestamptz, sqlc.narg(after_id)::text))

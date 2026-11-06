@@ -23,7 +23,7 @@ Every surface ends in the same `Endpoint`. REST runs all three steps (`server.Ru
 | `internal/rules` | the rulesets (classic, srd52, srd35, pf2e): how a check resolves, its odds and its degrees of success |
 | `internal/game` | the engine: a state and a choice in, a state out; skill checks seeded from the save |
 | `internal/game/play` | the game's pages, shared by the playtest (`/play`) and `cmd/game` |
-| `internal/app` | `Store` (every sqlc query plus `InTx` and `Import`, for licensed text), `Revise` (records who wrote a player-facing string), `RequireHuman`, `Access`, `RequireOwner`, `Game` and `SameGame`, `Links` (absolute URLs for view models), `ErrNotFound`/`ErrBadInput`/`ErrForbidden`/`ErrConflict`, `Guard` (the stale-write check `InTx` runs), `Paginate` and `Page` (keyset pages of a list), `Name` |
+| `internal/app` | `Store` (every sqlc query plus `InTx` and `Import`, for licensed text), `Revise` (records who wrote a player-facing string), `RequireHuman`, `Access`, `RequireOwner`, `Game` and `SameGame`, `Links` (absolute URLs for view models), `ErrNotFound`/`ErrBadInput`/`ErrForbidden`/`ErrConflict`, `Guard` and `Claim` (the stale-write check), the `Page…` lists (`Pager`) with `Paginate` and `Page` beneath them, `Name` |
 | `internal/content` | the build: `Load` the content, `Compile` it into the game's bundle, and check it on the way (provenance, start nodes, dangling choices, unreachable nodes) |
 | `internal/server` | `Endpoint`, `Run`, `BuildViewModel`, and the `Guarded` and `Paged` extensions; `Server`, which implements the generated `StrictServerInterface`, maps errors to typed responses, and mounts the API with the spec-driven auth guard |
 | `internal/server/<resource>` | one `Endpoint` per operation, each with its own narrow `Store` interface, plus the resource's view model and its API conversion |
@@ -54,7 +54,7 @@ type Endpoint[Req, M, VM, Res any] interface {
 
 Several people write one game, so two of them can have the same line open at once. Every PATCH therefore takes the `updatedAt` of the thing as the caller last loaded it, and is refused with a 409 if it has changed since, instead of the second save silently replacing the first. The caller reloads, sees the other person's change, and makes theirs again.
 
-An endpoint opts in by implementing one more method beside the three above:
+An endpoint opts in by implementing one more method beside the three above, and claiming that guard on the transaction that writes the row:
 
 ```go
 type Guarded[Req any] interface {
@@ -64,27 +64,39 @@ type Guarded[Req any] interface {
 func (UpdateEndpoint) Guard(req apigen.UpdateCharacterRequestObject) app.Guard {
 	return app.Guard{Kind: "character", ID: req.CharacterId, Seen: req.Body.UpdatedAt}
 }
+
+err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+	if err := app.Claim(ctx, q, e.Guard(req)); err != nil {
+		return err
+	}
+	// the write, on q
+})
 ```
 
-and nothing else. `Run` and `BuildViewModel` put the guard on the context, and `Store.InTx` checks it first thing in the endpoint's transaction: it locks the row (`LockForWrite`, in `db/queries/guard.sql`, `SELECT … FOR UPDATE`), compares its `updated_at` with what the caller saw, and returns `app.ErrConflict` if they differ, or `app.ErrBadInput` if the caller sent none. The lock is held until the endpoint's write commits, so two saves racing from the same copy cannot both pass the comparison; exactly one lands. Because the check happens inside `InTx`, it comes after `Access` and validation, so a non-member still gets a 404 and a bad field a 422.
+`app.Claim` works on the transaction's queries, the endpoint's injected dependency like any other: it locks the row (`LockForWrite`, in `db/queries/guard.sql`, `SELECT … FOR UPDATE`), compares its `updated_at` with what the caller saw, and returns `app.ErrConflict` if they differ, or `app.ErrBadInput` if the caller sent none. The lock is held until the transaction commits, so two saves racing from the same copy cannot both pass the comparison; exactly one lands. The endpoint claims after `Access` and validation, so a non-member still gets a 404 and a bad field a 422.
 
 Three things keep it from being forgotten or skipped:
 
 - `server.go` runs every PATCH through `RunGuarded`, which takes a `GuardedEndpoint`, so an update endpoint without `Guard` does not compile.
-- `Run` fails closed if a guarded endpoint finished without opening a transaction, because then nothing compared the versions (`TestUncheckedGuardFailsClosed`).
+- `Run` and `BuildViewModel` hand the endpoint a receipt for the guard it declared (`app.ExpectClaim`, on the context), which `Claim` signs. A guarded endpoint that finishes without claiming that guard fails closed, because nothing compared the versions (`TestUncheckedGuardFailsClosed`). The receipt is only a check: the comparison itself is the explicit `Claim` call.
 - `TestEveryPatchIsGuarded` checks the spec: every PATCH body requires `updatedAt`, and every PATCH declares the 409.
 
-The check runs once per request, in the first `InTx`; a second transaction in the same request would otherwise take the first one's write for someone else's. Writes that touch a row as a side effect (making a conversation the opening one clears the flag on the others) move that row's `updatedAt` too, so anyone editing it is asked to reload, which is the point. Deletes are not guarded.
+Claim once, in the transaction that writes the row; a second transaction in the same request would otherwise take the first one's write for someone else's. Writes that touch a row as a side effect (making a conversation the opening one clears the flag on the others) move that row's `updatedAt` too, so anyone editing it is asked to reload, which is the point. Deletes are not guarded.
 
 ### Lists: `Paged`
 
 Every list operation returns a page: it takes `limit` (1 to 200, 100 if left out) and `after` (the `next` of the page before), and its body carries `next`, empty on the last page. Pages are keyset, not offset: a list's query orders by a key that is unique per row (its sort columns, ending in the id) and starts after the key of the last row the caller saw, so a page is as cheap at the end of a list as at the start, and a row added or deleted while someone pages neither repeats nor skips the rows around it.
 
-A list endpoint implements one more method beside the three, naming its list and reading the page off the request, and its model is that one page:
+A list endpoint implements one more method beside the three, naming its list and reading the page off the request. Its model is that one page, which it asks its store for, through its narrow `Store` interface like any other read:
 
 ```go
 type Paged[Req any] interface {
 	Page(req Req) app.PageRequest // the list's name, and the limit and after the caller sent
+}
+
+type ListStore interface {
+	app.GameStore
+	PageCharacters(ctx context.Context, gameID string, p app.PageRequest) (app.Page[dbgen.Character], error)
 }
 
 func (ListEndpoint) Page(req apigen.ListCharactersRequestObject) app.PageRequest {
@@ -92,16 +104,16 @@ func (ListEndpoint) Page(req apigen.ListCharactersRequestObject) app.PageRequest
 }
 
 func (e ListEndpoint) Interact(ctx context.Context, req apigen.ListCharactersRequestObject) (app.Page[dbgen.Character], error) {
-	// app.Game first, as always
-	return app.Paginate(e.Page(req),
-		func(after *byName, limit int32) ([]dbgen.Character, error) { /* PageCharacters, after the key */ },
-		func(c dbgen.Character) byName { return byName{c.Name, c.ID} })
+	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
+		return app.Page[dbgen.Character]{}, err
+	}
+	return e.Store.PageCharacters(ctx, req.GameId, e.Page(req))
 }
 ```
 
-`app.Paginate` does the rest: it checks the limit, decodes the cursor (refusing one from another list, or one that is not a cursor, with `ErrBadInput`), asks the query for one row more than the page so it knows whether there is a next page without counting, and encodes the last row's key as `next`. `Build` and `Render` map the page with `app.MapPage`. The cursor is the key in base64 JSON with the list's name: opaque to callers, and a position, not a permission, since the query still filters to what the caller may see. The limit is checked inside the endpoint, after `Access`, so a non-member with a bad limit still gets a 404.
+The paging is the store's business, in `internal/app/pages.go`: each `Page…` method (`app.Pager` lists them) runs its keyset query (`CharactersAfter`) with its sort key through `app.Paginate`. That checks the limit, decodes the cursor (refusing one from another list, or one that is not a cursor, with `ErrBadInput`), asks the query for one row more than the page so it knows whether there is a next page without counting, and encodes the last row's key as `next`. So an endpoint knows nothing of keys or cursors, and a fake store returns a page outright. `Build` and `Render` map the page with `app.MapPage`. The cursor is the key in base64 JSON with the list's name: opaque to callers, and a position, not a permission, since the query still filters to what the caller may see. The limit is checked inside the endpoint, after `Access`, so a non-member with a bad limit still gets a 404.
 
-Each list has two queries: `List…`, every row, for the code that needs a whole list (the build, `LoadNames`, a conversation's world), and `Page…`, the keyset page, for the endpoint. Surfaces that need everything follow `next`: `server.All` on the server (`get_world` reads the whole world), and `all()` in the app's API client, which every screen uses for its lists, so a dropdown of speakers still holds every character.
+Each list has two queries: `List…`, every row, for the code that needs a whole list (the build, `LoadNames`, a conversation's world), and `…After`, the keyset query the store's `Page…` method pages. Surfaces that need everything follow `next`: `server.All` on the server (`get_world` reads the whole world), and `all()` in the app's API client, which every screen uses for its lists, so a dropdown of speakers still holds every character.
 
 Three things keep a list from going unpaged:
 

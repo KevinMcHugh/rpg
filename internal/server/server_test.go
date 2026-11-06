@@ -50,8 +50,8 @@ func (f *fakeStore) GameAccess(_ context.Context, arg dbgen.GameAccessParams) (d
 	return dbgen.GameAccessRow{GameID: "g1", Role: role}, nil
 }
 
-func (f *fakeStore) PageCharacters(context.Context, dbgen.PageCharactersParams) ([]dbgen.Character, error) {
-	return []dbgen.Character{f.character}, nil
+func (f *fakeStore) PageCharacters(context.Context, string, app.PageRequest) (app.Page[dbgen.Character], error) {
+	return app.Page[dbgen.Character]{Items: []dbgen.Character{f.character}}, nil
 }
 
 func (f *fakeStore) GetCharacter(context.Context, string) (dbgen.Character, error) {

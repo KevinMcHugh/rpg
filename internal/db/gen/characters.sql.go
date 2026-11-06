@@ -9,6 +9,60 @@ import (
 	"context"
 )
 
+const charactersAfter = `-- name: CharactersAfter :many
+SELECT id, name, name_revision_id, bible, created_by, created_at, updated_at, deleted_at, key, companion, game_id FROM characters
+WHERE game_id = $1 AND deleted_at IS NULL
+  AND ($2::text IS NULL OR (name, id) > ($3::text, $2::text))
+ORDER BY name, id
+LIMIT $4
+`
+
+type CharactersAfterParams struct {
+	GameID    string  `json:"game_id"`
+	AfterID   *string `json:"after_id"`
+	AfterName *string `json:"after_name"`
+	Lim       int32   `json:"lim"`
+}
+
+// Up to lim rows after the sort key of the last row on the page before;
+// app.Store.PageCharacters pages them.
+func (q *Queries) CharactersAfter(ctx context.Context, arg CharactersAfterParams) ([]Character, error) {
+	rows, err := q.db.Query(ctx, charactersAfter,
+		arg.GameID,
+		arg.AfterID,
+		arg.AfterName,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Character{}
+	for rows.Next() {
+		var i Character
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.NameRevisionID,
+			&i.Bible,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.Key,
+			&i.Companion,
+			&i.GameID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createCharacter = `-- name: CreateCharacter :one
 INSERT INTO characters (id, game_id, key, name, name_revision_id, bible, companion, created_by)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -99,58 +153,6 @@ ORDER BY name, id
 
 func (q *Queries) ListCharacters(ctx context.Context, gameID string) ([]Character, error) {
 	rows, err := q.db.Query(ctx, listCharacters, gameID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Character{}
-	for rows.Next() {
-		var i Character
-		if err := rows.Scan(
-			&i.ID,
-			&i.Name,
-			&i.NameRevisionID,
-			&i.Bible,
-			&i.CreatedBy,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.DeletedAt,
-			&i.Key,
-			&i.Companion,
-			&i.GameID,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const pageCharacters = `-- name: PageCharacters :many
-SELECT id, name, name_revision_id, bible, created_by, created_at, updated_at, deleted_at, key, companion, game_id FROM characters
-WHERE game_id = $1 AND deleted_at IS NULL
-  AND ($2::text IS NULL OR (name, id) > ($3::text, $2::text))
-ORDER BY name, id
-LIMIT $4
-`
-
-type PageCharactersParams struct {
-	GameID    string  `json:"game_id"`
-	AfterID   *string `json:"after_id"`
-	AfterName *string `json:"after_name"`
-	Lim       int32   `json:"lim"`
-}
-
-func (q *Queries) PageCharacters(ctx context.Context, arg PageCharactersParams) ([]Character, error) {
-	rows, err := q.db.Query(ctx, pageCharacters,
-		arg.GameID,
-		arg.AfterID,
-		arg.AfterName,
-		arg.Lim,
-	)
 	if err != nil {
 		return nil, err
 	}

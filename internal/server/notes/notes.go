@@ -13,7 +13,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/rs/xid"
 
 	apigen "github.com/KevinMcHugh/rpg/internal/api/gen"
@@ -118,7 +117,7 @@ func ptr(s string) *string {
 
 type ListStore interface {
 	app.GameStore
-	PageNotes(ctx context.Context, arg dbgen.PageNotesParams) ([]dbgen.PageNotesRow, error)
+	PageNotes(ctx context.Context, f app.NoteFilter, p app.PageRequest) (app.Page[dbgen.NotesAfterRow], error)
 }
 
 // ListEndpoint is a page of a game's notes matching the filters, oldest
@@ -133,46 +132,28 @@ func (ListEndpoint) Page(req apigen.ListNotesRequestObject) app.PageRequest {
 	return app.PageRequest{List: "note", Limit: req.Params.Limit, After: req.Params.After}
 }
 
-// oldest is where a page of a list sorted oldest first starts.
-type oldest struct {
-	CreatedAt time.Time
-	ID        string
-}
-
-func (e ListEndpoint) Interact(ctx context.Context, req apigen.ListNotesRequestObject) (app.Page[dbgen.PageNotesRow], error) {
+func (e ListEndpoint) Interact(ctx context.Context, req apigen.ListNotesRequestObject) (app.Page[dbgen.NotesAfterRow], error) {
 	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
-		return app.Page[dbgen.PageNotesRow]{}, err
+		return app.Page[dbgen.NotesAfterRow]{}, err
 	}
 	p := req.Params
 	if p.Status != "" {
 		if err := oneOf("status", string(p.Status), Statuses); err != nil {
-			return app.Page[dbgen.PageNotesRow]{}, err
+			return app.Page[dbgen.NotesAfterRow]{}, err
 		}
 	}
 	if p.TargetKind != "" {
 		if err := oneOf("targetKind", string(p.TargetKind), TargetKinds); err != nil {
-			return app.Page[dbgen.PageNotesRow]{}, err
+			return app.Page[dbgen.NotesAfterRow]{}, err
 		}
 	}
-	return app.Paginate(e.Page(req),
-		func(after *oldest, limit int32) ([]dbgen.PageNotesRow, error) {
-			arg := dbgen.PageNotesParams{
-				GameID:     req.GameId,
-				Status:     ptr(string(p.Status)),
-				TargetKind: ptr(string(p.TargetKind)),
-				TargetID:   ptr(strings.TrimSpace(p.TargetId)),
-				Lim:        limit,
-			}
-			if after != nil {
-				arg.AfterCreatedAt, arg.AfterID = pgtype.Timestamptz{Time: after.CreatedAt, Valid: true}, &after.ID
-			}
-			return e.Store.PageNotes(ctx, arg)
-		},
-		func(r dbgen.PageNotesRow) oldest { return oldest{r.Note.CreatedAt.Time, r.Note.ID} })
+	return e.Store.PageNotes(ctx, app.NoteFilter{
+		GameID: req.GameId, Status: string(p.Status), TargetKind: string(p.TargetKind), TargetID: strings.TrimSpace(p.TargetId),
+	}, e.Page(req))
 }
 
-func (e ListEndpoint) Build(p app.Page[dbgen.PageNotesRow]) app.Page[Note] {
-	return app.MapPage(p, func(r dbgen.PageNotesRow) Note { return ToViewModel(r.Note, r.AuthorName, e.Links) })
+func (e ListEndpoint) Build(p app.Page[dbgen.NotesAfterRow]) app.Page[Note] {
+	return app.MapPage(p, func(r dbgen.NotesAfterRow) Note { return ToViewModel(r.Note, r.AuthorName, e.Links) })
 }
 
 func (e ListEndpoint) Render(p app.Page[Note]) apigen.ListNotesResponseObject {
@@ -395,6 +376,9 @@ func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateNoteReque
 	}
 	var row dbgen.GetNoteRow
 	err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+		if err := app.Claim(ctx, q, e.Guard(req)); err != nil {
+			return err
+		}
 		if _, err := q.SetNoteStatus(ctx, dbgen.SetNoteStatusParams{ID: req.NoteId, Status: string(req.Body.Status)}); err != nil {
 			return app.NotFound(err, "note", req.NoteId)
 		}

@@ -185,7 +185,7 @@ func (q *Queries) ListNotes(ctx context.Context, arg ListNotesParams) ([]ListNot
 	return items, nil
 }
 
-const pageNotes = `-- name: PageNotes :many
+const notesAfter = `-- name: NotesAfter :many
 SELECT notes.id, notes.target_kind, notes.target_id, notes.kind, notes.body, notes.status, notes.parent_id, notes.by_human, notes.created_by, notes.created_at, notes.updated_at, notes.deleted_at, notes.game_id, api_keys.name AS author_name
 FROM notes
 LEFT JOIN api_keys ON api_keys.id = notes.created_by
@@ -198,7 +198,7 @@ ORDER BY notes.created_at, notes.id
 LIMIT $7
 `
 
-type PageNotesParams struct {
+type NotesAfterParams struct {
 	GameID         string             `json:"game_id"`
 	Status         *string            `json:"status"`
 	TargetKind     *string            `json:"target_kind"`
@@ -208,13 +208,15 @@ type PageNotesParams struct {
 	Lim            int32              `json:"lim"`
 }
 
-type PageNotesRow struct {
+type NotesAfterRow struct {
 	Note       Note    `json:"note"`
 	AuthorName *string `json:"author_name"`
 }
 
-func (q *Queries) PageNotes(ctx context.Context, arg PageNotesParams) ([]PageNotesRow, error) {
-	rows, err := q.db.Query(ctx, pageNotes,
+// Up to lim rows after the sort key of the last row on the page before;
+// app.Store.PageNotes pages them.
+func (q *Queries) NotesAfter(ctx context.Context, arg NotesAfterParams) ([]NotesAfterRow, error) {
+	rows, err := q.db.Query(ctx, notesAfter,
 		arg.GameID,
 		arg.Status,
 		arg.TargetKind,
@@ -227,9 +229,9 @@ func (q *Queries) PageNotes(ctx context.Context, arg PageNotesParams) ([]PageNot
 		return nil, err
 	}
 	defer rows.Close()
-	items := []PageNotesRow{}
+	items := []NotesAfterRow{}
 	for rows.Next() {
-		var i PageNotesRow
+		var i NotesAfterRow
 		if err := rows.Scan(
 			&i.Note.ID,
 			&i.Note.TargetKind,

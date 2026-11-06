@@ -153,6 +153,72 @@ func (q *Queries) GameAccess(ctx context.Context, arg GameAccessParams) (GameAcc
 	return i, err
 }
 
+const gamesForUserAfter = `-- name: GamesForUserAfter :many
+SELECT games.id, games.key, games.name, games.ruleset, games.created_by, games.created_at, games.updated_at, games.deleted_at, game_members.role FROM games
+JOIN game_members ON game_members.game_id = games.id
+    AND game_members.user_id = $1 AND game_members.deleted_at IS NULL
+WHERE games.deleted_at IS NULL
+  AND ($2::text IS NULL OR (games.created_at, games.id) > ($3::timestamptz, $2::text))
+ORDER BY games.created_at, games.id
+LIMIT $4
+`
+
+type GamesForUserAfterParams struct {
+	UserID         string             `json:"user_id"`
+	AfterID        *string            `json:"after_id"`
+	AfterCreatedAt pgtype.Timestamptz `json:"after_created_at"`
+	Lim            int32              `json:"lim"`
+}
+
+type GamesForUserAfterRow struct {
+	ID        string             `json:"id"`
+	Key       string             `json:"key"`
+	Name      string             `json:"name"`
+	Ruleset   string             `json:"ruleset"`
+	CreatedBy *string            `json:"created_by"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
+	Role      string             `json:"role"`
+}
+
+// ListGamesForUser after the (created_at, id) of the last game on the page
+// before; app.Store.PageGamesForUser pages them.
+func (q *Queries) GamesForUserAfter(ctx context.Context, arg GamesForUserAfterParams) ([]GamesForUserAfterRow, error) {
+	rows, err := q.db.Query(ctx, gamesForUserAfter,
+		arg.UserID,
+		arg.AfterID,
+		arg.AfterCreatedAt,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GamesForUserAfterRow{}
+	for rows.Next() {
+		var i GamesForUserAfterRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Key,
+			&i.Name,
+			&i.Ruleset,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.Role,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getGame = `-- name: GetGame :one
 SELECT id, key, name, ruleset, created_by, created_at, updated_at, deleted_at FROM games
 WHERE id = $1 AND deleted_at IS NULL
@@ -239,72 +305,6 @@ func (q *Queries) ListGamesForUser(ctx context.Context, userID string) ([]ListGa
 	items := []ListGamesForUserRow{}
 	for rows.Next() {
 		var i ListGamesForUserRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.Key,
-			&i.Name,
-			&i.Ruleset,
-			&i.CreatedBy,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.DeletedAt,
-			&i.Role,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const pageGamesForUser = `-- name: PageGamesForUser :many
-SELECT games.id, games.key, games.name, games.ruleset, games.created_by, games.created_at, games.updated_at, games.deleted_at, game_members.role FROM games
-JOIN game_members ON game_members.game_id = games.id
-    AND game_members.user_id = $1 AND game_members.deleted_at IS NULL
-WHERE games.deleted_at IS NULL
-  AND ($2::text IS NULL OR (games.created_at, games.id) > ($3::timestamptz, $2::text))
-ORDER BY games.created_at, games.id
-LIMIT $4
-`
-
-type PageGamesForUserParams struct {
-	UserID         string             `json:"user_id"`
-	AfterID        *string            `json:"after_id"`
-	AfterCreatedAt pgtype.Timestamptz `json:"after_created_at"`
-	Lim            int32              `json:"lim"`
-}
-
-type PageGamesForUserRow struct {
-	ID        string             `json:"id"`
-	Key       string             `json:"key"`
-	Name      string             `json:"name"`
-	Ruleset   string             `json:"ruleset"`
-	CreatedBy *string            `json:"created_by"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
-	Role      string             `json:"role"`
-}
-
-// One page of ListGamesForUser, after the (created_at, id) of the last game
-// on the page before (app.Paginate).
-func (q *Queries) PageGamesForUser(ctx context.Context, arg PageGamesForUserParams) ([]PageGamesForUserRow, error) {
-	rows, err := q.db.Query(ctx, pageGamesForUser,
-		arg.UserID,
-		arg.AfterID,
-		arg.AfterCreatedAt,
-		arg.Lim,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []PageGamesForUserRow{}
-	for rows.Next() {
-		var i PageGamesForUserRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Key,

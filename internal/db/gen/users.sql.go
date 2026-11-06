@@ -254,6 +254,119 @@ func (q *Queries) DeleteGameInvite(ctx context.Context, id string) (int64, error
 	return result.RowsAffected(), nil
 }
 
+const gameInvitesAfter = `-- name: GameInvitesAfter :many
+SELECT id, game_id, code_hash, note, created_by, expires_at, used_at, used_by, created_at, updated_at, deleted_at FROM game_invites
+WHERE game_id = $1 AND used_at IS NULL AND deleted_at IS NULL AND expires_at > NOW()
+  AND ($2::text IS NULL OR (created_at, id) < ($3::timestamptz, $2::text))
+ORDER BY created_at DESC, id DESC
+LIMIT $4
+`
+
+type GameInvitesAfterParams struct {
+	GameID         string             `json:"game_id"`
+	AfterID        *string            `json:"after_id"`
+	AfterCreatedAt pgtype.Timestamptz `json:"after_created_at"`
+	Lim            int32              `json:"lim"`
+}
+
+// A game's live invites, newest first, after the sort key of the last on
+// the page before; app.Store.PageGameInvites pages them.
+func (q *Queries) GameInvitesAfter(ctx context.Context, arg GameInvitesAfterParams) ([]GameInvite, error) {
+	rows, err := q.db.Query(ctx, gameInvitesAfter,
+		arg.GameID,
+		arg.AfterID,
+		arg.AfterCreatedAt,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GameInvite{}
+	for rows.Next() {
+		var i GameInvite
+		if err := rows.Scan(
+			&i.ID,
+			&i.GameID,
+			&i.CodeHash,
+			&i.Note,
+			&i.CreatedBy,
+			&i.ExpiresAt,
+			&i.UsedAt,
+			&i.UsedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const gameMembersAfter = `-- name: GameMembersAfter :many
+SELECT game_members.user_id, game_members.role, game_members.created_at, users.name FROM game_members
+JOIN users ON users.id = game_members.user_id
+WHERE game_members.game_id = $1 AND game_members.deleted_at IS NULL
+  AND ($2::text IS NULL
+    OR (game_members.role <> 'owner', game_members.created_at, game_members.user_id)
+     > ($3::boolean, $4::timestamptz, $2::text))
+ORDER BY game_members.role <> 'owner', game_members.created_at, game_members.user_id
+LIMIT $5
+`
+
+type GameMembersAfterParams struct {
+	GameID         string             `json:"game_id"`
+	AfterUserID    *string            `json:"after_user_id"`
+	AfterNotOwner  *bool              `json:"after_not_owner"`
+	AfterCreatedAt pgtype.Timestamptz `json:"after_created_at"`
+	Lim            int32              `json:"lim"`
+}
+
+type GameMembersAfterRow struct {
+	UserID    string             `json:"user_id"`
+	Role      string             `json:"role"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	Name      string             `json:"name"`
+}
+
+// A game's members, the owner first, then by when they joined, after the
+// sort key of the last on the page before; app.Store.PageGameMembers pages them.
+func (q *Queries) GameMembersAfter(ctx context.Context, arg GameMembersAfterParams) ([]GameMembersAfterRow, error) {
+	rows, err := q.db.Query(ctx, gameMembersAfter,
+		arg.GameID,
+		arg.AfterUserID,
+		arg.AfterNotOwner,
+		arg.AfterCreatedAt,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GameMembersAfterRow{}
+	for rows.Next() {
+		var i GameMembersAfterRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.Role,
+			&i.CreatedAt,
+			&i.Name,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getGameInviteByHash = `-- name: GetGameInviteByHash :one
 SELECT game_invites.id, game_invites.game_id, game_invites.code_hash, game_invites.note, game_invites.created_by, game_invites.expires_at, game_invites.used_at, game_invites.used_by, game_invites.created_at, game_invites.updated_at, game_invites.deleted_at, games.name AS game_name, users.name AS inviter FROM game_invites
 JOIN games ON games.id = game_invites.game_id AND games.deleted_at IS NULL
@@ -508,117 +621,6 @@ func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const pageGameInvites = `-- name: PageGameInvites :many
-SELECT id, game_id, code_hash, note, created_by, expires_at, used_at, used_by, created_at, updated_at, deleted_at FROM game_invites
-WHERE game_id = $1 AND used_at IS NULL AND deleted_at IS NULL AND expires_at > NOW()
-  AND ($2::text IS NULL OR (created_at, id) < ($3::timestamptz, $2::text))
-ORDER BY created_at DESC, id DESC
-LIMIT $4
-`
-
-type PageGameInvitesParams struct {
-	GameID         string             `json:"game_id"`
-	AfterID        *string            `json:"after_id"`
-	AfterCreatedAt pgtype.Timestamptz `json:"after_created_at"`
-	Lim            int32              `json:"lim"`
-}
-
-// One page of a game's live invites, newest first.
-func (q *Queries) PageGameInvites(ctx context.Context, arg PageGameInvitesParams) ([]GameInvite, error) {
-	rows, err := q.db.Query(ctx, pageGameInvites,
-		arg.GameID,
-		arg.AfterID,
-		arg.AfterCreatedAt,
-		arg.Lim,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []GameInvite{}
-	for rows.Next() {
-		var i GameInvite
-		if err := rows.Scan(
-			&i.ID,
-			&i.GameID,
-			&i.CodeHash,
-			&i.Note,
-			&i.CreatedBy,
-			&i.ExpiresAt,
-			&i.UsedAt,
-			&i.UsedBy,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.DeletedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const pageGameMembers = `-- name: PageGameMembers :many
-SELECT game_members.user_id, game_members.role, game_members.created_at, users.name FROM game_members
-JOIN users ON users.id = game_members.user_id
-WHERE game_members.game_id = $1 AND game_members.deleted_at IS NULL
-  AND ($2::text IS NULL
-    OR (game_members.role <> 'owner', game_members.created_at, game_members.user_id)
-     > ($3::boolean, $4::timestamptz, $2::text))
-ORDER BY game_members.role <> 'owner', game_members.created_at, game_members.user_id
-LIMIT $5
-`
-
-type PageGameMembersParams struct {
-	GameID         string             `json:"game_id"`
-	AfterUserID    *string            `json:"after_user_id"`
-	AfterNotOwner  *bool              `json:"after_not_owner"`
-	AfterCreatedAt pgtype.Timestamptz `json:"after_created_at"`
-	Lim            int32              `json:"lim"`
-}
-
-type PageGameMembersRow struct {
-	UserID    string             `json:"user_id"`
-	Role      string             `json:"role"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	Name      string             `json:"name"`
-}
-
-// One page of a game's members: the owner first, then by when they joined.
-func (q *Queries) PageGameMembers(ctx context.Context, arg PageGameMembersParams) ([]PageGameMembersRow, error) {
-	rows, err := q.db.Query(ctx, pageGameMembers,
-		arg.GameID,
-		arg.AfterUserID,
-		arg.AfterNotOwner,
-		arg.AfterCreatedAt,
-		arg.Lim,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []PageGameMembersRow{}
-	for rows.Next() {
-		var i PageGameMembersRow
-		if err := rows.Scan(
-			&i.UserID,
-			&i.Role,
-			&i.CreatedAt,
-			&i.Name,
 		); err != nil {
 			return nil, err
 		}

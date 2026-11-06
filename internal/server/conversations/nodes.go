@@ -150,6 +150,9 @@ func (e UpdateNodeEndpoint) Interact(ctx context.Context, req apigen.UpdateNodeR
 	}
 	var m nodeModel
 	err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+		if err := app.Claim(ctx, q, e.Guard(req)); err != nil {
+			return err
+		}
 		cur, err := q.GetNode(ctx, req.NodeId)
 		if err != nil {
 			return app.NotFound(err, "node", req.NodeId)

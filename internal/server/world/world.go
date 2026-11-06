@@ -90,7 +90,7 @@ func flagAPI(f Flag) apigen.Flag {
 
 type ListFlagsStore interface {
 	app.GameStore
-	PageFlags(ctx context.Context, arg dbgen.PageFlagsParams) ([]dbgen.Flag, error)
+	PageFlags(ctx context.Context, gameID string, p app.PageRequest) (app.Page[dbgen.Flag], error)
 }
 
 // ListFlagsEndpoint is a page of the flags in a game, by key.
@@ -104,25 +104,11 @@ func (ListFlagsEndpoint) Page(req apigen.ListFlagsRequestObject) app.PageRequest
 	return app.PageRequest{List: "flag", Limit: req.Params.Limit, After: req.Params.After}
 }
 
-// byKey and byName are where a page of a list sorted by key or name starts.
-type (
-	byKey  struct{ Key, ID string }
-	byName struct{ Name, ID string }
-)
-
 func (e ListFlagsEndpoint) Interact(ctx context.Context, req apigen.ListFlagsRequestObject) (app.Page[dbgen.Flag], error) {
 	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
 		return app.Page[dbgen.Flag]{}, err
 	}
-	return app.Paginate(e.Page(req),
-		func(after *byKey, limit int32) ([]dbgen.Flag, error) {
-			arg := dbgen.PageFlagsParams{GameID: req.GameId, Lim: limit}
-			if after != nil {
-				arg.AfterKey, arg.AfterID = &after.Key, &after.ID
-			}
-			return e.Store.PageFlags(ctx, arg)
-		},
-		func(f dbgen.Flag) byKey { return byKey{f.Key, f.ID} })
+	return e.Store.PageFlags(ctx, req.GameId, e.Page(req))
 }
 
 func (e ListFlagsEndpoint) Build(p app.Page[dbgen.Flag]) app.Page[Flag] {
@@ -214,6 +200,9 @@ func (e UpdateFlagEndpoint) Interact(ctx context.Context, req apigen.UpdateFlagR
 	}
 	var row dbgen.Flag
 	err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+		if err := app.Claim(ctx, q, e.Guard(req)); err != nil {
+			return err
+		}
 		var err error
 		row, err = q.UpdateFlag(ctx, arg)
 		if arg.Key != nil {
@@ -298,7 +287,7 @@ func skillAPI(s Skill) apigen.Skill {
 
 type ListSkillsStore interface {
 	app.GameStore
-	PageSkills(ctx context.Context, arg dbgen.PageSkillsParams) ([]dbgen.Skill, error)
+	PageSkills(ctx context.Context, gameID string, p app.PageRequest) (app.Page[dbgen.Skill], error)
 }
 
 // ListSkillsEndpoint is a page of the skills in a game, by name.
@@ -316,15 +305,7 @@ func (e ListSkillsEndpoint) Interact(ctx context.Context, req apigen.ListSkillsR
 	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
 		return app.Page[dbgen.Skill]{}, err
 	}
-	return app.Paginate(e.Page(req),
-		func(after *byName, limit int32) ([]dbgen.Skill, error) {
-			arg := dbgen.PageSkillsParams{GameID: req.GameId, Lim: limit}
-			if after != nil {
-				arg.AfterName, arg.AfterID = &after.Name, &after.ID
-			}
-			return e.Store.PageSkills(ctx, arg)
-		},
-		func(s dbgen.Skill) byName { return byName{s.Name, s.ID} })
+	return e.Store.PageSkills(ctx, req.GameId, e.Page(req))
 }
 
 func (e ListSkillsEndpoint) Build(p app.Page[dbgen.Skill]) app.Page[Skill] {
@@ -427,6 +408,9 @@ func (e UpdateSkillEndpoint) Interact(ctx context.Context, req apigen.UpdateSkil
 	}
 	var row dbgen.Skill
 	err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+		if err := app.Claim(ctx, q, e.Guard(req)); err != nil {
+			return err
+		}
 		cur, err := q.GetSkill(ctx, req.SkillId)
 		if err != nil {
 			return app.NotFound(err, "skill", req.SkillId)
@@ -543,7 +527,7 @@ func loadQuest(ctx context.Context, s QuestReadStore, id string) (questModel, er
 
 type ListQuestsStore interface {
 	app.GameStore
-	PageQuests(ctx context.Context, arg dbgen.PageQuestsParams) ([]dbgen.Quest, error)
+	PageQuests(ctx context.Context, gameID string, p app.PageRequest) (app.Page[dbgen.Quest], error)
 	ListAllQuestStages(ctx context.Context, gameID string) ([]dbgen.QuestStage, error)
 }
 
@@ -563,15 +547,7 @@ func (e ListQuestsEndpoint) Interact(ctx context.Context, req apigen.ListQuestsR
 	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
 		return app.Page[questModel]{}, err
 	}
-	quests, err := app.Paginate(e.Page(req),
-		func(after *byName, limit int32) ([]dbgen.Quest, error) {
-			arg := dbgen.PageQuestsParams{GameID: req.GameId, Lim: limit}
-			if after != nil {
-				arg.AfterName, arg.AfterID = &after.Name, &after.ID
-			}
-			return e.Store.PageQuests(ctx, arg)
-		},
-		func(q dbgen.Quest) byName { return byName{q.Name, q.ID} })
+	quests, err := e.Store.PageQuests(ctx, req.GameId, e.Page(req))
 	if err != nil {
 		return app.Page[questModel]{}, err
 	}
@@ -700,6 +676,9 @@ func (e UpdateQuestEndpoint) Interact(ctx context.Context, req apigen.UpdateQues
 	}
 	var m questModel
 	err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+		if err := app.Claim(ctx, q, e.Guard(req)); err != nil {
+			return err
+		}
 		cur, err := q.GetQuest(ctx, req.QuestId)
 		if err != nil {
 			return app.NotFound(err, "quest", req.QuestId)
@@ -864,6 +843,9 @@ func (e UpdateStageEndpoint) Interact(ctx context.Context, req apigen.UpdateQues
 	}
 	var m questModel
 	err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+		if err := app.Claim(ctx, q, e.Guard(req)); err != nil {
+			return err
+		}
 		cur, err := q.GetQuestStage(ctx, req.StageId)
 		if err != nil {
 			return app.NotFound(err, "stage", req.StageId)

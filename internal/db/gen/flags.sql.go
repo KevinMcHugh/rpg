@@ -61,6 +61,58 @@ func (q *Queries) DeleteFlag(ctx context.Context, id string) (int64, error) {
 	return result.RowsAffected(), nil
 }
 
+const flagsAfter = `-- name: FlagsAfter :many
+SELECT id, key, description, initial_value, created_by, created_at, updated_at, deleted_at, game_id FROM flags
+WHERE game_id = $1 AND deleted_at IS NULL
+  AND ($2::text IS NULL OR (key, id) > ($3::text, $2::text))
+ORDER BY key, id
+LIMIT $4
+`
+
+type FlagsAfterParams struct {
+	GameID   string  `json:"game_id"`
+	AfterID  *string `json:"after_id"`
+	AfterKey *string `json:"after_key"`
+	Lim      int32   `json:"lim"`
+}
+
+// Up to lim rows after the sort key of the last row on the page before;
+// app.Store.PageFlags pages them.
+func (q *Queries) FlagsAfter(ctx context.Context, arg FlagsAfterParams) ([]Flag, error) {
+	rows, err := q.db.Query(ctx, flagsAfter,
+		arg.GameID,
+		arg.AfterID,
+		arg.AfterKey,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Flag{}
+	for rows.Next() {
+		var i Flag
+		if err := rows.Scan(
+			&i.ID,
+			&i.Key,
+			&i.Description,
+			&i.InitialValue,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.GameID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getFlag = `-- name: GetFlag :one
 SELECT id, key, description, initial_value, created_by, created_at, updated_at, deleted_at, game_id FROM flags
 WHERE id = $1 AND deleted_at IS NULL
@@ -91,56 +143,6 @@ ORDER BY key
 
 func (q *Queries) ListFlags(ctx context.Context, gameID string) ([]Flag, error) {
 	rows, err := q.db.Query(ctx, listFlags, gameID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Flag{}
-	for rows.Next() {
-		var i Flag
-		if err := rows.Scan(
-			&i.ID,
-			&i.Key,
-			&i.Description,
-			&i.InitialValue,
-			&i.CreatedBy,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.DeletedAt,
-			&i.GameID,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const pageFlags = `-- name: PageFlags :many
-SELECT id, key, description, initial_value, created_by, created_at, updated_at, deleted_at, game_id FROM flags
-WHERE game_id = $1 AND deleted_at IS NULL
-  AND ($2::text IS NULL OR (key, id) > ($3::text, $2::text))
-ORDER BY key, id
-LIMIT $4
-`
-
-type PageFlagsParams struct {
-	GameID   string  `json:"game_id"`
-	AfterID  *string `json:"after_id"`
-	AfterKey *string `json:"after_key"`
-	Lim      int32   `json:"lim"`
-}
-
-func (q *Queries) PageFlags(ctx context.Context, arg PageFlagsParams) ([]Flag, error) {
-	rows, err := q.db.Query(ctx, pageFlags,
-		arg.GameID,
-		arg.AfterID,
-		arg.AfterKey,
-		arg.Lim,
-	)
 	if err != nil {
 		return nil, err
 	}

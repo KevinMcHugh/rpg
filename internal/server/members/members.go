@@ -42,7 +42,7 @@ type Member struct {
 
 type ListStore interface {
 	app.AccessStore
-	PageGameMembers(ctx context.Context, arg dbgen.PageGameMembersParams) ([]dbgen.PageGameMembersRow, error)
+	PageGameMembers(ctx context.Context, gameID string, p app.PageRequest) (app.Page[dbgen.GameMembersAfterRow], error)
 }
 
 // ListEndpoint is a page of a game's members, owner first, then by when
@@ -54,32 +54,15 @@ func (ListEndpoint) Page(req apigen.ListMembersRequestObject) app.PageRequest {
 	return app.PageRequest{List: "member", Limit: req.Params.Limit, After: req.Params.After}
 }
 
-// memberKey is where a page of members starts: the owner sorts first.
-type memberKey struct {
-	NotOwner bool
-	JoinedAt time.Time
-	UserID   string
-}
-
-func (e ListEndpoint) Interact(ctx context.Context, req apigen.ListMembersRequestObject) (app.Page[dbgen.PageGameMembersRow], error) {
+func (e ListEndpoint) Interact(ctx context.Context, req apigen.ListMembersRequestObject) (app.Page[dbgen.GameMembersAfterRow], error) {
 	if _, err := app.Access(ctx, e.Store, "game", req.GameId); err != nil {
-		return app.Page[dbgen.PageGameMembersRow]{}, err
+		return app.Page[dbgen.GameMembersAfterRow]{}, err
 	}
-	return app.Paginate(e.Page(req),
-		func(after *memberKey, limit int32) ([]dbgen.PageGameMembersRow, error) {
-			arg := dbgen.PageGameMembersParams{GameID: req.GameId, Lim: limit}
-			if after != nil {
-				arg.AfterNotOwner, arg.AfterCreatedAt, arg.AfterUserID = &after.NotOwner, pgtype.Timestamptz{Time: after.JoinedAt, Valid: true}, &after.UserID
-			}
-			return e.Store.PageGameMembers(ctx, arg)
-		},
-		func(r dbgen.PageGameMembersRow) memberKey {
-			return memberKey{r.Role != app.RoleOwner, r.CreatedAt.Time, r.UserID}
-		})
+	return e.Store.PageGameMembers(ctx, req.GameId, e.Page(req))
 }
 
-func (ListEndpoint) Build(p app.Page[dbgen.PageGameMembersRow]) app.Page[Member] {
-	return app.MapPage(p, func(r dbgen.PageGameMembersRow) Member {
+func (ListEndpoint) Build(p app.Page[dbgen.GameMembersAfterRow]) app.Page[Member] {
+	return app.MapPage(p, func(r dbgen.GameMembersAfterRow) Member {
 		return Member{UserID: r.UserID, Name: r.Name, Role: r.Role, JoinedAt: r.CreatedAt.Time}
 	})
 }
@@ -156,7 +139,7 @@ func toAPI(i Invite) apigen.Invite {
 
 type ListInvitesStore interface {
 	app.AccessStore
-	PageGameInvites(ctx context.Context, arg dbgen.PageGameInvitesParams) ([]dbgen.GameInvite, error)
+	PageGameInvites(ctx context.Context, gameID string, p app.PageRequest) (app.Page[dbgen.GameInvite], error)
 }
 
 // ListInvitesEndpoint is a page of a game's links that still work, newest
@@ -168,25 +151,11 @@ func (ListInvitesEndpoint) Page(req apigen.ListInvitesRequestObject) app.PageReq
 	return app.PageRequest{List: "invite", Limit: req.Params.Limit, After: req.Params.After}
 }
 
-// newest is where a page of a list sorted newest first starts.
-type newest struct {
-	CreatedAt time.Time
-	ID        string
-}
-
 func (e ListInvitesEndpoint) Interact(ctx context.Context, req apigen.ListInvitesRequestObject) (app.Page[dbgen.GameInvite], error) {
 	if _, err := app.RequireOwner(ctx, e.Store, req.GameId, "see its invites"); err != nil {
 		return app.Page[dbgen.GameInvite]{}, err
 	}
-	return app.Paginate(e.Page(req),
-		func(after *newest, limit int32) ([]dbgen.GameInvite, error) {
-			arg := dbgen.PageGameInvitesParams{GameID: req.GameId, Lim: limit}
-			if after != nil {
-				arg.AfterCreatedAt, arg.AfterID = pgtype.Timestamptz{Time: after.CreatedAt, Valid: true}, &after.ID
-			}
-			return e.Store.PageGameInvites(ctx, arg)
-		},
-		func(r dbgen.GameInvite) newest { return newest{r.CreatedAt.Time, r.ID} })
+	return e.Store.PageGameInvites(ctx, req.GameId, e.Page(req))
 }
 
 func (ListInvitesEndpoint) Build(p app.Page[dbgen.GameInvite]) app.Page[Invite] {
