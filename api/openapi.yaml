@@ -1210,7 +1210,7 @@ components:
     Limit:
       name: limit
       in: query
-      description: How many to return, from 1 to 200; leave out for 50.
+      description: How many to return, from 1 to 200; leave out for 100.
       schema:
         type: integer
     After:

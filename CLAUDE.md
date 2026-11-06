@@ -35,7 +35,7 @@ Endpoints return `app.ErrNotFound`, `app.ErrBadInput` or `app.ErrForbidden` (wra
 
 Every PATCH is guarded against stale writes: the body requires the `updatedAt` the caller loaded, the endpoint implements `Guard(req) app.Guard` (`server.Guarded`), `server.go` runs it with `RunGuarded` and maps `app.ErrConflict` to 409, and the write happens in `InTx`, which locks the row and compares. The app sends back the `updatedAt` of what it is editing. See "Stale writes" in @docs/architecture.md.
 
-Every list is paged: it takes `limit` (default 50, at most 200) and `after`, and returns `next`. The endpoint implements `Page(req) app.PageRequest` (`server.Paged`), returns `app.Paginate` over a keyset `Page…` query (the `List…` query stays for code that needs every row), and `server.go` runs it with `RunPaged`. Code that needs a whole list follows `next`: `server.All` on the server, `all()` in the app. See "Lists" in @docs/architecture.md.
+Every list is paged: it takes `limit` (default 100, at most 200) and `after`, and returns `next`. The endpoint implements `Page(req) app.PageRequest` (`server.Paged`), returns `app.Paginate` over a keyset `Page…` query (the `List…` query stays for code that needs every row), and `server.go` runs it with `RunPaged`. Code that needs a whole list follows `next`: `server.All` on the server, `all()` in the app. See "Lists" in @docs/architecture.md.
 
 ## Adding a resource
 

@@ -1162,7 +1162,7 @@ export interface components {
     parameters: {
         UserId: string;
         InviteId: string;
-        /** @description How many to return, from 1 to 200; leave out for 50. */
+        /** @description How many to return, from 1 to 200; leave out for 100. */
         Limit: number;
         /** @description Where to start, the next cursor from the previous page; leave out for the first page. */
         After: string;
@@ -1207,7 +1207,7 @@ export interface operations {
     listGames: {
         parameters: {
             query?: {
-                /** @description How many to return, from 1 to 200; leave out for 50. */
+                /** @description How many to return, from 1 to 200; leave out for 100. */
                 limit?: components["parameters"]["Limit"];
                 /** @description Where to start, the next cursor from the previous page; leave out for the first page. */
                 after?: components["parameters"]["After"];
@@ -1341,7 +1341,7 @@ export interface operations {
     listMembers: {
         parameters: {
             query?: {
-                /** @description How many to return, from 1 to 200; leave out for 50. */
+                /** @description How many to return, from 1 to 200; leave out for 100. */
                 limit?: components["parameters"]["Limit"];
                 /** @description Where to start, the next cursor from the previous page; leave out for the first page. */
                 after?: components["parameters"]["After"];
@@ -1396,7 +1396,7 @@ export interface operations {
     listInvites: {
         parameters: {
             query?: {
-                /** @description How many to return, from 1 to 200; leave out for 50. */
+                /** @description How many to return, from 1 to 200; leave out for 100. */
                 limit?: components["parameters"]["Limit"];
                 /** @description Where to start, the next cursor from the previous page; leave out for the first page. */
                 after?: components["parameters"]["After"];
@@ -1481,7 +1481,7 @@ export interface operations {
     listCharacters: {
         parameters: {
             query?: {
-                /** @description How many to return, from 1 to 200; leave out for 50. */
+                /** @description How many to return, from 1 to 200; leave out for 100. */
                 limit?: components["parameters"]["Limit"];
                 /** @description Where to start, the next cursor from the previous page; leave out for the first page. */
                 after?: components["parameters"]["After"];
@@ -1621,7 +1621,7 @@ export interface operations {
     listConversations: {
         parameters: {
             query?: {
-                /** @description How many to return, from 1 to 200; leave out for 50. */
+                /** @description How many to return, from 1 to 200; leave out for 100. */
                 limit?: components["parameters"]["Limit"];
                 /** @description Where to start, the next cursor from the previous page; leave out for the first page. */
                 after?: components["parameters"]["After"];
@@ -1957,7 +1957,7 @@ export interface operations {
     listFlags: {
         parameters: {
             query?: {
-                /** @description How many to return, from 1 to 200; leave out for 50. */
+                /** @description How many to return, from 1 to 200; leave out for 100. */
                 limit?: components["parameters"]["Limit"];
                 /** @description Where to start, the next cursor from the previous page; leave out for the first page. */
                 after?: components["parameters"]["After"];
@@ -2073,7 +2073,7 @@ export interface operations {
     listSkills: {
         parameters: {
             query?: {
-                /** @description How many to return, from 1 to 200; leave out for 50. */
+                /** @description How many to return, from 1 to 200; leave out for 100. */
                 limit?: components["parameters"]["Limit"];
                 /** @description Where to start, the next cursor from the previous page; leave out for the first page. */
                 after?: components["parameters"]["After"];
@@ -2189,7 +2189,7 @@ export interface operations {
     listQuests: {
         parameters: {
             query?: {
-                /** @description How many to return, from 1 to 200; leave out for 50. */
+                /** @description How many to return, from 1 to 200; leave out for 100. */
                 limit?: components["parameters"]["Limit"];
                 /** @description Where to start, the next cursor from the previous page; leave out for the first page. */
                 after?: components["parameters"]["After"];
@@ -2415,7 +2415,7 @@ export interface operations {
     listNotes: {
         parameters: {
             query?: {
-                /** @description How many to return, from 1 to 200; leave out for 50. */
+                /** @description How many to return, from 1 to 200; leave out for 100. */
                 limit?: components["parameters"]["Limit"];
                 /** @description Where to start, the next cursor from the previous page; leave out for the first page. */
                 after?: components["parameters"]["After"];

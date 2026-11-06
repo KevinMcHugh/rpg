@@ -9,7 +9,7 @@ import (
 // Page sizes: what a list returns when the caller does not say, and the
 // most it returns when they do.
 const (
-	DefaultLimit = 50
+	DefaultLimit = 100
 	MaxLimit     = 200
 )
 
