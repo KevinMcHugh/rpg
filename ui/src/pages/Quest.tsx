@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import { api, must, type S } from "../api/client";
+import { all, api, maxLimit, must, type S } from "../api/client";
 import { useAct, useGameId, useLoad, useMe } from "../hooks";
 import { Badge, Form, Id, Key, Loading, Notes, notesFor, num, str } from "../components/ui";
 
@@ -15,10 +15,14 @@ export default function QuestPage() {
   const [editing, setEditing] = useState(false);
   const { data, error, reload } = useLoad(async () => {
     const q = must(await api.GET("/quests/{questId}", { params: { path: { questId: id } } }));
-    const notes = must(
-      await api.GET("/games/{gameId}/notes", { params: { path: { gameId: q.gameId }, query: { targetKind: "quest", targetId: id } } }),
+    const notes = await all("notes", async (after) =>
+      must(
+        await api.GET("/games/{gameId}/notes", {
+          params: { path: { gameId: q.gameId }, query: { targetKind: "quest", targetId: id, after, limit: maxLimit } },
+        }),
+      ),
     );
-    return { q, notes: notes.notes };
+    return { q, notes };
   }, [id]);
   useGameId(data?.q.gameId);
   useEffect(() => {

@@ -610,6 +610,8 @@ export interface components {
             url: string;
         };
         GameList: {
+            /** @description The cursor for the next page, to send as after; empty on the last page. */
+            next: string;
             games: components["schemas"]["Game"][];
         };
         Member: {
@@ -620,6 +622,8 @@ export interface components {
             joinedAt: string;
         };
         MemberList: {
+            /** @description The cursor for the next page, to send as after; empty on the last page. */
+            next: string;
             members: components["schemas"]["Member"][];
         };
         Invite: {
@@ -635,6 +639,8 @@ export interface components {
             url?: string;
         };
         InviteList: {
+            /** @description The cursor for the next page, to send as after; empty on the last page. */
+            next: string;
             invites: components["schemas"]["Invite"][];
         };
         InviteCreate: {
@@ -677,6 +683,8 @@ export interface components {
             url: string;
         };
         CharacterList: {
+            /** @description The cursor for the next page, to send as after; empty on the last page. */
+            next: string;
             characters: components["schemas"]["Character"][];
         };
         CharacterCreate: {
@@ -724,6 +732,8 @@ export interface components {
             url: string;
         };
         ConversationList: {
+            /** @description The cursor for the next page, to send as after; empty on the last page. */
+            next: string;
             conversations: components["schemas"]["Conversation"][];
         };
         ConversationGraph: {
@@ -878,6 +888,8 @@ export interface components {
             url: string;
         };
         FlagList: {
+            /** @description The cursor for the next page, to send as after; empty on the last page. */
+            next: string;
             flags: components["schemas"]["Flag"][];
         };
         FlagCreate: {
@@ -925,6 +937,8 @@ export interface components {
             url: string;
         };
         SkillList: {
+            /** @description The cursor for the next page, to send as after; empty on the last page. */
+            next: string;
             skills: components["schemas"]["Skill"][];
         };
         SkillCreate: {
@@ -978,6 +992,8 @@ export interface components {
             completes: boolean;
         };
         QuestList: {
+            /** @description The cursor for the next page, to send as after; empty on the last page. */
+            next: string;
             quests: components["schemas"]["Quest"][];
         };
         QuestCreate: {
@@ -1040,6 +1056,8 @@ export interface components {
             url: string;
         };
         NoteList: {
+            /** @description The cursor for the next page, to send as after; empty on the last page. */
+            next: string;
             notes: components["schemas"]["Note"][];
         };
         NoteCreate: {
@@ -1144,6 +1162,10 @@ export interface components {
     parameters: {
         UserId: string;
         InviteId: string;
+        /** @description How many to return, from 1 to 200; leave out for 50. */
+        Limit: number;
+        /** @description Where to start, the next cursor from the previous page; leave out for the first page. */
+        After: string;
         GameId: string;
         CharacterId: string;
         ConversationId: string;
@@ -1184,7 +1206,12 @@ export interface operations {
     };
     listGames: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description How many to return, from 1 to 200; leave out for 50. */
+                limit?: components["parameters"]["Limit"];
+                /** @description Where to start, the next cursor from the previous page; leave out for the first page. */
+                after?: components["parameters"]["After"];
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1201,6 +1228,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            422: components["responses"]["Unprocessable"];
         };
     };
     createGame: {
@@ -1312,7 +1340,12 @@ export interface operations {
     };
     listMembers: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description How many to return, from 1 to 200; leave out for 50. */
+                limit?: components["parameters"]["Limit"];
+                /** @description Where to start, the next cursor from the previous page; leave out for the first page. */
+                after?: components["parameters"]["After"];
+            };
             header?: never;
             path: {
                 gameId: components["parameters"]["GameId"];
@@ -1332,6 +1365,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
         };
     };
     removeMember: {
@@ -1361,7 +1395,12 @@ export interface operations {
     };
     listInvites: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description How many to return, from 1 to 200; leave out for 50. */
+                limit?: components["parameters"]["Limit"];
+                /** @description Where to start, the next cursor from the previous page; leave out for the first page. */
+                after?: components["parameters"]["After"];
+            };
             header?: never;
             path: {
                 gameId: components["parameters"]["GameId"];
@@ -1382,6 +1421,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
         };
     };
     createInvite: {
@@ -1440,7 +1480,12 @@ export interface operations {
     };
     listCharacters: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description How many to return, from 1 to 200; leave out for 50. */
+                limit?: components["parameters"]["Limit"];
+                /** @description Where to start, the next cursor from the previous page; leave out for the first page. */
+                after?: components["parameters"]["After"];
+            };
             header?: never;
             path: {
                 gameId: components["parameters"]["GameId"];
@@ -1460,6 +1505,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
         };
     };
     createCharacter: {
@@ -1574,7 +1620,12 @@ export interface operations {
     };
     listConversations: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description How many to return, from 1 to 200; leave out for 50. */
+                limit?: components["parameters"]["Limit"];
+                /** @description Where to start, the next cursor from the previous page; leave out for the first page. */
+                after?: components["parameters"]["After"];
+            };
             header?: never;
             path: {
                 gameId: components["parameters"]["GameId"];
@@ -1594,6 +1645,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
         };
     };
     createConversation: {
@@ -1904,7 +1956,12 @@ export interface operations {
     };
     listFlags: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description How many to return, from 1 to 200; leave out for 50. */
+                limit?: components["parameters"]["Limit"];
+                /** @description Where to start, the next cursor from the previous page; leave out for the first page. */
+                after?: components["parameters"]["After"];
+            };
             header?: never;
             path: {
                 gameId: components["parameters"]["GameId"];
@@ -1924,6 +1981,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
         };
     };
     createFlag: {
@@ -2014,7 +2072,12 @@ export interface operations {
     };
     listSkills: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description How many to return, from 1 to 200; leave out for 50. */
+                limit?: components["parameters"]["Limit"];
+                /** @description Where to start, the next cursor from the previous page; leave out for the first page. */
+                after?: components["parameters"]["After"];
+            };
             header?: never;
             path: {
                 gameId: components["parameters"]["GameId"];
@@ -2034,6 +2097,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
         };
     };
     createSkill: {
@@ -2124,7 +2188,12 @@ export interface operations {
     };
     listQuests: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description How many to return, from 1 to 200; leave out for 50. */
+                limit?: components["parameters"]["Limit"];
+                /** @description Where to start, the next cursor from the previous page; leave out for the first page. */
+                after?: components["parameters"]["After"];
+            };
             header?: never;
             path: {
                 gameId: components["parameters"]["GameId"];
@@ -2144,6 +2213,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
         };
     };
     createQuest: {
@@ -2345,6 +2415,10 @@ export interface operations {
     listNotes: {
         parameters: {
             query?: {
+                /** @description How many to return, from 1 to 200; leave out for 50. */
+                limit?: components["parameters"]["Limit"];
+                /** @description Where to start, the next cursor from the previous page; leave out for the first page. */
+                after?: components["parameters"]["After"];
                 status?: components["schemas"]["NoteStatus"];
                 targetKind?: components["schemas"]["NoteTargetKind"];
                 targetId?: string;

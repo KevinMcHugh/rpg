@@ -158,6 +158,58 @@ func (q *Queries) ListSkills(ctx context.Context, gameID string) ([]Skill, error
 	return items, nil
 }
 
+const pageSkills = `-- name: PageSkills :many
+SELECT id, key, name, name_revision_id, initial_level, created_by, created_at, updated_at, deleted_at, game_id, ability FROM skills
+WHERE game_id = $1 AND deleted_at IS NULL
+  AND ($2::text IS NULL OR (name, id) > ($3::text, $2::text))
+ORDER BY name, id
+LIMIT $4
+`
+
+type PageSkillsParams struct {
+	GameID    string  `json:"game_id"`
+	AfterID   *string `json:"after_id"`
+	AfterName *string `json:"after_name"`
+	Lim       int32   `json:"lim"`
+}
+
+func (q *Queries) PageSkills(ctx context.Context, arg PageSkillsParams) ([]Skill, error) {
+	rows, err := q.db.Query(ctx, pageSkills,
+		arg.GameID,
+		arg.AfterID,
+		arg.AfterName,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Skill{}
+	for rows.Next() {
+		var i Skill
+		if err := rows.Scan(
+			&i.ID,
+			&i.Key,
+			&i.Name,
+			&i.NameRevisionID,
+			&i.InitialLevel,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.GameID,
+			&i.Ability,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateSkill = `-- name: UpdateSkill :one
 UPDATE skills SET
     key = COALESCE($2, key),

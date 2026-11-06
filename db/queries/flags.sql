@@ -24,3 +24,10 @@ RETURNING *;
 -- name: DeleteFlag :execrows
 UPDATE flags SET deleted_at = NOW(), updated_at = NOW()
 WHERE id = $1 AND deleted_at IS NULL;
+
+-- name: PageFlags :many
+SELECT * FROM flags
+WHERE game_id = sqlc.arg(game_id) AND deleted_at IS NULL
+  AND (sqlc.narg(after_id)::text IS NULL OR (key, id) > (sqlc.narg(after_key)::text, sqlc.narg(after_id)::text))
+ORDER BY key, id
+LIMIT sqlc.arg(lim);

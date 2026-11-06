@@ -59,6 +59,9 @@ paths:
     get:
       operationId: listGames
       summary: List the caller's games, oldest first
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
       responses:
         "200":
           description: The games
@@ -68,6 +71,8 @@ paths:
                 $ref: "#/components/schemas/GameList"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
     post:
       operationId: createGame
       summary: Create a game, owned by the caller
@@ -157,6 +162,9 @@ paths:
     get:
       operationId: listMembers
       summary: The game's members, owner first
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
       responses:
         "200":
           description: The members
@@ -168,6 +176,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
 
   /games/{gameId}/members/{userId}:
     parameters:
@@ -194,6 +204,9 @@ paths:
     get:
       operationId: listInvites
       summary: The game's unused, unexpired invites (its owner only)
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
       responses:
         "200":
           description: The invites
@@ -207,6 +220,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
     post:
       operationId: createInvite
       summary: Make a single-use link that brings someone into the game as a writer (its owner only)
@@ -265,6 +280,9 @@ paths:
     get:
       operationId: listCharacters
       summary: List characters by name
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
       responses:
         "200":
           description: The characters
@@ -276,6 +294,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
     post:
       operationId: createCharacter
       summary: Create a character
@@ -371,6 +391,9 @@ paths:
     get:
       operationId: listConversations
       summary: List conversations, newest first
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
       responses:
         "200":
           description: The conversations, without their nodes
@@ -382,6 +405,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
     post:
       operationId: createConversation
       summary: Create an empty conversation
@@ -647,6 +672,9 @@ paths:
     get:
       operationId: listFlags
       summary: List flags by key
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
       responses:
         "200":
           description: The flags
@@ -658,6 +686,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
     post:
       operationId: createFlag
       summary: Create a flag
@@ -735,6 +765,9 @@ paths:
     get:
       operationId: listSkills
       summary: List skills by name
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
       responses:
         "200":
           description: The skills
@@ -746,6 +779,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
     post:
       operationId: createSkill
       summary: Create a skill
@@ -823,6 +858,9 @@ paths:
     get:
       operationId: listQuests
       summary: List quests by name, with their stages
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
       responses:
         "200":
           description: The quests
@@ -834,6 +872,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
     post:
       operationId: createQuest
       summary: Create a quest
@@ -1004,6 +1044,8 @@ paths:
       operationId: listNotes
       summary: List notes, oldest first
       parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
         - name: status
           in: query
           schema:
@@ -1163,6 +1205,18 @@ components:
       name: inviteId
       in: path
       required: true
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      description: How many to return, from 1 to 200; leave out for 50.
+      schema:
+        type: integer
+    After:
+      name: after
+      in: query
+      description: Where to start, the next cursor from the previous page; leave out for the first page.
       schema:
         type: string
     GameId:
@@ -1345,8 +1399,11 @@ components:
 
     GameList:
       type: object
-      required: [games]
+      required: [games, next]
       properties:
+        next:
+          type: string
+          description: The cursor for the next page, to send as after; empty on the last page.
         games:
           type: array
           items:
@@ -1368,8 +1425,11 @@ components:
 
     MemberList:
       type: object
-      required: [members]
+      required: [members, next]
       properties:
+        next:
+          type: string
+          description: The cursor for the next page, to send as after; empty on the last page.
         members:
           type: array
           items:
@@ -1398,8 +1458,11 @@ components:
 
     InviteList:
       type: object
-      required: [invites]
+      required: [invites, next]
       properties:
+        next:
+          type: string
+          description: The cursor for the next page, to send as after; empty on the last page.
         invites:
           type: array
           items:
@@ -1479,8 +1542,11 @@ components:
 
     CharacterList:
       type: object
-      required: [characters]
+      required: [characters, next]
       properties:
+        next:
+          type: string
+          description: The cursor for the next page, to send as after; empty on the last page.
         characters:
           type: array
           items:
@@ -1567,8 +1633,11 @@ components:
 
     ConversationList:
       type: object
-      required: [conversations]
+      required: [conversations, next]
       properties:
+        next:
+          type: string
+          description: The cursor for the next page, to send as after; empty on the last page.
         conversations:
           type: array
           items:
@@ -1861,8 +1930,11 @@ components:
 
     FlagList:
       type: object
-      required: [flags]
+      required: [flags, next]
       properties:
+        next:
+          type: string
+          description: The cursor for the next page, to send as after; empty on the last page.
         flags:
           type: array
           items:
@@ -1936,8 +2008,11 @@ components:
 
     SkillList:
       type: object
-      required: [skills]
+      required: [skills, next]
       properties:
+        next:
+          type: string
+          description: The cursor for the next page, to send as after; empty on the last page.
         skills:
           type: array
           items:
@@ -2030,8 +2105,11 @@ components:
 
     QuestList:
       type: object
-      required: [quests]
+      required: [quests, next]
       properties:
+        next:
+          type: string
+          description: The cursor for the next page, to send as after; empty on the last page.
         quests:
           type: array
           items:
@@ -2150,8 +2228,11 @@ components:
 
     NoteList:
       type: object
-      required: [notes]
+      required: [notes, next]
       properties:
+        next:
+          type: string
+          description: The cursor for the next page, to send as after; empty on the last page.
         notes:
           type: array
           items:

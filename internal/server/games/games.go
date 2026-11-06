@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/rs/xid"
 
 	apigen "github.com/KevinMcHugh/rpg/internal/api/gen"
@@ -79,43 +80,52 @@ func cleanRuleset(r string) (string, error) {
 // -----------------------------------------------------------------------------
 
 type ListStore interface {
-	ListGamesForUser(ctx context.Context, userID string) ([]dbgen.ListGamesForUserRow, error)
+	PageGamesForUser(ctx context.Context, arg dbgen.PageGamesForUserParams) ([]dbgen.PageGamesForUserRow, error)
 }
 
-// ListEndpoint is every game the caller's user is a member of, oldest
-// first.
+// ListEndpoint is a page of the games the caller's user is a member of,
+// oldest first.
 type ListEndpoint struct {
 	Store ListStore
 	Links app.Links
 }
 
-func (e ListEndpoint) Interact(ctx context.Context, _ apigen.ListGamesRequestObject) ([]Model, error) {
+// Page is the page the caller asked for.
+func (ListEndpoint) Page(req apigen.ListGamesRequestObject) app.PageRequest {
+	return app.PageRequest{List: "game", Limit: req.Params.Limit, After: req.Params.After}
+}
+
+// oldest is where a page of a list sorted oldest first starts.
+type oldest struct {
+	CreatedAt time.Time
+	ID        string
+}
+
+func (e ListEndpoint) Interact(ctx context.Context, req apigen.ListGamesRequestObject) (app.Page[Model], error) {
 	user := auth.UserID(ctx)
-	if user == "" {
-		return nil, nil
-	}
-	rows, err := e.Store.ListGamesForUser(ctx, user)
-	out := make([]Model, len(rows))
-	for i, r := range rows {
-		out[i] = Model{Game: dbgen.Game{ID: r.ID, Key: r.Key, Name: r.Name, Ruleset: r.Ruleset, CreatedBy: r.CreatedBy, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}, Role: r.Role}
-	}
-	return out, err
+	rows, err := app.Paginate(e.Page(req),
+		func(after *oldest, limit int32) ([]dbgen.PageGamesForUserRow, error) {
+			if user == "" {
+				return nil, nil
+			}
+			arg := dbgen.PageGamesForUserParams{UserID: user, Lim: limit}
+			if after != nil {
+				arg.AfterCreatedAt, arg.AfterID = pgtype.Timestamptz{Time: after.CreatedAt, Valid: true}, &after.ID
+			}
+			return e.Store.PageGamesForUser(ctx, arg)
+		},
+		func(r dbgen.PageGamesForUserRow) oldest { return oldest{r.CreatedAt.Time, r.ID} })
+	return app.MapPage(rows, func(r dbgen.PageGamesForUserRow) Model {
+		return Model{Game: dbgen.Game{ID: r.ID, Key: r.Key, Name: r.Name, Ruleset: r.Ruleset, CreatedBy: r.CreatedBy, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}, Role: r.Role}
+	}), err
 }
 
-func (e ListEndpoint) Build(rows []Model) []Game {
-	out := make([]Game, len(rows))
-	for i, r := range rows {
-		out[i] = ToViewModel(r.Game, r.Role, e.Links)
-	}
-	return out
+func (e ListEndpoint) Build(p app.Page[Model]) app.Page[Game] {
+	return app.MapPage(p, func(m Model) Game { return ToViewModel(m.Game, m.Role, e.Links) })
 }
 
-func (ListEndpoint) Render(vms []Game) apigen.ListGamesResponseObject {
-	out := make([]apigen.Game, len(vms))
-	for i, g := range vms {
-		out[i] = toAPI(g)
-	}
-	return apigen.ListGames200JSONResponse{Games: out}
+func (ListEndpoint) Render(p app.Page[Game]) apigen.ListGamesResponseObject {
+	return apigen.ListGames200JSONResponse{Games: app.MapPage(p, toAPI).Items, Next: p.Next}
 }
 
 // GetEndpoint is one game.

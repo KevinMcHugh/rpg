@@ -110,3 +110,22 @@ RETURNING *;
 
 -- name: PurgeExpiredSSOLoginIntents :exec
 DELETE FROM sso_login_intents WHERE expires_at < NOW();
+
+-- One page of a game's members: the owner first, then by when they joined.
+-- name: PageGameMembers :many
+SELECT game_members.user_id, game_members.role, game_members.created_at, users.name FROM game_members
+JOIN users ON users.id = game_members.user_id
+WHERE game_members.game_id = sqlc.arg(game_id) AND game_members.deleted_at IS NULL
+  AND (sqlc.narg(after_user_id)::text IS NULL
+    OR (game_members.role <> 'owner', game_members.created_at, game_members.user_id)
+     > (sqlc.narg(after_not_owner)::boolean, sqlc.narg(after_created_at)::timestamptz, sqlc.narg(after_user_id)::text))
+ORDER BY game_members.role <> 'owner', game_members.created_at, game_members.user_id
+LIMIT sqlc.arg(lim);
+
+-- One page of a game's live invites, newest first.
+-- name: PageGameInvites :many
+SELECT * FROM game_invites
+WHERE game_id = sqlc.arg(game_id) AND used_at IS NULL AND deleted_at IS NULL AND expires_at > NOW()
+  AND (sqlc.narg(after_id)::text IS NULL OR (created_at, id) < (sqlc.narg(after_created_at)::timestamptz, sqlc.narg(after_id)::text))
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg(lim);

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { api, must } from "../api/client";
+import { all, api, maxLimit, must } from "../api/client";
 import { useAct, useGame, useGameId, useLoad, useMe } from "../hooks";
 import { Badge, Form, Loading, str } from "../components/ui";
 
@@ -22,13 +22,13 @@ export default function MembersPage() {
   const nav = useNavigate();
   const [link, setLink] = useState<string>();
   const members = useLoad(
-    async () => must(await api.GET("/games/{gameId}/members", { params: { path: { gameId } } })).members,
+    () => all("members", async (after) => must(await api.GET("/games/{gameId}/members", { params: { path: { gameId }, query: { after, limit: maxLimit } } }))),
     [gameId],
   );
   const owner = game?.id === gameId && game.role === "owner";
   const invites = useLoad(
     async () =>
-      owner ? must(await api.GET("/games/{gameId}/invites", { params: { path: { gameId } } })).invites : [],
+      owner ? all("invites", async (after) => must(await api.GET("/games/{gameId}/invites", { params: { path: { gameId }, query: { after, limit: maxLimit } } }))) : [],
     [gameId, owner],
   );
   if (!members.data) return <Loading error={members.error} />;

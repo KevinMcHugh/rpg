@@ -99,36 +99,44 @@ func cleanBible(s string) (string, error) {
 
 type ListStore interface {
 	app.GameStore
-	ListCharacters(ctx context.Context, gameID string) ([]dbgen.Character, error)
+	PageCharacters(ctx context.Context, arg dbgen.PageCharactersParams) ([]dbgen.Character, error)
 }
 
-// ListEndpoint is every character in a game, by name.
+// ListEndpoint is a page of the characters in a game, by name.
 type ListEndpoint struct {
 	Store ListStore
 	Links app.Links
 }
 
-func (e ListEndpoint) Interact(ctx context.Context, req apigen.ListCharactersRequestObject) ([]dbgen.Character, error) {
+// Page is the page the caller asked for.
+func (ListEndpoint) Page(req apigen.ListCharactersRequestObject) app.PageRequest {
+	return app.PageRequest{List: "character", Limit: req.Params.Limit, After: req.Params.After}
+}
+
+// byName is where a page of a list sorted by name starts.
+type byName struct{ Name, ID string }
+
+func (e ListEndpoint) Interact(ctx context.Context, req apigen.ListCharactersRequestObject) (app.Page[dbgen.Character], error) {
 	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
-		return nil, err
+		return app.Page[dbgen.Character]{}, err
 	}
-	return e.Store.ListCharacters(ctx, req.GameId)
+	return app.Paginate(e.Page(req),
+		func(after *byName, limit int32) ([]dbgen.Character, error) {
+			arg := dbgen.PageCharactersParams{GameID: req.GameId, Lim: limit}
+			if after != nil {
+				arg.AfterName, arg.AfterID = &after.Name, &after.ID
+			}
+			return e.Store.PageCharacters(ctx, arg)
+		},
+		func(c dbgen.Character) byName { return byName{c.Name, c.ID} })
 }
 
-func (e ListEndpoint) Build(rows []dbgen.Character) []Character {
-	out := make([]Character, len(rows))
-	for i, r := range rows {
-		out[i] = ToViewModel(r, e.Links)
-	}
-	return out
+func (e ListEndpoint) Build(p app.Page[dbgen.Character]) app.Page[Character] {
+	return app.MapPage(p, func(r dbgen.Character) Character { return ToViewModel(r, e.Links) })
 }
 
-func (e ListEndpoint) Render(vms []Character) apigen.ListCharactersResponseObject {
-	out := make([]apigen.Character, len(vms))
-	for i, c := range vms {
-		out[i] = toAPI(c)
-	}
-	return apigen.ListCharacters200JSONResponse{Characters: out}
+func (e ListEndpoint) Render(p app.Page[Character]) apigen.ListCharactersResponseObject {
+	return apigen.ListCharacters200JSONResponse{Characters: app.MapPage(p, toAPI).Items, Next: p.Next}
 }
 
 // -----------------------------------------------------------------------------

@@ -23,9 +23,9 @@ Every surface ends in the same `Endpoint`. REST runs all three steps (`server.Ru
 | `internal/rules` | the rulesets (classic, srd52, srd35, pf2e): how a check resolves, its odds and its degrees of success |
 | `internal/game` | the engine: a state and a choice in, a state out; skill checks seeded from the save |
 | `internal/game/play` | the game's pages, shared by the playtest (`/play`) and `cmd/game` |
-| `internal/app` | `Store` (every sqlc query plus `InTx` and `Import`, for licensed text), `Revise` (records who wrote a player-facing string), `RequireHuman`, `Access`, `RequireOwner`, `Game` and `SameGame`, `Links` (absolute URLs for view models), `ErrNotFound`/`ErrBadInput`/`ErrForbidden`/`ErrConflict`, `Guard` (the stale-write check `InTx` runs), `Name` |
+| `internal/app` | `Store` (every sqlc query plus `InTx` and `Import`, for licensed text), `Revise` (records who wrote a player-facing string), `RequireHuman`, `Access`, `RequireOwner`, `Game` and `SameGame`, `Links` (absolute URLs for view models), `ErrNotFound`/`ErrBadInput`/`ErrForbidden`/`ErrConflict`, `Guard` (the stale-write check `InTx` runs), `Paginate` and `Page` (keyset pages of a list), `Name` |
 | `internal/content` | the build: `Load` the content, `Compile` it into the game's bundle, and check it on the way (provenance, start nodes, dangling choices, unreachable nodes) |
-| `internal/server` | `Endpoint`, `Run`, `BuildViewModel`; `Server`, which implements the generated `StrictServerInterface`, maps errors to typed responses, and mounts the API with the spec-driven auth guard |
+| `internal/server` | `Endpoint`, `Run`, `BuildViewModel`, and the `Guarded` and `Paged` extensions; `Server`, which implements the generated `StrictServerInterface`, maps errors to typed responses, and mounts the API with the spec-driven auth guard |
 | `internal/server/<resource>` | one `Endpoint` per operation, each with its own narrow `Store` interface, plus the resource's view model and its API conversion |
 | `internal/appmcp` | MCP tools and the server's `Instructions` |
 | `ui/` | the authoring app: React, TypeScript, Vite. Its API types are generated from the spec (`ui/src/api/schema.ts`) |
@@ -75,6 +75,39 @@ Three things keep it from being forgotten or skipped:
 - `TestEveryPatchIsGuarded` checks the spec: every PATCH body requires `updatedAt`, and every PATCH declares the 409.
 
 The check runs once per request, in the first `InTx`; a second transaction in the same request would otherwise take the first one's write for someone else's. Writes that touch a row as a side effect (making a conversation the opening one clears the flag on the others) move that row's `updatedAt` too, so anyone editing it is asked to reload, which is the point. Deletes are not guarded.
+
+### Lists: `Paged`
+
+Every list operation returns a page: it takes `limit` (1 to 200, 50 if left out) and `after` (the `next` of the page before), and its body carries `next`, empty on the last page. Pages are keyset, not offset: a list's query orders by a key that is unique per row (its sort columns, ending in the id) and starts after the key of the last row the caller saw, so a page is as cheap at the end of a list as at the start, and a row added or deleted while someone pages neither repeats nor skips the rows around it.
+
+A list endpoint implements one more method beside the three, naming its list and reading the page off the request, and its model is that one page:
+
+```go
+type Paged[Req any] interface {
+	Page(req Req) app.PageRequest // the list's name, and the limit and after the caller sent
+}
+
+func (ListEndpoint) Page(req apigen.ListCharactersRequestObject) app.PageRequest {
+	return app.PageRequest{List: "character", Limit: req.Params.Limit, After: req.Params.After}
+}
+
+func (e ListEndpoint) Interact(ctx context.Context, req apigen.ListCharactersRequestObject) (app.Page[dbgen.Character], error) {
+	// app.Game first, as always
+	return app.Paginate(e.Page(req),
+		func(after *byName, limit int32) ([]dbgen.Character, error) { /* PageCharacters, after the key */ },
+		func(c dbgen.Character) byName { return byName{c.Name, c.ID} })
+}
+```
+
+`app.Paginate` does the rest: it checks the limit, decodes the cursor (refusing one from another list, or one that is not a cursor, with `ErrBadInput`), asks the query for one row more than the page so it knows whether there is a next page without counting, and encodes the last row's key as `next`. `Build` and `Render` map the page with `app.MapPage`. The cursor is the key in base64 JSON with the list's name: opaque to callers, and a position, not a permission, since the query still filters to what the caller may see. The limit is checked inside the endpoint, after `Access`, so a non-member with a bad limit still gets a 404.
+
+Each list has two queries: `List…`, every row, for the code that needs a whole list (the build, `LoadNames`, a conversation's world), and `Page…`, the keyset page, for the endpoint. Surfaces that need everything follow `next`: `server.All` on the server (`get_world` reads the whole world), and `all()` in the app's API client, which every screen uses for its lists, so a dropdown of speakers still holds every character.
+
+Three things keep a list from going unpaged:
+
+- `server.go` runs every list through `RunPaged`, which takes a `PagedEndpoint` (a `Paged` endpoint whose model is an `app.Page`), so a list endpoint that returns a slice does not compile.
+- `Run` fails closed if a paged endpoint returned more than the caller asked for (`TestOverlongPageFailsClosed`).
+- `TestEveryListIsPaged` checks the spec: every `list…` operation takes `limit` and `after`, its body requires `next`, and it declares the 422.
 
 ## Conventions
 

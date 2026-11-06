@@ -43,3 +43,10 @@ WHERE id = $1 AND deleted_at IS NULL;
 -- name: ClearOpening :exec
 UPDATE conversations SET opening = FALSE, updated_at = NOW()
 WHERE game_id = $2 AND opening AND id <> $1 AND deleted_at IS NULL;
+
+-- name: PageConversations :many
+SELECT * FROM conversations
+WHERE game_id = sqlc.arg(game_id) AND deleted_at IS NULL
+  AND (sqlc.narg(after_id)::text IS NULL OR (created_at, id) < (sqlc.narg(after_created_at)::timestamptz, sqlc.narg(after_id)::text))
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg(lim);

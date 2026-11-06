@@ -90,36 +90,47 @@ func flagAPI(f Flag) apigen.Flag {
 
 type ListFlagsStore interface {
 	app.GameStore
-	ListFlags(ctx context.Context, gameID string) ([]dbgen.Flag, error)
+	PageFlags(ctx context.Context, arg dbgen.PageFlagsParams) ([]dbgen.Flag, error)
 }
 
-// ListFlagsEndpoint is every flag in a game, by key.
+// ListFlagsEndpoint is a page of the flags in a game, by key.
 type ListFlagsEndpoint struct {
 	Store ListFlagsStore
 	Links app.Links
 }
 
-func (e ListFlagsEndpoint) Interact(ctx context.Context, req apigen.ListFlagsRequestObject) ([]dbgen.Flag, error) {
+// Page is the page the caller asked for.
+func (ListFlagsEndpoint) Page(req apigen.ListFlagsRequestObject) app.PageRequest {
+	return app.PageRequest{List: "flag", Limit: req.Params.Limit, After: req.Params.After}
+}
+
+// byKey and byName are where a page of a list sorted by key or name starts.
+type (
+	byKey  struct{ Key, ID string }
+	byName struct{ Name, ID string }
+)
+
+func (e ListFlagsEndpoint) Interact(ctx context.Context, req apigen.ListFlagsRequestObject) (app.Page[dbgen.Flag], error) {
 	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
-		return nil, err
+		return app.Page[dbgen.Flag]{}, err
 	}
-	return e.Store.ListFlags(ctx, req.GameId)
+	return app.Paginate(e.Page(req),
+		func(after *byKey, limit int32) ([]dbgen.Flag, error) {
+			arg := dbgen.PageFlagsParams{GameID: req.GameId, Lim: limit}
+			if after != nil {
+				arg.AfterKey, arg.AfterID = &after.Key, &after.ID
+			}
+			return e.Store.PageFlags(ctx, arg)
+		},
+		func(f dbgen.Flag) byKey { return byKey{f.Key, f.ID} })
 }
 
-func (e ListFlagsEndpoint) Build(rows []dbgen.Flag) []Flag {
-	out := make([]Flag, len(rows))
-	for i, r := range rows {
-		out[i] = flagView(r, e.Links)
-	}
-	return out
+func (e ListFlagsEndpoint) Build(p app.Page[dbgen.Flag]) app.Page[Flag] {
+	return app.MapPage(p, func(r dbgen.Flag) Flag { return flagView(r, e.Links) })
 }
 
-func (ListFlagsEndpoint) Render(vms []Flag) apigen.ListFlagsResponseObject {
-	out := make([]apigen.Flag, len(vms))
-	for i, f := range vms {
-		out[i] = flagAPI(f)
-	}
-	return apigen.ListFlags200JSONResponse{Flags: out}
+func (ListFlagsEndpoint) Render(p app.Page[Flag]) apigen.ListFlagsResponseObject {
+	return apigen.ListFlags200JSONResponse{Flags: app.MapPage(p, flagAPI).Items, Next: p.Next}
 }
 
 type CreateFlagStore interface {
@@ -287,36 +298,41 @@ func skillAPI(s Skill) apigen.Skill {
 
 type ListSkillsStore interface {
 	app.GameStore
-	ListSkills(ctx context.Context, gameID string) ([]dbgen.Skill, error)
+	PageSkills(ctx context.Context, arg dbgen.PageSkillsParams) ([]dbgen.Skill, error)
 }
 
-// ListSkillsEndpoint is every skill in a game, by name.
+// ListSkillsEndpoint is a page of the skills in a game, by name.
 type ListSkillsEndpoint struct {
 	Store ListSkillsStore
 	Links app.Links
 }
 
-func (e ListSkillsEndpoint) Interact(ctx context.Context, req apigen.ListSkillsRequestObject) ([]dbgen.Skill, error) {
+// Page is the page the caller asked for.
+func (ListSkillsEndpoint) Page(req apigen.ListSkillsRequestObject) app.PageRequest {
+	return app.PageRequest{List: "skill", Limit: req.Params.Limit, After: req.Params.After}
+}
+
+func (e ListSkillsEndpoint) Interact(ctx context.Context, req apigen.ListSkillsRequestObject) (app.Page[dbgen.Skill], error) {
 	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
-		return nil, err
+		return app.Page[dbgen.Skill]{}, err
 	}
-	return e.Store.ListSkills(ctx, req.GameId)
+	return app.Paginate(e.Page(req),
+		func(after *byName, limit int32) ([]dbgen.Skill, error) {
+			arg := dbgen.PageSkillsParams{GameID: req.GameId, Lim: limit}
+			if after != nil {
+				arg.AfterName, arg.AfterID = &after.Name, &after.ID
+			}
+			return e.Store.PageSkills(ctx, arg)
+		},
+		func(s dbgen.Skill) byName { return byName{s.Name, s.ID} })
 }
 
-func (e ListSkillsEndpoint) Build(rows []dbgen.Skill) []Skill {
-	out := make([]Skill, len(rows))
-	for i, r := range rows {
-		out[i] = skillView(r, e.Links)
-	}
-	return out
+func (e ListSkillsEndpoint) Build(p app.Page[dbgen.Skill]) app.Page[Skill] {
+	return app.MapPage(p, func(r dbgen.Skill) Skill { return skillView(r, e.Links) })
 }
 
-func (ListSkillsEndpoint) Render(vms []Skill) apigen.ListSkillsResponseObject {
-	out := make([]apigen.Skill, len(vms))
-	for i, s := range vms {
-		out[i] = skillAPI(s)
-	}
-	return apigen.ListSkills200JSONResponse{Skills: out}
+func (ListSkillsEndpoint) Render(p app.Page[Skill]) apigen.ListSkillsResponseObject {
+	return apigen.ListSkills200JSONResponse{Skills: app.MapPage(p, skillAPI).Items, Next: p.Next}
 }
 
 // CreateSkillEndpoint adds a skill, with a revision recording who wrote its
@@ -527,53 +543,55 @@ func loadQuest(ctx context.Context, s QuestReadStore, id string) (questModel, er
 
 type ListQuestsStore interface {
 	app.GameStore
-	ListQuests(ctx context.Context, gameID string) ([]dbgen.Quest, error)
+	PageQuests(ctx context.Context, arg dbgen.PageQuestsParams) ([]dbgen.Quest, error)
 	ListAllQuestStages(ctx context.Context, gameID string) ([]dbgen.QuestStage, error)
 }
 
-// ListQuestsEndpoint is every quest in a game, by name, with its stages.
+// ListQuestsEndpoint is a page of the quests in a game, by name, with
+// their stages.
 type ListQuestsEndpoint struct {
 	Store ListQuestsStore
 	Links app.Links
 }
 
-func (e ListQuestsEndpoint) Interact(ctx context.Context, req apigen.ListQuestsRequestObject) ([]questModel, error) {
+// Page is the page the caller asked for.
+func (ListQuestsEndpoint) Page(req apigen.ListQuestsRequestObject) app.PageRequest {
+	return app.PageRequest{List: "quest", Limit: req.Params.Limit, After: req.Params.After}
+}
+
+func (e ListQuestsEndpoint) Interact(ctx context.Context, req apigen.ListQuestsRequestObject) (app.Page[questModel], error) {
 	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
-		return nil, err
+		return app.Page[questModel]{}, err
 	}
-	quests, err := e.Store.ListQuests(ctx, req.GameId)
+	quests, err := app.Paginate(e.Page(req),
+		func(after *byName, limit int32) ([]dbgen.Quest, error) {
+			arg := dbgen.PageQuestsParams{GameID: req.GameId, Lim: limit}
+			if after != nil {
+				arg.AfterName, arg.AfterID = &after.Name, &after.ID
+			}
+			return e.Store.PageQuests(ctx, arg)
+		},
+		func(q dbgen.Quest) byName { return byName{q.Name, q.ID} })
 	if err != nil {
-		return nil, err
+		return app.Page[questModel]{}, err
 	}
 	stages, err := e.Store.ListAllQuestStages(ctx, req.GameId)
 	if err != nil {
-		return nil, err
+		return app.Page[questModel]{}, err
 	}
 	byQuest := map[string][]dbgen.QuestStage{}
 	for _, s := range stages {
 		byQuest[s.QuestID] = append(byQuest[s.QuestID], s)
 	}
-	out := make([]questModel, len(quests))
-	for i, q := range quests {
-		out[i] = questModel{Quest: q, Stages: byQuest[q.ID]}
-	}
-	return out, nil
+	return app.MapPage(quests, func(q dbgen.Quest) questModel { return questModel{Quest: q, Stages: byQuest[q.ID]} }), nil
 }
 
-func (e ListQuestsEndpoint) Build(ms []questModel) []Quest {
-	out := make([]Quest, len(ms))
-	for i, m := range ms {
-		out[i] = questView(m, e.Links)
-	}
-	return out
+func (e ListQuestsEndpoint) Build(p app.Page[questModel]) app.Page[Quest] {
+	return app.MapPage(p, func(m questModel) Quest { return questView(m, e.Links) })
 }
 
-func (ListQuestsEndpoint) Render(vms []Quest) apigen.ListQuestsResponseObject {
-	out := make([]apigen.Quest, len(vms))
-	for i, q := range vms {
-		out[i] = questAPI(q)
-	}
-	return apigen.ListQuests200JSONResponse{Quests: out}
+func (ListQuestsEndpoint) Render(p app.Page[Quest]) apigen.ListQuestsResponseObject {
+	return apigen.ListQuests200JSONResponse{Quests: app.MapPage(p, questAPI).Items, Next: p.Next}
 }
 
 // GetQuestEndpoint is one quest with its stages.

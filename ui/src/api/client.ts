@@ -40,6 +40,27 @@ api.use({
   },
 });
 
+/** The longest page the API returns (app.MaxLimit). */
+export const maxLimit = 200;
+
+/** all is a whole list, following its pages: page fetches the page that
+ *  starts at after (undefined for the first), and field names the list in
+ *  the response. Every list operation pages, so call this where a screen
+ *  needs every item (a dropdown, the world), not a list's first page. */
+export async function all<K extends string, T>(
+  field: K,
+  page: (after: string | undefined) => Promise<{ next: string } & { [k in K]: T[] }>,
+): Promise<T[]> {
+  const out: T[] = [];
+  let after: string | undefined;
+  for (;;) {
+    const r = await page(after);
+    out.push(...r[field]);
+    if (!r.next) return out;
+    after = r.next;
+  }
+}
+
 /** must unwraps an openapi-fetch result, throwing ApiError on failure. */
 export function must<T>(r: { data?: T; error?: unknown; response: Response }): T {
   if (r.error !== undefined || !r.response.ok) {

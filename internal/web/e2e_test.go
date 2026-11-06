@@ -1064,6 +1064,19 @@ func TestMCPTools(t *testing.T) {
 	if len(list.Notes) != 2 {
 		t.Fatalf("list_notes %+v", list)
 	}
+	// A list tool hands back a page and the cursor for the next one.
+	var page struct {
+		Notes []notes.Note
+		Next  string
+	}
+	call("list_notes", map[string]any{"game_id": first, "target_kind": "node", "target_id": n2.ID, "limit": 1}, &page)
+	if len(page.Notes) != 1 || page.Notes[0].ID != list.Notes[0].ID || page.Next == "" {
+		t.Fatalf("list_notes, a page of 1: %+v", page)
+	}
+	call("list_notes", map[string]any{"game_id": first, "target_kind": "node", "target_id": n2.ID, "limit": 1, "after": page.Next}, &page)
+	if len(page.Notes) != 1 || page.Notes[0].ID != list.Notes[1].ID || page.Next != "" {
+		t.Fatalf("list_notes, the last page: %+v", page)
+	}
 
 	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{Name: "get_note", Arguments: map[string]any{"id": "nope"}})
 	if err != nil || !res.IsError {
@@ -1177,4 +1190,101 @@ func TestStaleWrites(t *testing.T) {
 	if won != 1 {
 		t.Fatalf("%d of %d racing saves from one copy landed, want 1", won, racers)
 	}
+}
+
+// TestPagination walks every list a page at a time and checks the pages
+// add up to the whole list, in its order, with nothing twice; and that
+// every list refuses a bad limit or cursor.
+func TestPagination(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	g := "/api/games/" + first
+
+	// Five of each, with names that tie so the id has to break them.
+	for i := range 5 {
+		name := fmt.Sprint("Same ", i%2)
+		e.do("POST", g+"/characters", e.key, map[string]any{"name": name, "key": fmt.Sprint("c", i)}, http.StatusCreated, nil)
+		e.do("POST", g+"/conversations", e.key, map[string]any{"title": "A", "key": fmt.Sprint("v", i)}, http.StatusCreated, nil)
+		e.do("POST", g+"/flags", e.key, map[string]any{"key": fmt.Sprint("f", i)}, http.StatusCreated, nil)
+		e.do("POST", g+"/skills", e.key, map[string]any{"name": name, "key": fmt.Sprint("s", i)}, http.StatusCreated, nil)
+		e.do("POST", g+"/quests", e.key, map[string]any{"name": name, "key": fmt.Sprint("q", i)}, http.StatusCreated, nil)
+		e.do("POST", g+"/notes", e.key, map[string]any{"targetKind": "game", "body": "A"}, http.StatusCreated, nil)
+		e.do("POST", g+"/invites", e.key, map[string]any{}, http.StatusCreated, nil)
+		e.do("POST", "/api/games", e.key, map[string]any{"name": "A", "key": fmt.Sprint("g", i)}, http.StatusCreated, nil)
+		if err := e.q.AddGameMember(ctx, dbgen.AddGameMemberParams{GameID: first, UserID: e.user(fmt.Sprint("u", i)), Role: app.RoleWriter}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// ids is every id on one page of path's list, and its next.
+	ids := func(path, field, limit, after string) ([]string, string) {
+		t.Helper()
+		q := url.Values{"limit": {limit}}
+		if after != "" {
+			q.Set("after", after)
+		}
+		var body map[string]json.RawMessage
+		e.do("GET", path+"?"+q.Encode(), e.key, nil, http.StatusOK, &body)
+		var items []map[string]any
+		if err := json.Unmarshal(body[field], &items); err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		var next string
+		_ = json.Unmarshal(body["next"], &next)
+		out := make([]string, len(items))
+		for i, it := range items {
+			id, _ := it["id"].(string)
+			if id == "" {
+				id, _ = it["userId"].(string)
+			}
+			out[i] = id
+		}
+		return out, next
+	}
+
+	for _, l := range []struct{ path, field string }{
+		{"/api/games", "games"},
+		{g + "/members", "members"},
+		{g + "/invites", "invites"},
+		{g + "/characters", "characters"},
+		{g + "/conversations", "conversations"},
+		{g + "/flags", "flags"},
+		{g + "/skills", "skills"},
+		{g + "/quests", "quests"},
+		{g + "/notes", "notes"},
+	} {
+		whole, next := ids(l.path, l.field, "200", "")
+		if len(whole) < 5 || next != "" {
+			t.Fatalf("%s: one page of %d, next %q", l.path, len(whole), next)
+		}
+		var paged []string
+		after := ""
+		for range len(whole) {
+			page, next := ids(l.path, l.field, "2", after)
+			if len(page) > 2 {
+				t.Fatalf("%s: a page of %d for a limit of 2", l.path, len(page))
+			}
+			paged = append(paged, page...)
+			if next == "" {
+				break
+			}
+			after = next
+		}
+		if !slices.Equal(paged, whole) {
+			t.Errorf("%s: paged %v, want %v", l.path, paged, whole)
+		}
+
+		// A bad limit or cursor is refused; a cursor from another list too.
+		e.do("GET", l.path+"?limit=0", e.key, nil, http.StatusOK, nil)
+		e.do("GET", l.path+"?limit=201", e.key, nil, http.StatusUnprocessableEntity, nil)
+		e.do("GET", l.path+"?after=nope", e.key, nil, http.StatusUnprocessableEntity, nil)
+		_, other := ids(g+"/flags", "flags", "1", "")
+		if l.field != "flags" {
+			e.do("GET", l.path+"?after="+other, e.key, nil, http.StatusUnprocessableEntity, nil)
+		}
+	}
+
+	// A stranger with a bad limit still learns nothing about the game.
+	stranger, _ := e.person("stranger")
+	e.do("GET", g+"/characters?limit=201", stranger, nil, http.StatusNotFound, nil)
 }

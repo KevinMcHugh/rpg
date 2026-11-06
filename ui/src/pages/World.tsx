@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import { api, must, type Flag, type Note, type S, type Skill } from "../api/client";
+import { all, api, maxLimit, must, type Flag, type Note, type S, type Skill } from "../api/client";
 
 type Ability = S["Ability"];
 import { abilities, skillValueNames, useAct, useGame, useGameId, useLoad, useMe } from "../hooks";
@@ -16,14 +16,14 @@ export default function WorldPage() {
   const ruleset = useGame()?.ruleset ?? "classic";
   const d20 = ruleset !== "classic";
   const { data, error, reload } = useLoad(async () => {
-    const path = { params: { path: { gameId } } };
+    const page = (after: string | undefined) => ({ params: { path: { gameId }, query: { after, limit: maxLimit } } });
     const [flags, skills, quests, notes] = await Promise.all([
-      api.GET("/games/{gameId}/flags", path).then(must),
-      api.GET("/games/{gameId}/skills", path).then(must),
-      api.GET("/games/{gameId}/quests", path).then(must),
-      api.GET("/games/{gameId}/notes", path).then(must),
+      all("flags", async (after) => must(await api.GET("/games/{gameId}/flags", page(after)))),
+      all("skills", async (after) => must(await api.GET("/games/{gameId}/skills", page(after)))),
+      all("quests", async (after) => must(await api.GET("/games/{gameId}/quests", page(after)))),
+      all("notes", async (after) => must(await api.GET("/games/{gameId}/notes", page(after)))),
     ]);
-    return { flags: flags.flags, skills: skills.skills, quests: quests.quests, notes: notes.notes };
+    return { flags, skills, quests, notes };
   }, [gameId]);
   useEffect(() => {
     if (data && loc.hash) document.getElementById(loc.hash.slice(1))?.scrollIntoView({ block: "center" });

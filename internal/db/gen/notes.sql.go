@@ -7,6 +7,8 @@ package dbgen
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const countOpenNotes = `-- name: CountOpenNotes :one
@@ -157,6 +159,77 @@ func (q *Queries) ListNotes(ctx context.Context, arg ListNotesParams) ([]ListNot
 	items := []ListNotesRow{}
 	for rows.Next() {
 		var i ListNotesRow
+		if err := rows.Scan(
+			&i.Note.ID,
+			&i.Note.TargetKind,
+			&i.Note.TargetID,
+			&i.Note.Kind,
+			&i.Note.Body,
+			&i.Note.Status,
+			&i.Note.ParentID,
+			&i.Note.ByHuman,
+			&i.Note.CreatedBy,
+			&i.Note.CreatedAt,
+			&i.Note.UpdatedAt,
+			&i.Note.DeletedAt,
+			&i.Note.GameID,
+			&i.AuthorName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const pageNotes = `-- name: PageNotes :many
+SELECT notes.id, notes.target_kind, notes.target_id, notes.kind, notes.body, notes.status, notes.parent_id, notes.by_human, notes.created_by, notes.created_at, notes.updated_at, notes.deleted_at, notes.game_id, api_keys.name AS author_name
+FROM notes
+LEFT JOIN api_keys ON api_keys.id = notes.created_by
+WHERE notes.game_id = $1 AND notes.deleted_at IS NULL
+  AND ($2::text IS NULL OR notes.status = $2)
+  AND ($3::text IS NULL OR notes.target_kind = $3)
+  AND ($4::text IS NULL OR notes.target_id = $4)
+  AND ($5::text IS NULL OR (notes.created_at, notes.id) > ($6::timestamptz, $5::text))
+ORDER BY notes.created_at, notes.id
+LIMIT $7
+`
+
+type PageNotesParams struct {
+	GameID         string             `json:"game_id"`
+	Status         *string            `json:"status"`
+	TargetKind     *string            `json:"target_kind"`
+	TargetID       *string            `json:"target_id"`
+	AfterID        *string            `json:"after_id"`
+	AfterCreatedAt pgtype.Timestamptz `json:"after_created_at"`
+	Lim            int32              `json:"lim"`
+}
+
+type PageNotesRow struct {
+	Note       Note    `json:"note"`
+	AuthorName *string `json:"author_name"`
+}
+
+func (q *Queries) PageNotes(ctx context.Context, arg PageNotesParams) ([]PageNotesRow, error) {
+	rows, err := q.db.Query(ctx, pageNotes,
+		arg.GameID,
+		arg.Status,
+		arg.TargetKind,
+		arg.TargetID,
+		arg.AfterID,
+		arg.AfterCreatedAt,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PageNotesRow{}
+	for rows.Next() {
+		var i PageNotesRow
 		if err := rows.Scan(
 			&i.Note.ID,
 			&i.Note.TargetKind,

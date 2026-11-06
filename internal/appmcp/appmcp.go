@@ -33,7 +33,7 @@ import (
 )
 
 // Instructions is sent to every client on connect.
-const Instructions = `This is the authoring tool for story-driven party RPGs. It holds several games, each with its own ruleset (how skill checks resolve) and its own characters, conversations (a graph of lines, called nodes, joined by the choices a player makes), world (flags, skills, quests with numbered stages), and notes. Start with list_games, which lists the games the person you work for belongs to (you see exactly what they see): most tools take the game's id, and anything you look up by id tells you its game.
+const Instructions = `This is the authoring tool for story-driven party RPGs. It holds several games, each with its own ruleset (how skill checks resolve) and its own characters, conversations (a graph of lines, called nodes, joined by the choices a player makes), world (flags, skills, quests with numbered stages), and notes. Start with list_games, which lists the games the person you work for belongs to (you see exactly what they see): most tools take the game's id, and anything you look up by id tells you its game. The list_ tools return a page at a time (50 unless you ask for up to 200) and a next cursor: to see more, call again with after set to next, until next is empty.
 
 Choices and conversations carry scripts. A condition says when a choice shows or a conversation can be started ("met_mayor and skill persuasion >= 3"); effects say what a line or a choice changes ("approval aria += 5; quest find_brother = 2"). A choice can be a skill check, resolved by its game's ruleset (classic 2d6; SRD 5.2, 3.5 SRD or Pathfinder 2e on a d20, where a skill adds an ability and Pathfinder has critical successes and failures), with nodes for failure and, under Pathfinder, for the criticals. get_world lists the keys scripts use. Read scripts closely: a choice whose condition can never hold, a flag nothing sets, or a quest stage nothing reaches are the kind of thing worth a note.
 
@@ -80,8 +80,23 @@ type GameInput struct {
 	GameID string `json:"game_id" jsonschema:"the game's id, from list_games"`
 }
 
+// ListInput is a page of one of a game's lists. A list tool returns a page
+// and a next cursor: call it again with that as after for the next page,
+// until next is empty.
+type ListInput struct {
+	GameID string `json:"game_id" jsonschema:"the game's id, from list_games"`
+	Limit  int    `json:"limit,omitempty" jsonschema:"how many to return, from 1 to 200; omit for 50"`
+	After  string `json:"after,omitempty" jsonschema:"the next value from the page before; omit for the first page"`
+}
+
+type ListGamesInput struct {
+	Limit int    `json:"limit,omitempty" jsonschema:"how many to return, from 1 to 200; omit for 50"`
+	After string `json:"after,omitempty" jsonschema:"the next value from the page before; omit for the first page"`
+}
+
 type ListGamesOutput struct {
 	Games []games.Game `json:"games"`
+	Next  string       `json:"next" jsonschema:"send as after for the next page; empty on the last page"`
 }
 
 type MeOutput struct {
@@ -90,6 +105,7 @@ type MeOutput struct {
 
 type ListCharactersOutput struct {
 	Characters []characters.Character `json:"characters"`
+	Next       string                 `json:"next" jsonschema:"send as after for the next page; empty on the last page"`
 }
 
 type CharacterOutput struct {
@@ -98,6 +114,7 @@ type CharacterOutput struct {
 
 type ListConversationsOutput struct {
 	Conversations []conversations.Conversation `json:"conversations"`
+	Next          string                       `json:"next" jsonschema:"send as after for the next page; empty on the last page"`
 }
 
 type ConversationOutput struct {
@@ -123,10 +140,13 @@ type ListNotesInput struct {
 	Status     string `json:"status,omitempty" jsonschema:"open, resolved or dismissed; omit for all"`
 	TargetKind string `json:"target_kind,omitempty" jsonschema:"game, character, conversation, node, choice, flag, skill or quest; omit for all"`
 	TargetID   string `json:"target_id,omitempty" jsonschema:"only notes on this id"`
+	Limit      int    `json:"limit,omitempty" jsonschema:"how many to return, from 1 to 200; omit for 50"`
+	After      string `json:"after,omitempty" jsonschema:"the next value from the page before; omit for the first page"`
 }
 
 type ListNotesOutput struct {
 	Notes []notes.Note `json:"notes"`
+	Next  string       `json:"next" jsonschema:"send as after for the next page; empty on the last page"`
 }
 
 type NoteOutput struct {
@@ -160,18 +180,18 @@ func registerRead(s *mcpsdk.Server, store server.Store, links app.Links) {
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "list_games",
-		Description: "Every game, with its ruleset (classic 2d6, SRD 5.2, 3.5 SRD or Pathfinder 2e). Other tools take a game's id.",
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ Empty) (*mcpsdk.CallToolResult, ListGamesOutput, error) {
-		vm, err := server.BuildViewModel(ctx, games.ListEndpoint{Store: store, Links: links}, apigen.ListGamesRequestObject{})
-		return nil, ListGamesOutput{Games: vm}, err
+		Description: "The games, oldest first, a page at a time, with their rulesets (classic 2d6, SRD 5.2, 3.5 SRD or Pathfinder 2e). Other tools take a game's id.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in ListGamesInput) (*mcpsdk.CallToolResult, ListGamesOutput, error) {
+		vm, err := server.BuildViewModel(ctx, games.ListEndpoint{Store: store, Links: links}, apigen.ListGamesRequestObject{Params: apigen.ListGamesParams{Limit: in.Limit, After: in.After}})
+		return nil, ListGamesOutput{Games: vm.Items, Next: vm.Next}, err
 	})
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "list_characters",
-		Description: "Every character in a game, by name, with their bible.",
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in GameInput) (*mcpsdk.CallToolResult, ListCharactersOutput, error) {
-		vm, err := server.BuildViewModel(ctx, characters.ListEndpoint{Store: store, Links: links}, apigen.ListCharactersRequestObject{GameId: in.GameID})
-		return nil, ListCharactersOutput{Characters: vm}, err
+		Description: "The characters in a game, by name, a page at a time, with their bibles.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in ListInput) (*mcpsdk.CallToolResult, ListCharactersOutput, error) {
+		vm, err := server.BuildViewModel(ctx, characters.ListEndpoint{Store: store, Links: links}, apigen.ListCharactersRequestObject{GameId: in.GameID, Params: apigen.ListCharactersParams{Limit: in.Limit, After: in.After}})
+		return nil, ListCharactersOutput{Characters: vm.Items, Next: vm.Next}, err
 	})
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
@@ -184,10 +204,10 @@ func registerRead(s *mcpsdk.Server, store server.Store, links app.Links) {
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "list_conversations",
-		Description: "Every conversation in a game, newest first, with its title and summary but not its nodes.",
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in GameInput) (*mcpsdk.CallToolResult, ListConversationsOutput, error) {
-		vm, err := server.BuildViewModel(ctx, conversations.ListEndpoint{Store: store, Links: links}, apigen.ListConversationsRequestObject{GameId: in.GameID})
-		return nil, ListConversationsOutput{Conversations: vm}, err
+		Description: "The conversations in a game, newest first, a page at a time, with their titles and summaries but not their nodes.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in ListInput) (*mcpsdk.CallToolResult, ListConversationsOutput, error) {
+		vm, err := server.BuildViewModel(ctx, conversations.ListEndpoint{Store: store, Links: links}, apigen.ListConversationsRequestObject{GameId: in.GameID, Params: apigen.ListConversationsParams{Limit: in.Limit, After: in.After}})
+		return nil, ListConversationsOutput{Conversations: vm.Items, Next: vm.Next}, err
 	})
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
@@ -210,15 +230,22 @@ func registerRead(s *mcpsdk.Server, store server.Store, links app.Links) {
 		Name:        "get_world",
 		Description: "A game's every flag (with what it means), skill (with the player's starting level) and quest (with its numbered stages and journal entries): the keys that conditions and effects use.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in GameInput) (*mcpsdk.CallToolResult, WorldOutput, error) {
+		// The world is every key scripts use, so it is read whole.
 		var out WorldOutput
 		var err error
-		if out.Flags, err = server.BuildViewModel(ctx, world.ListFlagsEndpoint{Store: store, Links: links}, apigen.ListFlagsRequestObject{GameId: in.GameID}); err != nil {
+		if out.Flags, err = server.All(ctx, world.ListFlagsEndpoint{Store: store, Links: links}, func(after string) apigen.ListFlagsRequestObject {
+			return apigen.ListFlagsRequestObject{GameId: in.GameID, Params: apigen.ListFlagsParams{Limit: app.MaxLimit, After: after}}
+		}); err != nil {
 			return nil, out, err
 		}
-		if out.Skills, err = server.BuildViewModel(ctx, world.ListSkillsEndpoint{Store: store, Links: links}, apigen.ListSkillsRequestObject{GameId: in.GameID}); err != nil {
+		if out.Skills, err = server.All(ctx, world.ListSkillsEndpoint{Store: store, Links: links}, func(after string) apigen.ListSkillsRequestObject {
+			return apigen.ListSkillsRequestObject{GameId: in.GameID, Params: apigen.ListSkillsParams{Limit: app.MaxLimit, After: after}}
+		}); err != nil {
 			return nil, out, err
 		}
-		out.Quests, err = server.BuildViewModel(ctx, world.ListQuestsEndpoint{Store: store, Links: links}, apigen.ListQuestsRequestObject{GameId: in.GameID})
+		out.Quests, err = server.All(ctx, world.ListQuestsEndpoint{Store: store, Links: links}, func(after string) apigen.ListQuestsRequestObject {
+			return apigen.ListQuestsRequestObject{GameId: in.GameID, Params: apigen.ListQuestsParams{Limit: app.MaxLimit, After: after}}
+		})
 		return nil, out, err
 	})
 
@@ -234,14 +261,16 @@ func registerRead(s *mcpsdk.Server, store server.Store, links app.Links) {
 func registerNotes(s *mcpsdk.Server, store server.Store, links app.Links) {
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "list_notes",
-		Description: "A game's notes, oldest first, optionally filtered. Check what is already open before adding one.",
+		Description: "A game's notes, oldest first, a page at a time, optionally filtered. Check what is already open before adding one.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in ListNotesInput) (*mcpsdk.CallToolResult, ListNotesOutput, error) {
 		vm, err := server.BuildViewModel(ctx, notes.ListEndpoint{Store: store, Links: links}, apigen.ListNotesRequestObject{GameId: in.GameID, Params: apigen.ListNotesParams{
 			Status:     apigen.NoteStatus(in.Status),
 			TargetKind: apigen.NoteTargetKind(in.TargetKind),
 			TargetId:   in.TargetID,
+			Limit:      in.Limit,
+			After:      in.After,
 		}})
-		return nil, ListNotesOutput{Notes: vm}, err
+		return nil, ListNotesOutput{Notes: vm.Items, Next: vm.Next}, err
 	})
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{

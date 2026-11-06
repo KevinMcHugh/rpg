@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/rs/xid"
 
 	apigen "github.com/KevinMcHugh/rpg/internal/api/gen"
@@ -117,52 +118,65 @@ func ptr(s string) *string {
 
 type ListStore interface {
 	app.GameStore
-	ListNotes(ctx context.Context, arg dbgen.ListNotesParams) ([]dbgen.ListNotesRow, error)
+	PageNotes(ctx context.Context, arg dbgen.PageNotesParams) ([]dbgen.PageNotesRow, error)
 }
 
-// ListEndpoint is a game's notes matching the filters, oldest first.
+// ListEndpoint is a page of a game's notes matching the filters, oldest
+// first.
 type ListEndpoint struct {
 	Store ListStore
 	Links app.Links
 }
 
-func (e ListEndpoint) Interact(ctx context.Context, req apigen.ListNotesRequestObject) ([]dbgen.ListNotesRow, error) {
+// Page is the page the caller asked for.
+func (ListEndpoint) Page(req apigen.ListNotesRequestObject) app.PageRequest {
+	return app.PageRequest{List: "note", Limit: req.Params.Limit, After: req.Params.After}
+}
+
+// oldest is where a page of a list sorted oldest first starts.
+type oldest struct {
+	CreatedAt time.Time
+	ID        string
+}
+
+func (e ListEndpoint) Interact(ctx context.Context, req apigen.ListNotesRequestObject) (app.Page[dbgen.PageNotesRow], error) {
 	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
-		return nil, err
+		return app.Page[dbgen.PageNotesRow]{}, err
 	}
 	p := req.Params
 	if p.Status != "" {
 		if err := oneOf("status", string(p.Status), Statuses); err != nil {
-			return nil, err
+			return app.Page[dbgen.PageNotesRow]{}, err
 		}
 	}
 	if p.TargetKind != "" {
 		if err := oneOf("targetKind", string(p.TargetKind), TargetKinds); err != nil {
-			return nil, err
+			return app.Page[dbgen.PageNotesRow]{}, err
 		}
 	}
-	return e.Store.ListNotes(ctx, dbgen.ListNotesParams{
-		GameID:     req.GameId,
-		Status:     ptr(string(p.Status)),
-		TargetKind: ptr(string(p.TargetKind)),
-		TargetID:   ptr(strings.TrimSpace(p.TargetId)),
-	})
+	return app.Paginate(e.Page(req),
+		func(after *oldest, limit int32) ([]dbgen.PageNotesRow, error) {
+			arg := dbgen.PageNotesParams{
+				GameID:     req.GameId,
+				Status:     ptr(string(p.Status)),
+				TargetKind: ptr(string(p.TargetKind)),
+				TargetID:   ptr(strings.TrimSpace(p.TargetId)),
+				Lim:        limit,
+			}
+			if after != nil {
+				arg.AfterCreatedAt, arg.AfterID = pgtype.Timestamptz{Time: after.CreatedAt, Valid: true}, &after.ID
+			}
+			return e.Store.PageNotes(ctx, arg)
+		},
+		func(r dbgen.PageNotesRow) oldest { return oldest{r.Note.CreatedAt.Time, r.Note.ID} })
 }
 
-func (e ListEndpoint) Build(rows []dbgen.ListNotesRow) []Note {
-	out := make([]Note, len(rows))
-	for i, r := range rows {
-		out[i] = ToViewModel(r.Note, r.AuthorName, e.Links)
-	}
-	return out
+func (e ListEndpoint) Build(p app.Page[dbgen.PageNotesRow]) app.Page[Note] {
+	return app.MapPage(p, func(r dbgen.PageNotesRow) Note { return ToViewModel(r.Note, r.AuthorName, e.Links) })
 }
 
-func (e ListEndpoint) Render(vms []Note) apigen.ListNotesResponseObject {
-	out := make([]apigen.Note, len(vms))
-	for i, n := range vms {
-		out[i] = toAPI(n)
-	}
-	return apigen.ListNotes200JSONResponse{Notes: out}
+func (e ListEndpoint) Render(p app.Page[Note]) apigen.ListNotesResponseObject {
+	return apigen.ListNotes200JSONResponse{Notes: app.MapPage(p, toAPI).Items, Next: p.Next}
 }
 
 // -----------------------------------------------------------------------------
