@@ -36,22 +36,22 @@ type PathStore interface {
 }
 
 // PathEndpoint finds the shortest route to a node.
-type PathEndpoint struct{ Store PathStore }
+type PathEndpoint struct{}
 
 type pathModel struct {
 	Target dbgen.Node
 	Graph  graphModel
 }
 
-func (e PathEndpoint) Interact(ctx context.Context, req apigen.GetNodePathRequestObject) (pathModel, error) {
-	if _, err := app.Access(ctx, e.Store, "node", req.NodeId); err != nil {
+func (e PathEndpoint) Interact(ctx context.Context, store PathStore, req apigen.GetNodePathRequestObject) (pathModel, error) {
+	if _, err := app.Access(ctx, store, "node", req.NodeId); err != nil {
 		return pathModel{}, err
 	}
-	n, err := e.Store.GetNode(ctx, req.NodeId)
+	n, err := store.GetNode(ctx, req.NodeId)
 	if err != nil {
 		return pathModel{}, app.NotFound(err, "node", req.NodeId)
 	}
-	g, err := loadGraph(ctx, e.Store, n.ConversationID)
+	g, err := loadGraph(ctx, store, n.ConversationID)
 	return pathModel{Target: n, Graph: g}, err
 }
 

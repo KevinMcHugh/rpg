@@ -123,7 +123,6 @@ type ListStore interface {
 // ListEndpoint is a page of a game's notes matching the filters, oldest
 // first.
 type ListEndpoint struct {
-	Store ListStore
 	Links app.Links
 }
 
@@ -132,8 +131,8 @@ func (ListEndpoint) Page(req apigen.ListNotesRequestObject) app.PageRequest {
 	return app.PageRequest{List: "note", Limit: req.Params.Limit, After: req.Params.After}
 }
 
-func (e ListEndpoint) Interact(ctx context.Context, req apigen.ListNotesRequestObject) (app.Page[dbgen.NotesAfterRow], error) {
-	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
+func (e ListEndpoint) Interact(ctx context.Context, store ListStore, req apigen.ListNotesRequestObject) (app.Page[dbgen.NotesAfterRow], error) {
+	if _, err := app.Game(ctx, store, req.GameId); err != nil {
 		return app.Page[dbgen.NotesAfterRow]{}, err
 	}
 	p := req.Params
@@ -147,7 +146,7 @@ func (e ListEndpoint) Interact(ctx context.Context, req apigen.ListNotesRequestO
 			return app.Page[dbgen.NotesAfterRow]{}, err
 		}
 	}
-	return e.Store.PageNotes(ctx, app.NoteFilter{
+	return store.PageNotes(ctx, app.NoteFilter{
 		GameID: req.GameId, Status: string(p.Status), TargetKind: string(p.TargetKind), TargetID: strings.TrimSpace(p.TargetId),
 	}, e.Page(req))
 }
@@ -171,15 +170,14 @@ type GetStore interface {
 
 // GetEndpoint is one note.
 type GetEndpoint struct {
-	Store GetStore
 	Links app.Links
 }
 
-func (e GetEndpoint) Interact(ctx context.Context, req apigen.GetNoteRequestObject) (dbgen.GetNoteRow, error) {
-	if _, err := app.Access(ctx, e.Store, "note", req.NoteId); err != nil {
+func (e GetEndpoint) Interact(ctx context.Context, store GetStore, req apigen.GetNoteRequestObject) (dbgen.GetNoteRow, error) {
+	if _, err := app.Access(ctx, store, "note", req.NoteId); err != nil {
 		return dbgen.GetNoteRow{}, err
 	}
-	row, err := e.Store.GetNote(ctx, req.NoteId)
+	row, err := store.GetNote(ctx, req.NoteId)
 	return row, app.NotFound(err, "note", req.NoteId)
 }
 
@@ -212,12 +210,11 @@ type CreateStore interface {
 // it is how an agent contributes without writing the game's text. What it
 // is about must be in the same game.
 type CreateEndpoint struct {
-	Store CreateStore
 	Links app.Links
 }
 
-func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateNoteRequestObject) (dbgen.GetNoteRow, error) {
-	if _, err := app.Access(ctx, e.Store, "game", req.GameId); err != nil {
+func (e CreateEndpoint) Interact(ctx context.Context, store CreateStore, req apigen.CreateNoteRequestObject) (dbgen.GetNoteRow, error) {
+	if _, err := app.Access(ctx, store, "game", req.GameId); err != nil {
 		return dbgen.GetNoteRow{}, err
 	}
 	b := req.Body
@@ -228,13 +225,13 @@ func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateNoteReque
 	if n := utf8.RuneCountInString(body); n > MaxBody {
 		return dbgen.GetNoteRow{}, fmt.Errorf("%w: body is %d characters; the limit is %d", app.ErrBadInput, n, MaxBody)
 	}
-	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
+	if _, err := app.Game(ctx, store, req.GameId); err != nil {
 		return dbgen.GetNoteRow{}, err
 	}
 	kind, targetKind, targetID := string(b.Kind), string(b.TargetKind), strings.TrimSpace(b.TargetId)
 	var parentID *string
 	if id := strings.TrimSpace(b.ParentId); id != "" {
-		parent, err := e.Store.GetNote(ctx, id)
+		parent, err := store.GetNote(ctx, id)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return dbgen.GetNoteRow{}, fmt.Errorf("%w: no note %s to reply to", app.ErrBadInput, id)
@@ -264,10 +261,10 @@ func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateNoteReque
 	if err := oneOf("targetKind", targetKind, TargetKinds); err != nil {
 		return dbgen.GetNoteRow{}, err
 	}
-	if err := e.checkTarget(ctx, req.GameId, targetKind, targetID); err != nil {
+	if err := checkTarget(ctx, store, req.GameId, targetKind, targetID); err != nil {
 		return dbgen.GetNoteRow{}, err
 	}
-	row, err := e.Store.CreateNote(ctx, dbgen.CreateNoteParams{
+	row, err := store.CreateNote(ctx, dbgen.CreateNoteParams{
 		ID:         xid.New().String(),
 		GameID:     req.GameId,
 		TargetKind: targetKind,
@@ -281,12 +278,12 @@ func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateNoteReque
 	if err != nil {
 		return dbgen.GetNoteRow{}, err
 	}
-	return e.Store.GetNote(ctx, row.ID)
+	return store.GetNote(ctx, row.ID)
 }
 
 // checkTarget makes sure a note is about something that exists in the
 // game.
-func (e CreateEndpoint) checkTarget(ctx context.Context, gameID, kind, id string) error {
+func checkTarget(ctx context.Context, store CreateStore, gameID, kind, id string) error {
 	if kind == "game" {
 		if id != "" {
 			return fmt.Errorf("%w: a note on the whole game takes no targetId", app.ErrBadInput)
@@ -296,7 +293,7 @@ func (e CreateEndpoint) checkTarget(ctx context.Context, gameID, kind, id string
 	if id == "" {
 		return fmt.Errorf("%w: targetId is required for a note on a %s", app.ErrBadInput, kind)
 	}
-	game, err := e.gameOf(ctx, kind, id)
+	game, err := gameOf(ctx, store, kind, id)
 	if err != nil {
 		return app.NotFound(err, kind, id)
 	}
@@ -304,37 +301,37 @@ func (e CreateEndpoint) checkTarget(ctx context.Context, gameID, kind, id string
 }
 
 // gameOf is the game a note's target is in.
-func (e CreateEndpoint) gameOf(ctx context.Context, kind, id string) (string, error) {
+func gameOf(ctx context.Context, store CreateStore, kind, id string) (string, error) {
 	switch kind {
 	case "character":
-		c, err := e.Store.GetCharacter(ctx, id)
+		c, err := store.GetCharacter(ctx, id)
 		return c.GameID, err
 	case "conversation":
-		c, err := e.Store.GetConversation(ctx, id)
+		c, err := store.GetConversation(ctx, id)
 		return c.GameID, err
 	case "node", "choice":
 		nodeID := id
 		if kind == "choice" {
-			c, err := e.Store.GetChoice(ctx, id)
+			c, err := store.GetChoice(ctx, id)
 			if err != nil {
 				return "", err
 			}
 			nodeID = c.FromNodeID
 		}
-		n, err := e.Store.GetNode(ctx, nodeID)
+		n, err := store.GetNode(ctx, nodeID)
 		if err != nil {
 			return "", err
 		}
-		c, err := e.Store.GetConversation(ctx, n.ConversationID)
+		c, err := store.GetConversation(ctx, n.ConversationID)
 		return c.GameID, err
 	case "flag":
-		f, err := e.Store.GetFlag(ctx, id)
+		f, err := store.GetFlag(ctx, id)
 		return f.GameID, err
 	case "skill":
-		s, err := e.Store.GetSkill(ctx, id)
+		s, err := store.GetSkill(ctx, id)
 		return s.GameID, err
 	case "quest":
-		q, err := e.Store.GetQuest(ctx, id)
+		q, err := store.GetQuest(ctx, id)
 		return q.GameID, err
 	}
 	return "", fmt.Errorf("%w: unknown target kind %q", app.ErrBadInput, kind)
@@ -360,12 +357,11 @@ type UpdateStore interface {
 // UpdateEndpoint resolves, dismisses or reopens a note. People only: the
 // author decides what feedback to act on.
 type UpdateEndpoint struct {
-	Store UpdateStore
 	Links app.Links
 }
 
-func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateNoteRequestObject) (dbgen.GetNoteRow, error) {
-	if _, err := app.Access(ctx, e.Store, "note", req.NoteId); err != nil {
+func (e UpdateEndpoint) Interact(ctx context.Context, store UpdateStore, req apigen.UpdateNoteRequestObject) (dbgen.GetNoteRow, error) {
+	if _, err := app.Access(ctx, store, "note", req.NoteId); err != nil {
 		return dbgen.GetNoteRow{}, err
 	}
 	if err := app.RequireHuman(ctx); err != nil {
@@ -375,7 +371,7 @@ func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateNoteReque
 		return dbgen.GetNoteRow{}, err
 	}
 	var row dbgen.GetNoteRow
-	err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+	err := store.InTx(ctx, func(q *dbgen.Queries) error {
 		if err := app.Claim(ctx, q, e.Guard(req)); err != nil {
 			return err
 		}
@@ -413,16 +409,16 @@ type DeleteStore interface {
 }
 
 // DeleteEndpoint soft-deletes a note. People only.
-type DeleteEndpoint struct{ Store DeleteStore }
+type DeleteEndpoint struct{}
 
-func (e DeleteEndpoint) Interact(ctx context.Context, req apigen.DeleteNoteRequestObject) (bool, error) {
-	if _, err := app.Access(ctx, e.Store, "note", req.NoteId); err != nil {
+func (e DeleteEndpoint) Interact(ctx context.Context, store DeleteStore, req apigen.DeleteNoteRequestObject) (bool, error) {
+	if _, err := app.Access(ctx, store, "note", req.NoteId); err != nil {
 		return false, err
 	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return false, err
 	}
-	n, err := e.Store.DeleteNote(ctx, req.NoteId)
+	n, err := store.DeleteNote(ctx, req.NoteId)
 	if err != nil {
 		return false, err
 	}

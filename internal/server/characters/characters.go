@@ -104,7 +104,6 @@ type ListStore interface {
 
 // ListEndpoint is a page of the characters in a game, by name.
 type ListEndpoint struct {
-	Store ListStore
 	Links app.Links
 }
 
@@ -113,11 +112,11 @@ func (ListEndpoint) Page(req apigen.ListCharactersRequestObject) app.PageRequest
 	return app.PageRequest{List: "character", Limit: req.Params.Limit, After: req.Params.After}
 }
 
-func (e ListEndpoint) Interact(ctx context.Context, req apigen.ListCharactersRequestObject) (app.Page[dbgen.Character], error) {
-	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
+func (e ListEndpoint) Interact(ctx context.Context, store ListStore, req apigen.ListCharactersRequestObject) (app.Page[dbgen.Character], error) {
+	if _, err := app.Game(ctx, store, req.GameId); err != nil {
 		return app.Page[dbgen.Character]{}, err
 	}
-	return e.Store.PageCharacters(ctx, req.GameId, e.Page(req))
+	return store.PageCharacters(ctx, req.GameId, e.Page(req))
 }
 
 func (e ListEndpoint) Build(p app.Page[dbgen.Character]) app.Page[Character] {
@@ -139,15 +138,14 @@ type GetStore interface {
 
 // GetEndpoint is one character.
 type GetEndpoint struct {
-	Store GetStore
 	Links app.Links
 }
 
-func (e GetEndpoint) Interact(ctx context.Context, req apigen.GetCharacterRequestObject) (dbgen.Character, error) {
-	if _, err := app.Access(ctx, e.Store, "character", req.CharacterId); err != nil {
+func (e GetEndpoint) Interact(ctx context.Context, store GetStore, req apigen.GetCharacterRequestObject) (dbgen.Character, error) {
+	if _, err := app.Access(ctx, store, "character", req.CharacterId); err != nil {
 		return dbgen.Character{}, err
 	}
-	row, err := e.Store.GetCharacter(ctx, req.CharacterId)
+	row, err := store.GetCharacter(ctx, req.CharacterId)
 	return row, app.NotFound(err, "character", req.CharacterId)
 }
 
@@ -169,12 +167,11 @@ type TxStore interface {
 // CreateEndpoint saves a new character in a game, with a revision
 // recording who wrote the name. People only.
 type CreateEndpoint struct {
-	Store TxStore
 	Links app.Links
 }
 
-func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateCharacterRequestObject) (dbgen.Character, error) {
-	if _, err := app.Access(ctx, e.Store, "game", req.GameId); err != nil {
+func (e CreateEndpoint) Interact(ctx context.Context, store TxStore, req apigen.CreateCharacterRequestObject) (dbgen.Character, error) {
+	if _, err := app.Access(ctx, store, "game", req.GameId); err != nil {
 		return dbgen.Character{}, err
 	}
 	if err := app.RequireHuman(ctx); err != nil {
@@ -193,7 +190,7 @@ func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateCharacter
 		return dbgen.Character{}, err
 	}
 	var row dbgen.Character
-	err = e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+	err = store.InTx(ctx, func(q *dbgen.Queries) error {
 		if _, err := app.Game(ctx, q, req.GameId); err != nil {
 			return err
 		}
@@ -229,12 +226,11 @@ func (e CreateEndpoint) Render(vm Character) apigen.CreateCharacterResponseObjec
 
 // UpdateEndpoint changes a character's name, bible, or both. People only.
 type UpdateEndpoint struct {
-	Store TxStore
 	Links app.Links
 }
 
-func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateCharacterRequestObject) (dbgen.Character, error) {
-	if _, err := app.Access(ctx, e.Store, "character", req.CharacterId); err != nil {
+func (e UpdateEndpoint) Interact(ctx context.Context, store TxStore, req apigen.UpdateCharacterRequestObject) (dbgen.Character, error) {
+	if _, err := app.Access(ctx, store, "character", req.CharacterId); err != nil {
 		return dbgen.Character{}, err
 	}
 	if err := app.RequireHuman(ctx); err != nil {
@@ -263,7 +259,7 @@ func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateCharacter
 		}
 	}
 	var row dbgen.Character
-	err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+	err := store.InTx(ctx, func(q *dbgen.Queries) error {
 		if err := app.Claim(ctx, q, e.Guard(req)); err != nil {
 			return err
 		}
@@ -310,16 +306,16 @@ type DeleteStore interface {
 
 // DeleteEndpoint soft-deletes a character. Lines they spoke stay, and the
 // build reports them until they get a new speaker. People only.
-type DeleteEndpoint struct{ Store DeleteStore }
+type DeleteEndpoint struct{}
 
-func (e DeleteEndpoint) Interact(ctx context.Context, req apigen.DeleteCharacterRequestObject) (bool, error) {
-	if _, err := app.Access(ctx, e.Store, "character", req.CharacterId); err != nil {
+func (e DeleteEndpoint) Interact(ctx context.Context, store DeleteStore, req apigen.DeleteCharacterRequestObject) (bool, error) {
+	if _, err := app.Access(ctx, store, "character", req.CharacterId); err != nil {
 		return false, err
 	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return false, err
 	}
-	n, err := e.Store.DeleteCharacter(ctx, req.CharacterId)
+	n, err := store.DeleteCharacter(ctx, req.CharacterId)
 	if err != nil {
 		return false, err
 	}

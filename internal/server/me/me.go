@@ -34,14 +34,14 @@ type Store interface {
 
 // Endpoint is the api key the request acts as. The route is private, so the
 // auth middleware has put a key on the context before this runs.
-type Endpoint struct{ Store Store }
+type Endpoint struct{}
 
-func (e Endpoint) Interact(ctx context.Context, _ apigen.GetMeRequestObject) (Me, error) {
+func (e Endpoint) Interact(ctx context.Context, store Store, _ apigen.GetMeRequestObject) (Me, error) {
 	id := auth.KeyID(ctx)
 	if id == "" {
 		return Me{}, errors.New("me: no api key on the context")
 	}
-	k, err := e.Store.GetAPIKey(ctx, id)
+	k, err := store.GetAPIKey(ctx, id)
 	if err != nil {
 		return Me{}, err
 	}
@@ -49,7 +49,7 @@ func (e Endpoint) Interact(ctx context.Context, _ apigen.GetMeRequestObject) (Me
 	// token is still an agent.
 	m := Me{KeyID: k.ID, Name: k.Name, Human: auth.IsHuman(ctx)}
 	if k.UserID != nil {
-		u, err := e.Store.GetUser(ctx, *k.UserID)
+		u, err := store.GetUser(ctx, *k.UserID)
 		if err != nil {
 			return Me{}, err
 		}

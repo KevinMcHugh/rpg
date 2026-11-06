@@ -26,7 +26,6 @@ type Issue struct {
 
 // Endpoint checks the content.
 type Endpoint struct {
-	Store content.LoadStore
 	Links app.Links
 }
 
@@ -36,8 +35,8 @@ type model struct {
 	Report content.Report
 }
 
-func (e Endpoint) Interact(ctx context.Context, req apigen.GetBuildReportRequestObject) (model, error) {
-	c, err := content.Load(ctx, e.Store, req.GameId)
+func (e Endpoint) Interact(ctx context.Context, store content.LoadStore, req apigen.GetBuildReportRequestObject) (model, error) {
+	c, err := content.Load(ctx, store, req.GameId)
 	if err != nil {
 		return model{}, err
 	}

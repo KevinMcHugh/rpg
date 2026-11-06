@@ -82,10 +82,10 @@ func cleanCheck(ctx context.Context, q *dbgen.Queries, from dbgen.Node, gameID, 
 // CreateChoiceEndpoint adds a choice at a node, with a revision recording
 // who wrote it. Its target must be in the same conversation; no target ends
 // the conversation. People only.
-type CreateChoiceEndpoint struct{ Store TxStore }
+type CreateChoiceEndpoint struct{}
 
-func (e CreateChoiceEndpoint) Interact(ctx context.Context, req apigen.CreateChoiceRequestObject) (choiceModel, error) {
-	if _, err := app.Access(ctx, e.Store, "node", req.NodeId); err != nil {
+func (e CreateChoiceEndpoint) Interact(ctx context.Context, store TxStore, req apigen.CreateChoiceRequestObject) (choiceModel, error) {
+	if _, err := app.Access(ctx, store, "node", req.NodeId); err != nil {
 		return choiceModel{}, err
 	}
 	if err := app.RequireHuman(ctx); err != nil {
@@ -97,7 +97,7 @@ func (e CreateChoiceEndpoint) Interact(ctx context.Context, req apigen.CreateCho
 		return choiceModel{}, err
 	}
 	var m choiceModel
-	err = e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+	err = store.InTx(ctx, func(q *dbgen.Queries) error {
 		from, err := q.GetNode(ctx, req.NodeId)
 		if err != nil {
 			return app.NotFound(err, "node", req.NodeId)
@@ -168,10 +168,10 @@ func (CreateChoiceEndpoint) Render(vm Choice) apigen.CreateChoiceResponseObject 
 
 // UpdateChoiceEndpoint changes a choice's text, target, order, condition,
 // effects or skill check. People only.
-type UpdateChoiceEndpoint struct{ Store TxStore }
+type UpdateChoiceEndpoint struct{}
 
-func (e UpdateChoiceEndpoint) Interact(ctx context.Context, req apigen.UpdateChoiceRequestObject) (choiceModel, error) {
-	if _, err := app.Access(ctx, e.Store, "choice", req.ChoiceId); err != nil {
+func (e UpdateChoiceEndpoint) Interact(ctx context.Context, store TxStore, req apigen.UpdateChoiceRequestObject) (choiceModel, error) {
+	if _, err := app.Access(ctx, store, "choice", req.ChoiceId); err != nil {
 		return choiceModel{}, err
 	}
 	if err := app.RequireHuman(ctx); err != nil {
@@ -186,7 +186,7 @@ func (e UpdateChoiceEndpoint) Interact(ctx context.Context, req apigen.UpdateCho
 		}
 	}
 	var m choiceModel
-	err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+	err := store.InTx(ctx, func(q *dbgen.Queries) error {
 		if err := app.Claim(ctx, q, e.Guard(req)); err != nil {
 			return err
 		}
@@ -296,16 +296,16 @@ type DeleteChoiceStore interface {
 }
 
 // DeleteChoiceEndpoint soft-deletes a choice. People only.
-type DeleteChoiceEndpoint struct{ Store DeleteChoiceStore }
+type DeleteChoiceEndpoint struct{}
 
-func (e DeleteChoiceEndpoint) Interact(ctx context.Context, req apigen.DeleteChoiceRequestObject) (bool, error) {
-	if _, err := app.Access(ctx, e.Store, "choice", req.ChoiceId); err != nil {
+func (e DeleteChoiceEndpoint) Interact(ctx context.Context, store DeleteChoiceStore, req apigen.DeleteChoiceRequestObject) (bool, error) {
+	if _, err := app.Access(ctx, store, "choice", req.ChoiceId); err != nil {
 		return false, err
 	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return false, err
 	}
-	n, err := e.Store.DeleteChoice(ctx, req.ChoiceId)
+	n, err := store.DeleteChoice(ctx, req.ChoiceId)
 	if err != nil {
 		return false, err
 	}
