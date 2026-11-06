@@ -35,7 +35,9 @@ RETURNING *;
 UPDATE notes SET deleted_at = NOW(), updated_at = NOW()
 WHERE id = $1 AND deleted_at IS NULL;
 
--- name: PageNotes :many
+-- Up to lim rows after the sort key of the last row on the page before;
+-- app.Store.PageNotes pages them.
+-- name: NotesAfter :many
 SELECT sqlc.embed(notes), api_keys.name AS author_name
 FROM notes
 LEFT JOIN api_keys ON api_keys.id = notes.created_by

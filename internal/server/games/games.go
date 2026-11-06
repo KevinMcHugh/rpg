@@ -15,7 +15,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/rs/xid"
 
 	apigen "github.com/KevinMcHugh/rpg/internal/api/gen"
@@ -80,7 +79,7 @@ func cleanRuleset(r string) (string, error) {
 // -----------------------------------------------------------------------------
 
 type ListStore interface {
-	PageGamesForUser(ctx context.Context, arg dbgen.PageGamesForUserParams) ([]dbgen.PageGamesForUserRow, error)
+	PageGamesForUser(ctx context.Context, userID string, p app.PageRequest) (app.Page[dbgen.GamesForUserAfterRow], error)
 }
 
 // ListEndpoint is a page of the games the caller's user is a member of,
@@ -95,29 +94,17 @@ func (ListEndpoint) Page(req apigen.ListGamesRequestObject) app.PageRequest {
 	return app.PageRequest{List: "game", Limit: req.Params.Limit, After: req.Params.After}
 }
 
-// oldest is where a page of a list sorted oldest first starts.
-type oldest struct {
-	CreatedAt time.Time
-	ID        string
-}
-
 func (e ListEndpoint) Interact(ctx context.Context, req apigen.ListGamesRequestObject) (app.Page[Model], error) {
-	user := auth.UserID(ctx)
-	rows, err := app.Paginate(e.Page(req),
-		func(after *oldest, limit int32) ([]dbgen.PageGamesForUserRow, error) {
-			if user == "" {
-				return nil, nil
-			}
-			arg := dbgen.PageGamesForUserParams{UserID: user, Lim: limit}
-			if after != nil {
-				arg.AfterCreatedAt, arg.AfterID = pgtype.Timestamptz{Time: after.CreatedAt, Valid: true}, &after.ID
-			}
-			return e.Store.PageGamesForUser(ctx, arg)
-		},
-		func(r dbgen.PageGamesForUserRow) oldest { return oldest{r.CreatedAt.Time, r.ID} })
-	return app.MapPage(rows, func(r dbgen.PageGamesForUserRow) Model {
+	var rows app.Page[dbgen.GamesForUserAfterRow]
+	if user := auth.UserID(ctx); user != "" {
+		var err error
+		if rows, err = e.Store.PageGamesForUser(ctx, user, e.Page(req)); err != nil {
+			return app.Page[Model]{}, err
+		}
+	}
+	return app.MapPage(rows, func(r dbgen.GamesForUserAfterRow) Model {
 		return Model{Game: dbgen.Game{ID: r.ID, Key: r.Key, Name: r.Name, Ruleset: r.Ruleset, CreatedBy: r.CreatedBy, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}, Role: r.Role}
-	}), err
+	}), nil
 }
 
 func (e ListEndpoint) Build(p app.Page[Model]) app.Page[Game] {
@@ -250,6 +237,9 @@ func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateGameReque
 	}
 	var row dbgen.Game
 	err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+		if err := app.Claim(ctx, q, e.Guard(req)); err != nil {
+			return err
+		}
 		var err error
 		row, err = q.UpdateGame(ctx, arg)
 		return app.NotFound(err, "game", req.GameId)

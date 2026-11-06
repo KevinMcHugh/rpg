@@ -289,7 +289,7 @@ func (q *Queries) ListQuests(ctx context.Context, gameID string) ([]Quest, error
 	return items, nil
 }
 
-const pageQuests = `-- name: PageQuests :many
+const questsAfter = `-- name: QuestsAfter :many
 SELECT id, key, name, name_revision_id, summary, created_by, created_at, updated_at, deleted_at, game_id FROM quests
 WHERE game_id = $1 AND deleted_at IS NULL
   AND ($2::text IS NULL OR (name, id) > ($3::text, $2::text))
@@ -297,15 +297,17 @@ ORDER BY name, id
 LIMIT $4
 `
 
-type PageQuestsParams struct {
+type QuestsAfterParams struct {
 	GameID    string  `json:"game_id"`
 	AfterID   *string `json:"after_id"`
 	AfterName *string `json:"after_name"`
 	Lim       int32   `json:"lim"`
 }
 
-func (q *Queries) PageQuests(ctx context.Context, arg PageQuestsParams) ([]Quest, error) {
-	rows, err := q.db.Query(ctx, pageQuests,
+// Up to lim rows after the sort key of the last row on the page before;
+// app.Store.PageQuests pages them.
+func (q *Queries) QuestsAfter(ctx context.Context, arg QuestsAfterParams) ([]Quest, error) {
+	rows, err := q.db.Query(ctx, questsAfter,
 		arg.GameID,
 		arg.AfterID,
 		arg.AfterName,

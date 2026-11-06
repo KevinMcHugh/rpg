@@ -158,7 +158,7 @@ func (q *Queries) ListSkills(ctx context.Context, gameID string) ([]Skill, error
 	return items, nil
 }
 
-const pageSkills = `-- name: PageSkills :many
+const skillsAfter = `-- name: SkillsAfter :many
 SELECT id, key, name, name_revision_id, initial_level, created_by, created_at, updated_at, deleted_at, game_id, ability FROM skills
 WHERE game_id = $1 AND deleted_at IS NULL
   AND ($2::text IS NULL OR (name, id) > ($3::text, $2::text))
@@ -166,15 +166,17 @@ ORDER BY name, id
 LIMIT $4
 `
 
-type PageSkillsParams struct {
+type SkillsAfterParams struct {
 	GameID    string  `json:"game_id"`
 	AfterID   *string `json:"after_id"`
 	AfterName *string `json:"after_name"`
 	Lim       int32   `json:"lim"`
 }
 
-func (q *Queries) PageSkills(ctx context.Context, arg PageSkillsParams) ([]Skill, error) {
-	rows, err := q.db.Query(ctx, pageSkills,
+// Up to lim rows after the sort key of the last row on the page before;
+// app.Store.PageSkills pages them.
+func (q *Queries) SkillsAfter(ctx context.Context, arg SkillsAfterParams) ([]Skill, error) {
+	rows, err := q.db.Query(ctx, skillsAfter,
 		arg.GameID,
 		arg.AfterID,
 		arg.AfterName,

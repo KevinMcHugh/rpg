@@ -16,7 +16,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/rs/xid"
 
 	apigen "github.com/KevinMcHugh/rpg/internal/api/gen"
@@ -344,7 +343,7 @@ func loadGraph(ctx context.Context, s GraphStore, id string) (graphModel, error)
 type ListStore interface {
 	WorldStore
 	app.GameStore
-	PageConversations(ctx context.Context, arg dbgen.PageConversationsParams) ([]dbgen.Conversation, error)
+	PageConversations(ctx context.Context, gameID string, p app.PageRequest) (app.Page[dbgen.Conversation], error)
 }
 
 // ListEndpoint is a page of the conversations in a game, newest first,
@@ -360,12 +359,6 @@ type listItem struct {
 	World *world
 }
 
-// newest is where a page of a list sorted newest first starts.
-type newest struct {
-	CreatedAt time.Time
-	ID        string
-}
-
 // Page is the page the caller asked for.
 func (ListEndpoint) Page(req apigen.ListConversationsRequestObject) app.PageRequest {
 	return app.PageRequest{List: "conversation", Limit: req.Params.Limit, After: req.Params.After}
@@ -375,15 +368,7 @@ func (e ListEndpoint) Interact(ctx context.Context, req apigen.ListConversations
 	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
 		return app.Page[listItem]{}, err
 	}
-	page, err := app.Paginate(e.Page(req),
-		func(after *newest, limit int32) ([]dbgen.Conversation, error) {
-			arg := dbgen.PageConversationsParams{GameID: req.GameId, Lim: limit}
-			if after != nil {
-				arg.AfterCreatedAt, arg.AfterID = pgtype.Timestamptz{Time: after.CreatedAt, Valid: true}, &after.ID
-			}
-			return e.Store.PageConversations(ctx, arg)
-		},
-		func(c dbgen.Conversation) newest { return newest{c.CreatedAt.Time, c.ID} })
+	page, err := e.Store.PageConversations(ctx, req.GameId, e.Page(req))
 	if err != nil {
 		return app.Page[listItem]{}, err
 	}
@@ -537,6 +522,9 @@ func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateConversat
 		}
 	}
 	err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+		if err := app.Claim(ctx, q, e.Guard(req)); err != nil {
+			return err
+		}
 		cur, err := q.GetConversation(ctx, req.ConversationId)
 		if err != nil {
 			return app.NotFound(err, "conversation", req.ConversationId)

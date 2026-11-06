@@ -44,8 +44,9 @@ SELECT * FROM widgets WHERE id = $1 AND deleted_at IS NULL;
 SELECT * FROM widgets WHERE deleted_at IS NULL ORDER BY created_at DESC;
 
 -- One page of the list, after the key of the last row on the page before
--- (app.Paginate). The sort ends in the id, so the key is unique per row.
--- name: PageWidgets :many
+-- (app.Store.PageWidgets pages it). The sort ends in the id, so the key is
+-- unique per row.
+-- name: WidgetsAfter :many
 SELECT * FROM widgets WHERE deleted_at IS NULL
   AND (sqlc.narg(after_id)::text IS NULL OR (created_at, id) < (sqlc.narg(after_created_at)::timestamptz, sqlc.narg(after_id)::text))
 ORDER BY created_at DESC, id DESC
@@ -60,7 +61,7 @@ UPDATE widgets SET deleted_at = NOW(), updated_at = NOW()
 WHERE id = $1 AND deleted_at IS NULL;
 ```
 
-Every read and write filters `deleted_at IS NULL`. `ListWidgets` is for code that needs every row; the list endpoint uses `PageWidgets`. Keep their order the same, and flip the comparison (`>` for an ascending sort, `<` for a descending one) to match it.
+Every read and write filters `deleted_at IS NULL`. `ListWidgets` is for code that needs every row; `WidgetsAfter` is the keyset query that `app.Store.PageWidgets` pages. Keep their order the same, and flip the comparison (`>` for an ascending sort, `<` for a descending one) to match it.
 
 ## 3. Spec
 
@@ -93,12 +94,14 @@ Create `internal/server/widgets/widgets.go`, using `characters/characters.go` as
 - if the resource belongs to a game (most do): a `game_id` column, list and create under `/games/{gameId}` checked with `app.Game`, and `app.SameGame` on anything it connects to;
 - `app.Access(ctx, store, kind, id)` first in every endpoint that takes the resource's id, which keeps it private to its game's members, with a case for the kind in the `GameAccess` query (`db/queries/games.sql`) and its id parameter in `TestEveryOperationIsMembersOnly`;
 - `app.RequireHuman(ctx)` first in every write, and, for a player-facing field, a `*_revision_id` column written through `app.Revise` in the same transaction (`InTx`), plus a check in `internal/content` so the build verifies it;
-- on the update endpoint, a `Guard` method naming the row and the `updatedAt` the caller sent (`app.Guard{Kind: "widget", ID: req.WidgetId, Seen: req.Body.UpdatedAt}`), with the write done in `InTx`, which checks it; and a CTE and arm for the kind in `LockForWrite` (`db/queries/guard.sql`). See "Stale writes" in [architecture.md](architecture.md);
-- on the list endpoint, a `Page` method naming the list (`app.PageRequest{List: "widget", Limit: req.Params.Limit, After: req.Params.After}`), an `Interact` that returns `app.Paginate` over `PageWidgets` with the row's sort key, and `Build` and `Render` over the page with `app.MapPage`. See "Lists" in [architecture.md](architecture.md).
+- on the update endpoint, a `Guard` method naming the row and the `updatedAt` the caller sent (`app.Guard{Kind: "widget", ID: req.WidgetId, Seen: req.Body.UpdatedAt}`), and `app.Claim(ctx, q, e.Guard(req))` first in the `InTx` that does the write; and a CTE and arm for the kind in `LockForWrite` (`db/queries/guard.sql`). See "Stale writes" in [architecture.md](architecture.md);
+- on the list endpoint, a `Page` method naming the list (`app.PageRequest{List: "widget", Limit: req.Params.Limit, After: req.Params.After}`), an `Interact` that returns `e.Store.PageWidgets(ctx, …, e.Page(req))` through its narrow `Store` interface, and `Build` and `Render` over the page with `app.MapPage`. See "Lists" in [architecture.md](architecture.md).
 
 If a view model links to a page, add a method to `app.Links`.
 
 If an operation needs a transaction, add a method to `app.Store` (see `RedeemInvite`) and to the `server.Store` interface.
+
+For the list, add `PageWidgets(ctx, …filters, p app.PageRequest) (app.Page[dbgen.Widget], error)` to `internal/app/pages.go` and to `app.Pager`: it runs `WidgetsAfter` through `app.Paginate` with the row's sort key, as `PageCharacters` does.
 
 ## 6. Wire into the server
 

@@ -34,6 +34,7 @@ const BaseURL = "/api"
 type Store interface {
 	dbgen.Querier
 	InTx(ctx context.Context, fn func(q *dbgen.Queries) error) error
+	app.Pager
 }
 
 // Server implements apigen.StrictServerInterface by composing per-resource

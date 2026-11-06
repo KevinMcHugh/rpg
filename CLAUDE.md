@@ -33,9 +33,9 @@ To change something in a generated file, edit its source (the spec, a query or a
 
 Endpoints return `app.ErrNotFound`, `app.ErrBadInput` or `app.ErrForbidden` (wrapped with `%w` and a message). `internal/server/server.go` maps them to the spec's 404, 422 and 403, the app shows their message, and MCP returns them as tool errors.
 
-Every PATCH is guarded against stale writes: the body requires the `updatedAt` the caller loaded, the endpoint implements `Guard(req) app.Guard` (`server.Guarded`), `server.go` runs it with `RunGuarded` and maps `app.ErrConflict` to 409, and the write happens in `InTx`, which locks the row and compares. The app sends back the `updatedAt` of what it is editing. See "Stale writes" in @docs/architecture.md.
+Every PATCH is guarded against stale writes: the body requires the `updatedAt` the caller loaded, the endpoint implements `Guard(req) app.Guard` (`server.Guarded`), `server.go` runs it with `RunGuarded` and maps `app.ErrConflict` to 409, and the endpoint calls `app.Claim(ctx, q, e.Guard(req))` first in the `InTx` that writes the row, which locks it and compares; `Run` fails closed if it never claimed. The app sends back the `updatedAt` of what it is editing. See "Stale writes" in @docs/architecture.md.
 
-Every list is paged: it takes `limit` (default 100, at most 200) and `after`, and returns `next`. The endpoint implements `Page(req) app.PageRequest` (`server.Paged`), returns `app.Paginate` over a keyset `Page…` query (the `List…` query stays for code that needs every row), and `server.go` runs it with `RunPaged`. Code that needs a whole list follows `next`: `server.All` on the server, `all()` in the app. See "Lists" in @docs/architecture.md.
+Every list is paged: it takes `limit` (default 100, at most 200) and `after`, and returns `next`. The endpoint implements `Page(req) app.PageRequest` (`server.Paged`) and returns its store's `Page…` method (in `internal/app/pages.go`, which runs a keyset `…After` query through `app.Paginate`; the `List…` query stays for code that needs every row), and `server.go` runs it with `RunPaged`. Code that needs a whole list follows `next`: `server.All` on the server, `all()` in the app. See "Lists" in @docs/architecture.md.
 
 ## Adding a resource
 

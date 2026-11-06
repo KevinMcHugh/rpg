@@ -13,6 +13,9 @@ import (
 type Querier interface {
 	// ---- membership -------------------------------------------------------------
 	AddGameMember(ctx context.Context, arg AddGameMemberParams) error
+	// Up to lim rows after the sort key of the last row on the page before;
+	// app.Store.PageCharacters pages them.
+	CharactersAfter(ctx context.Context, arg CharactersAfterParams) ([]Character, error)
 	// Spends an invite in one UPDATE, so two people racing one link cannot
 	// both join on it.
 	ClaimGameInvite(ctx context.Context, arg ClaimGameInviteParams) (GameInvite, error)
@@ -23,6 +26,9 @@ type Querier interface {
 	ClearOpening(ctx context.Context, arg ClearOpeningParams) error
 	ConsumeOAuthCode(ctx context.Context, codeHash string) (OauthCode, error)
 	ConsumeSSOLoginIntent(ctx context.Context, state string) (SsoLoginIntent, error)
+	// Up to lim rows after the sort key of the last row on the page before;
+	// app.Store.PageConversations pages them.
+	ConversationsAfter(ctx context.Context, arg ConversationsAfterParams) ([]Conversation, error)
 	CountOpenNotes(ctx context.Context, gameID string) (int64, error)
 	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (ApiKey, error)
 	CreateCharacter(ctx context.Context, arg CreateCharacterParams) (Character, error)
@@ -76,9 +82,21 @@ type Querier interface {
 	// Games a command names, by id or key. A key may name several: keys are
 	// labels, not identities.
 	FindGames(ctx context.Context, id string) ([]Game, error)
+	// Up to lim rows after the sort key of the last row on the page before;
+	// app.Store.PageFlags pages them.
+	FlagsAfter(ctx context.Context, arg FlagsAfterParams) ([]Flag, error)
 	// The game something belongs to, and the user's role in it ('' when they
 	// are not a member). No row when the thing, or its game, does not exist.
 	GameAccess(ctx context.Context, arg GameAccessParams) (GameAccessRow, error)
+	// A game's live invites, newest first, after the sort key of the last on
+	// the page before; app.Store.PageGameInvites pages them.
+	GameInvitesAfter(ctx context.Context, arg GameInvitesAfterParams) ([]GameInvite, error)
+	// A game's members, the owner first, then by when they joined, after the
+	// sort key of the last on the page before; app.Store.PageGameMembers pages them.
+	GameMembersAfter(ctx context.Context, arg GameMembersAfterParams) ([]GameMembersAfterRow, error)
+	// ListGamesForUser after the (created_at, id) of the last game on the page
+	// before; app.Store.PageGamesForUser pages them.
+	GamesForUserAfter(ctx context.Context, arg GamesForUserAfterParams) ([]GamesForUserAfterRow, error)
 	GetAPIKey(ctx context.Context, id string) (ApiKey, error)
 	GetAPIKeyByHash(ctx context.Context, keyHash string) (ApiKey, error)
 	GetCharacter(ctx context.Context, id string) (Character, error)
@@ -144,20 +162,13 @@ type Querier interface {
 	// locks in its own CTE, and only the one whose kind matches reads a row.
 	// A new kind that takes a guard gets a CTE here and an arm below.
 	LockForWrite(ctx context.Context, arg LockForWriteParams) (pgtype.Timestamptz, error)
-	PageCharacters(ctx context.Context, arg PageCharactersParams) ([]Character, error)
-	PageConversations(ctx context.Context, arg PageConversationsParams) ([]Conversation, error)
-	PageFlags(ctx context.Context, arg PageFlagsParams) ([]Flag, error)
-	// One page of a game's live invites, newest first.
-	PageGameInvites(ctx context.Context, arg PageGameInvitesParams) ([]GameInvite, error)
-	// One page of a game's members: the owner first, then by when they joined.
-	PageGameMembers(ctx context.Context, arg PageGameMembersParams) ([]PageGameMembersRow, error)
-	// One page of ListGamesForUser, after the (created_at, id) of the last game
-	// on the page before (app.Paginate).
-	PageGamesForUser(ctx context.Context, arg PageGamesForUserParams) ([]PageGamesForUserRow, error)
-	PageNotes(ctx context.Context, arg PageNotesParams) ([]PageNotesRow, error)
-	PageQuests(ctx context.Context, arg PageQuestsParams) ([]Quest, error)
-	PageSkills(ctx context.Context, arg PageSkillsParams) ([]Skill, error)
+	// Up to lim rows after the sort key of the last row on the page before;
+	// app.Store.PageNotes pages them.
+	NotesAfter(ctx context.Context, arg NotesAfterParams) ([]NotesAfterRow, error)
 	PurgeExpiredSSOLoginIntents(ctx context.Context) error
+	// Up to lim rows after the sort key of the last row on the page before;
+	// app.Store.PageQuests pages them.
+	QuestsAfter(ctx context.Context, arg QuestsAfterParams) ([]Quest, error)
 	// The owner cannot be removed: a game always has one.
 	RemoveGameMember(ctx context.Context, arg RemoveGameMemberParams) (int64, error)
 	// A token stops working when its api key is deleted. client_id is NULL for
@@ -167,6 +178,9 @@ type Querier interface {
 	RevokeOAuthTokenByHash(ctx context.Context, tokenHash string) error
 	SetInviteKey(ctx context.Context, arg SetInviteKeyParams) error
 	SetNoteStatus(ctx context.Context, arg SetNoteStatusParams) (Note, error)
+	// Up to lim rows after the sort key of the last row on the page before;
+	// app.Store.PageSkills pages them.
+	SkillsAfter(ctx context.Context, arg SkillsAfterParams) ([]Skill, error)
 	TouchAPIKey(ctx context.Context, id string) error
 	TouchUserIdentity(ctx context.Context, arg TouchUserIdentityParams) error
 	// A new name comes with its new revision.
