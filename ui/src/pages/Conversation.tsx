@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, must, type Character, type Choice, type Graph, type Node, type Note, type Skill } from "../api/client";
+import { all, api, maxLimit, must, type Character, type Choice, type Graph, type Node, type Note, type Skill } from "../api/client";
 import { hasCriticals, useAct, useGame, useGameId, useLoad, useMe } from "../hooks";
 import { Badge, Form, Id, Key, Loading, Notes, Rule, Script, notesFor, num, str } from "../components/ui";
 import GraphView from "../graph/Graph";
@@ -28,13 +28,13 @@ export default function ConversationPage() {
   const graph = params.get("view") === "graph";
   const { data, error, reload } = useLoad(async () => {
     const g = must(await api.GET("/conversations/{conversationId}", { params: { path: { conversationId: id } } }));
-    const path = { params: { path: { gameId: g.conversation.gameId } } };
+    const page = (after: string | undefined) => ({ params: { path: { gameId: g.conversation.gameId }, query: { after, limit: maxLimit } } });
     const [chars, skills, notes] = await Promise.all([
-      api.GET("/games/{gameId}/characters", path).then(must),
-      api.GET("/games/{gameId}/skills", path).then(must),
-      api.GET("/games/{gameId}/notes", path).then(must),
+      all("characters", async (after) => must(await api.GET("/games/{gameId}/characters", page(after)))),
+      all("skills", async (after) => must(await api.GET("/games/{gameId}/skills", page(after)))),
+      all("notes", async (after) => must(await api.GET("/games/{gameId}/notes", page(after)))),
     ]);
-    return { g, chars: chars.characters, skills: skills.skills, notes: notes.notes };
+    return { g, chars, skills, notes };
   }, [id]);
   useGameId(data?.g.conversation.gameId);
 

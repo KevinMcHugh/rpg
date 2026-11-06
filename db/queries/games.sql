@@ -76,3 +76,14 @@ JOIN games ON games.id = target.game_id AND games.deleted_at IS NULL
 LEFT JOIN game_members ON game_members.game_id = target.game_id
     AND game_members.user_id = sqlc.arg(user_id) AND game_members.deleted_at IS NULL
 LIMIT 1;
+
+-- One page of ListGamesForUser, after the (created_at, id) of the last game
+-- on the page before (app.Paginate).
+-- name: PageGamesForUser :many
+SELECT games.*, game_members.role FROM games
+JOIN game_members ON game_members.game_id = games.id
+    AND game_members.user_id = sqlc.arg(user_id) AND game_members.deleted_at IS NULL
+WHERE games.deleted_at IS NULL
+  AND (sqlc.narg(after_id)::text IS NULL OR (games.created_at, games.id) > (sqlc.narg(after_created_at)::timestamptz, sqlc.narg(after_id)::text))
+ORDER BY games.created_at, games.id
+LIMIT sqlc.arg(lim);

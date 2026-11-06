@@ -1,5 +1,5 @@
 import { useParams, useSearchParams } from "react-router-dom";
-import { api, must, type Note } from "../api/client";
+import { all, api, maxLimit, must, type Note } from "../api/client";
 import { useAct, useGameId, useLoad, useMe } from "../hooks";
 import { Badge, Loading, TargetLink, label } from "../components/ui";
 
@@ -15,7 +15,9 @@ export default function NotesPage() {
   const status = (params.get("status") ?? "open") as (typeof statuses)[number];
   const { data, error, reload } = useLoad(
     async () =>
-      must(await api.GET("/games/{gameId}/notes", { params: { path: { gameId }, query: status === "all" ? {} : { status } } })).notes,
+      all("notes", async (after) =>
+        must(await api.GET("/games/{gameId}/notes", { params: { path: { gameId }, query: { ...(status === "all" ? {} : { status }), after, limit: maxLimit } } })),
+      ),
     [gameId, status],
   );
   const set = (n: Note, s: Note["status"]) =>

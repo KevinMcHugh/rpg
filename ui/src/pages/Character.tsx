@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, must } from "../api/client";
+import { all, api, maxLimit, must } from "../api/client";
 import { useAct, useGameId, useLoad, useMe } from "../hooks";
 import { Badge, Form, Id, Key, Loading, Notes, notesFor, str } from "../components/ui";
 
@@ -12,10 +12,14 @@ export default function CharacterPage() {
   const [editing, setEditing] = useState(false);
   const { data, error, reload } = useLoad(async () => {
     const c = must(await api.GET("/characters/{characterId}", { params: { path: { characterId: id } } }));
-    const notes = must(
-      await api.GET("/games/{gameId}/notes", { params: { path: { gameId: c.gameId }, query: { targetKind: "character", targetId: id } } }),
+    const notes = await all("notes", async (after) =>
+      must(
+        await api.GET("/games/{gameId}/notes", {
+          params: { path: { gameId: c.gameId }, query: { targetKind: "character", targetId: id, after, limit: maxLimit } },
+        }),
+      ),
     );
-    return { c, notes: notes.notes };
+    return { c, notes };
   }, [id]);
   useGameId(data?.c.gameId);
   if (!data) return <Loading error={error} />;

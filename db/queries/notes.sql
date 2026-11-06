@@ -34,3 +34,15 @@ RETURNING *;
 -- name: DeleteNote :execrows
 UPDATE notes SET deleted_at = NOW(), updated_at = NOW()
 WHERE id = $1 AND deleted_at IS NULL;
+
+-- name: PageNotes :many
+SELECT sqlc.embed(notes), api_keys.name AS author_name
+FROM notes
+LEFT JOIN api_keys ON api_keys.id = notes.created_by
+WHERE notes.game_id = sqlc.arg(game_id) AND notes.deleted_at IS NULL
+  AND (sqlc.narg(status)::text IS NULL OR notes.status = sqlc.narg(status))
+  AND (sqlc.narg(target_kind)::text IS NULL OR notes.target_kind = sqlc.narg(target_kind))
+  AND (sqlc.narg(target_id)::text IS NULL OR notes.target_id = sqlc.narg(target_id))
+  AND (sqlc.narg(after_id)::text IS NULL OR (notes.created_at, notes.id) > (sqlc.narg(after_created_at)::timestamptz, sqlc.narg(after_id)::text))
+ORDER BY notes.created_at, notes.id
+LIMIT sqlc.arg(lim);

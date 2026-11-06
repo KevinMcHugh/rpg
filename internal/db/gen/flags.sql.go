@@ -119,6 +119,56 @@ func (q *Queries) ListFlags(ctx context.Context, gameID string) ([]Flag, error) 
 	return items, nil
 }
 
+const pageFlags = `-- name: PageFlags :many
+SELECT id, key, description, initial_value, created_by, created_at, updated_at, deleted_at, game_id FROM flags
+WHERE game_id = $1 AND deleted_at IS NULL
+  AND ($2::text IS NULL OR (key, id) > ($3::text, $2::text))
+ORDER BY key, id
+LIMIT $4
+`
+
+type PageFlagsParams struct {
+	GameID   string  `json:"game_id"`
+	AfterID  *string `json:"after_id"`
+	AfterKey *string `json:"after_key"`
+	Lim      int32   `json:"lim"`
+}
+
+func (q *Queries) PageFlags(ctx context.Context, arg PageFlagsParams) ([]Flag, error) {
+	rows, err := q.db.Query(ctx, pageFlags,
+		arg.GameID,
+		arg.AfterID,
+		arg.AfterKey,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Flag{}
+	for rows.Next() {
+		var i Flag
+		if err := rows.Scan(
+			&i.ID,
+			&i.Key,
+			&i.Description,
+			&i.InitialValue,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.GameID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateFlag = `-- name: UpdateFlag :one
 UPDATE flags SET
     key = COALESCE($2, key),

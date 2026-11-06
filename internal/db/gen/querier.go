@@ -144,6 +144,19 @@ type Querier interface {
 	// locks in its own CTE, and only the one whose kind matches reads a row.
 	// A new kind that takes a guard gets a CTE here and an arm below.
 	LockForWrite(ctx context.Context, arg LockForWriteParams) (pgtype.Timestamptz, error)
+	PageCharacters(ctx context.Context, arg PageCharactersParams) ([]Character, error)
+	PageConversations(ctx context.Context, arg PageConversationsParams) ([]Conversation, error)
+	PageFlags(ctx context.Context, arg PageFlagsParams) ([]Flag, error)
+	// One page of a game's live invites, newest first.
+	PageGameInvites(ctx context.Context, arg PageGameInvitesParams) ([]GameInvite, error)
+	// One page of a game's members: the owner first, then by when they joined.
+	PageGameMembers(ctx context.Context, arg PageGameMembersParams) ([]PageGameMembersRow, error)
+	// One page of ListGamesForUser, after the (created_at, id) of the last game
+	// on the page before (app.Paginate).
+	PageGamesForUser(ctx context.Context, arg PageGamesForUserParams) ([]PageGamesForUserRow, error)
+	PageNotes(ctx context.Context, arg PageNotesParams) ([]PageNotesRow, error)
+	PageQuests(ctx context.Context, arg PageQuestsParams) ([]Quest, error)
+	PageSkills(ctx context.Context, arg PageSkillsParams) ([]Skill, error)
 	PurgeExpiredSSOLoginIntents(ctx context.Context) error
 	// The owner cannot be removed: a game always has one.
 	RemoveGameMember(ctx context.Context, arg RemoveGameMemberParams) (int64, error)

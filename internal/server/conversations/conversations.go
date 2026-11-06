@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/rs/xid"
 
 	apigen "github.com/KevinMcHugh/rpg/internal/api/gen"
@@ -343,46 +344,59 @@ func loadGraph(ctx context.Context, s GraphStore, id string) (graphModel, error)
 type ListStore interface {
 	WorldStore
 	app.GameStore
+	PageConversations(ctx context.Context, arg dbgen.PageConversationsParams) ([]dbgen.Conversation, error)
 }
 
-// ListEndpoint is every conversation in a game, newest first, without
-// nodes.
+// ListEndpoint is a page of the conversations in a game, newest first,
+// without nodes.
 type ListEndpoint struct {
 	Store ListStore
 	Links app.Links
 }
 
-type listModel struct {
-	Rows  []dbgen.Conversation
-	World world
+// listItem is a conversation with the world its scripts are shown in.
+type listItem struct {
+	Row   dbgen.Conversation
+	World *world
 }
 
-func (e ListEndpoint) Interact(ctx context.Context, req apigen.ListConversationsRequestObject) (listModel, error) {
+// newest is where a page of a list sorted newest first starts.
+type newest struct {
+	CreatedAt time.Time
+	ID        string
+}
+
+// Page is the page the caller asked for.
+func (ListEndpoint) Page(req apigen.ListConversationsRequestObject) app.PageRequest {
+	return app.PageRequest{List: "conversation", Limit: req.Params.Limit, After: req.Params.After}
+}
+
+func (e ListEndpoint) Interact(ctx context.Context, req apigen.ListConversationsRequestObject) (app.Page[listItem], error) {
 	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
-		return listModel{}, err
+		return app.Page[listItem]{}, err
 	}
-	rows, err := e.Store.ListConversations(ctx, req.GameId)
+	page, err := app.Paginate(e.Page(req),
+		func(after *newest, limit int32) ([]dbgen.Conversation, error) {
+			arg := dbgen.PageConversationsParams{GameID: req.GameId, Lim: limit}
+			if after != nil {
+				arg.AfterCreatedAt, arg.AfterID = pgtype.Timestamptz{Time: after.CreatedAt, Valid: true}, &after.ID
+			}
+			return e.Store.PageConversations(ctx, arg)
+		},
+		func(c dbgen.Conversation) newest { return newest{c.CreatedAt.Time, c.ID} })
 	if err != nil {
-		return listModel{}, err
+		return app.Page[listItem]{}, err
 	}
 	w, err := loadWorld(ctx, e.Store, req.GameId)
-	return listModel{Rows: rows, World: w}, err
+	return app.MapPage(page, func(r dbgen.Conversation) listItem { return listItem{r, &w} }), err
 }
 
-func (e ListEndpoint) Build(m listModel) []Conversation {
-	out := make([]Conversation, len(m.Rows))
-	for i, r := range m.Rows {
-		out[i] = ToViewModel(r, m.World, e.Links)
-	}
-	return out
+func (e ListEndpoint) Build(p app.Page[listItem]) app.Page[Conversation] {
+	return app.MapPage(p, func(it listItem) Conversation { return ToViewModel(it.Row, *it.World, e.Links) })
 }
 
-func (e ListEndpoint) Render(vms []Conversation) apigen.ListConversationsResponseObject {
-	out := make([]apigen.Conversation, len(vms))
-	for i, c := range vms {
-		out[i] = toAPIConversation(c)
-	}
-	return apigen.ListConversations200JSONResponse{Conversations: out}
+func (e ListEndpoint) Render(p app.Page[Conversation]) apigen.ListConversationsResponseObject {
+	return apigen.ListConversations200JSONResponse{Conversations: app.MapPage(p, toAPIConversation).Items, Next: p.Next}
 }
 
 // -----------------------------------------------------------------------------

@@ -7,6 +7,8 @@ package dbgen
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const clearOpening = `-- name: ClearOpening :exec
@@ -125,6 +127,62 @@ ORDER BY created_at DESC
 
 func (q *Queries) ListConversations(ctx context.Context, gameID string) ([]Conversation, error) {
 	rows, err := q.db.Query(ctx, listConversations, gameID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Conversation{}
+	for rows.Next() {
+		var i Conversation
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Summary,
+			&i.StartNodeID,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.Key,
+			&i.Label,
+			&i.LabelRevisionID,
+			&i.Condition,
+			&i.Repeatable,
+			&i.Opening,
+			&i.GameID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const pageConversations = `-- name: PageConversations :many
+SELECT id, title, summary, start_node_id, created_by, created_at, updated_at, deleted_at, key, label, label_revision_id, condition, repeatable, opening, game_id FROM conversations
+WHERE game_id = $1 AND deleted_at IS NULL
+  AND ($2::text IS NULL OR (created_at, id) < ($3::timestamptz, $2::text))
+ORDER BY created_at DESC, id DESC
+LIMIT $4
+`
+
+type PageConversationsParams struct {
+	GameID         string             `json:"game_id"`
+	AfterID        *string            `json:"after_id"`
+	AfterCreatedAt pgtype.Timestamptz `json:"after_created_at"`
+	Lim            int32              `json:"lim"`
+}
+
+func (q *Queries) PageConversations(ctx context.Context, arg PageConversationsParams) ([]Conversation, error) {
+	rows, err := q.db.Query(ctx, pageConversations,
+		arg.GameID,
+		arg.AfterID,
+		arg.AfterCreatedAt,
+		arg.Lim,
+	)
 	if err != nil {
 		return nil, err
 	}

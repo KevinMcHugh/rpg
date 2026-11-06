@@ -27,3 +27,10 @@ RETURNING *;
 -- name: DeleteCharacter :execrows
 UPDATE characters SET deleted_at = NOW(), updated_at = NOW()
 WHERE id = $1 AND deleted_at IS NULL;
+
+-- name: PageCharacters :many
+SELECT * FROM characters
+WHERE game_id = sqlc.arg(game_id) AND deleted_at IS NULL
+  AND (sqlc.narg(after_id)::text IS NULL OR (name, id) > (sqlc.narg(after_name)::text, sqlc.narg(after_id)::text))
+ORDER BY name, id
+LIMIT sqlc.arg(lim);

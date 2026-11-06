@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "react-router-dom";
-import { api, must } from "../api/client";
+import { all, api, maxLimit, must } from "../api/client";
 import { rememberGame, rulesetNames, useAct, useLoad, useMe } from "../hooks";
 import { Badge, Form, Key, Loading, str } from "../components/ui";
 import type { S } from "../api/client";
@@ -8,7 +8,7 @@ export default function GamesPage() {
   const me = useMe();
   const act = useAct();
   const nav = useNavigate();
-  const { data, error } = useLoad(async () => must(await api.GET("/games")).games, []);
+  const { data, error } = useLoad(() => all("games", async (after) => must(await api.GET("/games", { params: { query: { after, limit: maxLimit } } }))), []);
   if (!data) return <Loading error={error} />;
 
   const create = (f: FormData) =>

@@ -1,5 +1,5 @@
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, must } from "../api/client";
+import { all, api, maxLimit, must } from "../api/client";
 import { useAct, useGameId, useLoad, useMe } from "../hooks";
 import { Badge, Form, Key, Loading, Notes, notesFor, str } from "../components/ui";
 
@@ -11,13 +11,14 @@ export default function Home() {
   const nav = useNavigate();
   const { data, error, reload } = useLoad(async () => {
     const path = { params: { path: { gameId } } };
+    const page = (after: string | undefined) => ({ params: { path: { gameId }, query: { after, limit: maxLimit } } });
     const [convs, chars, report, notes] = await Promise.all([
-      api.GET("/games/{gameId}/conversations", path).then(must),
-      api.GET("/games/{gameId}/characters", path).then(must),
+      all("conversations", async (after) => must(await api.GET("/games/{gameId}/conversations", page(after)))),
+      all("characters", async (after) => must(await api.GET("/games/{gameId}/characters", page(after)))),
       api.GET("/games/{gameId}/build", path).then(must),
-      api.GET("/games/{gameId}/notes", path).then(must),
+      all("notes", async (after) => must(await api.GET("/games/{gameId}/notes", page(after)))),
     ]);
-    return { convs: convs.conversations, chars: chars.characters, report, notes: notes.notes };
+    return { convs, chars, report, notes };
   }, [gameId]);
   if (!data) return <Loading error={error} />;
   const { convs, chars, report, notes } = data;
