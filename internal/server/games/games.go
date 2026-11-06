@@ -85,7 +85,6 @@ type ListStore interface {
 // ListEndpoint is a page of the games the caller's user is a member of,
 // oldest first.
 type ListEndpoint struct {
-	Store ListStore
 	Links app.Links
 }
 
@@ -94,11 +93,11 @@ func (ListEndpoint) Page(req apigen.ListGamesRequestObject) app.PageRequest {
 	return app.PageRequest{List: "game", Limit: req.Params.Limit, After: req.Params.After}
 }
 
-func (e ListEndpoint) Interact(ctx context.Context, req apigen.ListGamesRequestObject) (app.Page[Model], error) {
+func (e ListEndpoint) Interact(ctx context.Context, store ListStore, req apigen.ListGamesRequestObject) (app.Page[Model], error) {
 	var rows app.Page[dbgen.GamesForUserAfterRow]
 	if user := auth.UserID(ctx); user != "" {
 		var err error
-		if rows, err = e.Store.PageGamesForUser(ctx, user, e.Page(req)); err != nil {
+		if rows, err = store.PageGamesForUser(ctx, user, e.Page(req)); err != nil {
 			return app.Page[Model]{}, err
 		}
 	}
@@ -117,16 +116,15 @@ func (ListEndpoint) Render(p app.Page[Game]) apigen.ListGamesResponseObject {
 
 // GetEndpoint is one game.
 type GetEndpoint struct {
-	Store app.GameStore
 	Links app.Links
 }
 
-func (e GetEndpoint) Interact(ctx context.Context, req apigen.GetGameRequestObject) (Model, error) {
-	m, err := app.Access(ctx, e.Store, "game", req.GameId)
+func (e GetEndpoint) Interact(ctx context.Context, store app.GameStore, req apigen.GetGameRequestObject) (Model, error) {
+	m, err := app.Access(ctx, store, "game", req.GameId)
 	if err != nil {
 		return Model{}, err
 	}
-	g, err := app.Game(ctx, e.Store, req.GameId)
+	g, err := app.Game(ctx, store, req.GameId)
 	return Model{Game: g, Role: m.Role}, err
 }
 
@@ -146,11 +144,10 @@ type CreateStore interface {
 
 // CreateEndpoint adds an empty game, owned by the caller. People only.
 type CreateEndpoint struct {
-	Store CreateStore
 	Links app.Links
 }
 
-func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateGameRequestObject) (dbgen.Game, error) {
+func (e CreateEndpoint) Interact(ctx context.Context, store CreateStore, req apigen.CreateGameRequestObject) (dbgen.Game, error) {
 	if err := app.RequireHuman(ctx); err != nil {
 		return dbgen.Game{}, err
 	}
@@ -174,7 +171,7 @@ func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateGameReque
 		return dbgen.Game{}, err
 	}
 	var row dbgen.Game
-	err = e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+	err = store.InTx(ctx, func(q *dbgen.Queries) error {
 		var err error
 		row, err = q.CreateGame(ctx, dbgen.CreateGameParams{
 			ID: xid.New().String(), Key: key, Name: name, Ruleset: ruleset, CreatedBy: auth.KeyIDPtr(ctx),
@@ -202,12 +199,11 @@ type UpdateStore interface {
 // ruleset changes how every check in it resolves; the build reports checks
 // the new ruleset cannot honour. Its owner only.
 type UpdateEndpoint struct {
-	Store UpdateStore
 	Links app.Links
 }
 
-func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateGameRequestObject) (dbgen.Game, error) {
-	if _, err := app.RequireOwner(ctx, e.Store, req.GameId, "change the game"); err != nil {
+func (e UpdateEndpoint) Interact(ctx context.Context, store UpdateStore, req apigen.UpdateGameRequestObject) (dbgen.Game, error) {
+	if _, err := app.RequireOwner(ctx, store, req.GameId, "change the game"); err != nil {
 		return dbgen.Game{}, err
 	}
 	if err := app.RequireHuman(ctx); err != nil {
@@ -236,7 +232,7 @@ func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateGameReque
 		arg.Ruleset = &ruleset
 	}
 	var row dbgen.Game
-	err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+	err := store.InTx(ctx, func(q *dbgen.Queries) error {
 		if err := app.Claim(ctx, q, e.Guard(req)); err != nil {
 			return err
 		}
@@ -264,16 +260,16 @@ type DeleteStore interface {
 }
 
 // DeleteEndpoint soft-deletes a game. Its owner only.
-type DeleteEndpoint struct{ Store DeleteStore }
+type DeleteEndpoint struct{}
 
-func (e DeleteEndpoint) Interact(ctx context.Context, req apigen.DeleteGameRequestObject) (bool, error) {
-	if _, err := app.RequireOwner(ctx, e.Store, req.GameId, "delete the game"); err != nil {
+func (e DeleteEndpoint) Interact(ctx context.Context, store DeleteStore, req apigen.DeleteGameRequestObject) (bool, error) {
+	if _, err := app.RequireOwner(ctx, store, req.GameId, "delete the game"); err != nil {
 		return false, err
 	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return false, err
 	}
-	n, err := e.Store.DeleteGame(ctx, req.GameId)
+	n, err := store.DeleteGame(ctx, req.GameId)
 	if err != nil {
 		return false, err
 	}

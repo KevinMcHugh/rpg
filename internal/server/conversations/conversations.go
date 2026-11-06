@@ -349,7 +349,6 @@ type ListStore interface {
 // ListEndpoint is a page of the conversations in a game, newest first,
 // without nodes.
 type ListEndpoint struct {
-	Store ListStore
 	Links app.Links
 }
 
@@ -364,15 +363,15 @@ func (ListEndpoint) Page(req apigen.ListConversationsRequestObject) app.PageRequ
 	return app.PageRequest{List: "conversation", Limit: req.Params.Limit, After: req.Params.After}
 }
 
-func (e ListEndpoint) Interact(ctx context.Context, req apigen.ListConversationsRequestObject) (app.Page[listItem], error) {
-	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
+func (e ListEndpoint) Interact(ctx context.Context, store ListStore, req apigen.ListConversationsRequestObject) (app.Page[listItem], error) {
+	if _, err := app.Game(ctx, store, req.GameId); err != nil {
 		return app.Page[listItem]{}, err
 	}
-	page, err := e.Store.PageConversations(ctx, req.GameId, e.Page(req))
+	page, err := store.PageConversations(ctx, req.GameId, e.Page(req))
 	if err != nil {
 		return app.Page[listItem]{}, err
 	}
-	w, err := loadWorld(ctx, e.Store, req.GameId)
+	w, err := loadWorld(ctx, store, req.GameId)
 	return app.MapPage(page, func(r dbgen.Conversation) listItem { return listItem{r, &w} }), err
 }
 
@@ -390,15 +389,14 @@ func (e ListEndpoint) Render(p app.Page[Conversation]) apigen.ListConversationsR
 
 // GetEndpoint is one conversation with every node and choice.
 type GetEndpoint struct {
-	Store GraphStore
 	Links app.Links
 }
 
-func (e GetEndpoint) Interact(ctx context.Context, req apigen.GetConversationRequestObject) (graphModel, error) {
-	if _, err := app.Access(ctx, e.Store, "conversation", req.ConversationId); err != nil {
+func (e GetEndpoint) Interact(ctx context.Context, store GraphStore, req apigen.GetConversationRequestObject) (graphModel, error) {
+	if _, err := app.Access(ctx, store, "conversation", req.ConversationId); err != nil {
 		return graphModel{}, err
 	}
-	return loadGraph(ctx, e.Store, req.ConversationId)
+	return loadGraph(ctx, store, req.ConversationId)
 }
 
 func (e GetEndpoint) Build(m graphModel) Graph { return graphView(m, e.Links) }
@@ -420,12 +418,11 @@ type CreateStore interface {
 // CreateEndpoint saves a new, empty conversation in a game; the game's
 // first one opens it. People only: an agent suggests a conversation in a note.
 type CreateEndpoint struct {
-	Store CreateStore
 	Links app.Links
 }
 
-func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateConversationRequestObject) (graphModel, error) {
-	if _, err := app.Access(ctx, e.Store, "game", req.GameId); err != nil {
+func (e CreateEndpoint) Interact(ctx context.Context, store CreateStore, req apigen.CreateConversationRequestObject) (graphModel, error) {
+	if _, err := app.Access(ctx, store, "game", req.GameId); err != nil {
 		return graphModel{}, err
 	}
 	if err := app.RequireHuman(ctx); err != nil {
@@ -443,10 +440,10 @@ func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateConversat
 	if err != nil {
 		return graphModel{}, err
 	}
-	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
+	if _, err := app.Game(ctx, store, req.GameId); err != nil {
 		return graphModel{}, err
 	}
-	row, err := e.Store.CreateConversation(ctx, dbgen.CreateConversationParams{
+	row, err := store.CreateConversation(ctx, dbgen.CreateConversationParams{
 		ID:        xid.New().String(),
 		GameID:    req.GameId,
 		Key:       key,
@@ -457,7 +454,7 @@ func (e CreateEndpoint) Interact(ctx context.Context, req apigen.CreateConversat
 	if err != nil {
 		return graphModel{}, app.KeyTaken(err, "conversation", key)
 	}
-	w, err := loadWorld(ctx, e.Store, row.GameID)
+	w, err := loadWorld(ctx, store, row.GameID)
 	return graphModel{Conversation: row, World: w}, err
 }
 
@@ -480,12 +477,11 @@ type UpdateStore interface {
 // UpdateEndpoint changes a conversation's title, summary, start node, key,
 // label, condition, or whether it repeats or opens the game. People only.
 type UpdateEndpoint struct {
-	Store UpdateStore
 	Links app.Links
 }
 
-func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateConversationRequestObject) (graphModel, error) {
-	if _, err := app.Access(ctx, e.Store, "conversation", req.ConversationId); err != nil {
+func (e UpdateEndpoint) Interact(ctx context.Context, store UpdateStore, req apigen.UpdateConversationRequestObject) (graphModel, error) {
+	if _, err := app.Access(ctx, store, "conversation", req.ConversationId); err != nil {
 		return graphModel{}, err
 	}
 	if err := app.RequireHuman(ctx); err != nil {
@@ -521,7 +517,7 @@ func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateConversat
 			return graphModel{}, err
 		}
 	}
-	err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+	err := store.InTx(ctx, func(q *dbgen.Queries) error {
 		if err := app.Claim(ctx, q, e.Guard(req)); err != nil {
 			return err
 		}
@@ -573,7 +569,7 @@ func (e UpdateEndpoint) Interact(ctx context.Context, req apigen.UpdateConversat
 	if err != nil {
 		return graphModel{}, err
 	}
-	return loadGraph(ctx, e.Store, req.ConversationId)
+	return loadGraph(ctx, store, req.ConversationId)
 }
 
 // Guard refuses a change over someone else's newer one.
@@ -616,16 +612,16 @@ type DeleteStore interface {
 
 // DeleteEndpoint soft-deletes a conversation; its nodes no longer ship.
 // People only.
-type DeleteEndpoint struct{ Store DeleteStore }
+type DeleteEndpoint struct{}
 
-func (e DeleteEndpoint) Interact(ctx context.Context, req apigen.DeleteConversationRequestObject) (bool, error) {
-	if _, err := app.Access(ctx, e.Store, "conversation", req.ConversationId); err != nil {
+func (e DeleteEndpoint) Interact(ctx context.Context, store DeleteStore, req apigen.DeleteConversationRequestObject) (bool, error) {
+	if _, err := app.Access(ctx, store, "conversation", req.ConversationId); err != nil {
 		return false, err
 	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return false, err
 	}
-	n, err := e.Store.DeleteConversation(ctx, req.ConversationId)
+	n, err := store.DeleteConversation(ctx, req.ConversationId)
 	if err != nil {
 		return false, err
 	}

@@ -47,18 +47,18 @@ type ListStore interface {
 
 // ListEndpoint is a page of a game's members, owner first, then by when
 // they joined. Any member may see them.
-type ListEndpoint struct{ Store ListStore }
+type ListEndpoint struct{}
 
 // Page is the page the caller asked for.
 func (ListEndpoint) Page(req apigen.ListMembersRequestObject) app.PageRequest {
 	return app.PageRequest{List: "member", Limit: req.Params.Limit, After: req.Params.After}
 }
 
-func (e ListEndpoint) Interact(ctx context.Context, req apigen.ListMembersRequestObject) (app.Page[dbgen.GameMembersAfterRow], error) {
-	if _, err := app.Access(ctx, e.Store, "game", req.GameId); err != nil {
+func (e ListEndpoint) Interact(ctx context.Context, store ListStore, req apigen.ListMembersRequestObject) (app.Page[dbgen.GameMembersAfterRow], error) {
+	if _, err := app.Access(ctx, store, "game", req.GameId); err != nil {
 		return app.Page[dbgen.GameMembersAfterRow]{}, err
 	}
-	return e.Store.PageGameMembers(ctx, req.GameId, e.Page(req))
+	return store.PageGameMembers(ctx, req.GameId, e.Page(req))
 }
 
 func (ListEndpoint) Build(p app.Page[dbgen.GameMembersAfterRow]) app.Page[Member] {
@@ -81,10 +81,10 @@ type RemoveStore interface {
 // RemoveEndpoint takes a writer out of a game: the owner may remove anyone
 // but themselves (a game always has its owner), and a writer may remove
 // themselves, which is leaving. People only.
-type RemoveEndpoint struct{ Store RemoveStore }
+type RemoveEndpoint struct{}
 
-func (e RemoveEndpoint) Interact(ctx context.Context, req apigen.RemoveMemberRequestObject) (bool, error) {
-	m, err := app.Access(ctx, e.Store, "game", req.GameId)
+func (e RemoveEndpoint) Interact(ctx context.Context, store RemoveStore, req apigen.RemoveMemberRequestObject) (bool, error) {
+	m, err := app.Access(ctx, store, "game", req.GameId)
 	if err != nil {
 		return false, err
 	}
@@ -98,7 +98,7 @@ func (e RemoveEndpoint) Interact(ctx context.Context, req apigen.RemoveMemberReq
 	case !self && m.Role != app.RoleOwner:
 		return false, fmt.Errorf("%w: only the game's owner may remove someone else", app.ErrForbidden)
 	}
-	n, err := e.Store.RemoveGameMember(ctx, dbgen.RemoveGameMemberParams{GameID: req.GameId, UserID: req.UserId})
+	n, err := store.RemoveGameMember(ctx, dbgen.RemoveGameMemberParams{GameID: req.GameId, UserID: req.UserId})
 	if err != nil {
 		return false, err
 	}
@@ -144,18 +144,18 @@ type ListInvitesStore interface {
 
 // ListInvitesEndpoint is a page of a game's links that still work, newest
 // first. Its owner only.
-type ListInvitesEndpoint struct{ Store ListInvitesStore }
+type ListInvitesEndpoint struct{}
 
 // Page is the page the caller asked for.
 func (ListInvitesEndpoint) Page(req apigen.ListInvitesRequestObject) app.PageRequest {
 	return app.PageRequest{List: "invite", Limit: req.Params.Limit, After: req.Params.After}
 }
 
-func (e ListInvitesEndpoint) Interact(ctx context.Context, req apigen.ListInvitesRequestObject) (app.Page[dbgen.GameInvite], error) {
-	if _, err := app.RequireOwner(ctx, e.Store, req.GameId, "see its invites"); err != nil {
+func (e ListInvitesEndpoint) Interact(ctx context.Context, store ListInvitesStore, req apigen.ListInvitesRequestObject) (app.Page[dbgen.GameInvite], error) {
+	if _, err := app.RequireOwner(ctx, store, req.GameId, "see its invites"); err != nil {
 		return app.Page[dbgen.GameInvite]{}, err
 	}
-	return e.Store.PageGameInvites(ctx, req.GameId, e.Page(req))
+	return store.PageGameInvites(ctx, req.GameId, e.Page(req))
 }
 
 func (ListInvitesEndpoint) Build(p app.Page[dbgen.GameInvite]) app.Page[Invite] {
@@ -174,7 +174,6 @@ type CreateInviteStore interface {
 // CreateInviteEndpoint makes a single-use link into a game, for a writer.
 // Its owner only, and a person: an agent cannot bring anyone in.
 type CreateInviteEndpoint struct {
-	Store CreateInviteStore
 	Links app.Links
 }
 
@@ -183,8 +182,8 @@ type created struct {
 	code string
 }
 
-func (e CreateInviteEndpoint) Interact(ctx context.Context, req apigen.CreateInviteRequestObject) (created, error) {
-	if _, err := app.RequireOwner(ctx, e.Store, req.GameId, "invite people"); err != nil {
+func (e CreateInviteEndpoint) Interact(ctx context.Context, store CreateInviteStore, req apigen.CreateInviteRequestObject) (created, error) {
+	if _, err := app.RequireOwner(ctx, store, req.GameId, "invite people"); err != nil {
 		return created{}, err
 	}
 	if err := app.RequireHuman(ctx); err != nil {
@@ -205,7 +204,7 @@ func (e CreateInviteEndpoint) Interact(ctx context.Context, req apigen.CreateInv
 	if err != nil {
 		return created{}, err
 	}
-	row, err := e.Store.CreateGameInvite(ctx, dbgen.CreateGameInviteParams{
+	row, err := store.CreateGameInvite(ctx, dbgen.CreateGameInviteParams{
 		ID:        xid.New().String(),
 		GameID:    req.GameId,
 		CodeHash:  auth.Hash(code),
@@ -229,10 +228,10 @@ type DeleteInviteStore interface {
 
 // DeleteInviteEndpoint revokes a link that has not been used. Its game's
 // owner only.
-type DeleteInviteEndpoint struct{ Store DeleteInviteStore }
+type DeleteInviteEndpoint struct{}
 
-func (e DeleteInviteEndpoint) Interact(ctx context.Context, req apigen.DeleteInviteRequestObject) (bool, error) {
-	m, err := app.Access(ctx, e.Store, "invite", req.InviteId)
+func (e DeleteInviteEndpoint) Interact(ctx context.Context, store DeleteInviteStore, req apigen.DeleteInviteRequestObject) (bool, error) {
+	m, err := app.Access(ctx, store, "invite", req.InviteId)
 	if err != nil {
 		return false, err
 	}
@@ -242,7 +241,7 @@ func (e DeleteInviteEndpoint) Interact(ctx context.Context, req apigen.DeleteInv
 	if err := app.RequireHuman(ctx); err != nil {
 		return false, err
 	}
-	n, err := e.Store.DeleteGameInvite(ctx, req.InviteId)
+	n, err := store.DeleteGameInvite(ctx, req.InviteId)
 	if err != nil {
 		return false, err
 	}

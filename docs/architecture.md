@@ -26,7 +26,7 @@ Every surface ends in the same `Endpoint`. REST runs all three steps (`server.Ru
 | `internal/app` | `Store` (every sqlc query plus `InTx` and `Import`, for licensed text), `Revise` (records who wrote a player-facing string), `RequireHuman`, `Access`, `RequireOwner`, `Game` and `SameGame`, `Links` (absolute URLs for view models), `ErrNotFound`/`ErrBadInput`/`ErrForbidden`/`ErrConflict`, `Guard` and `Claim` (the stale-write check), the `Page…` lists (`Pager`) with `Paginate` and `Page` beneath them, `Name` |
 | `internal/content` | the build: `Load` the content, `Compile` it into the game's bundle, and check it on the way (provenance, start nodes, dangling choices, unreachable nodes) |
 | `internal/server` | `Endpoint`, `Run`, `BuildViewModel`, and the `Guarded` and `Paged` extensions; `Server`, which implements the generated `StrictServerInterface`, maps errors to typed responses, and mounts the API with the spec-driven auth guard |
-| `internal/server/<resource>` | one `Endpoint` per operation, each with its own narrow `Store` interface, plus the resource's view model and its API conversion |
+| `internal/server/<resource>` | one `Endpoint` per operation, each with the narrow store interface its `Interact` takes, plus the resource's view model and its API conversion |
 | `internal/appmcp` | MCP tools and the server's `Instructions` |
 | `ui/` | the authoring app: React, TypeScript, Vite. Its API types are generated from the spec (`ui/src/api/schema.ts`) |
 | `internal/ui` | embeds the app's build and serves it, with its CSP |
@@ -38,15 +38,18 @@ Every surface ends in the same `Endpoint`. REST runs all three steps (`server.Ru
 ## The Endpoint pattern
 
 ```go
-type Endpoint[Req, M, VM, Res any] interface {
-	Interact(ctx context.Context, req Req) (M, error) // the work, through a narrow Store
-	Build(m M) VM                                     // pure: domain model → view model
-	Render(vm VM) Res                                 // view model → generated response type
+type Endpoint[S, Req, M, VM, Res any] interface {
+	Interact(ctx context.Context, store S, req Req) (M, error) // the work, through the store it is handed
+	Build(m M) VM                                              // pure: domain model → view model
+	Render(vm VM) Res                                          // view model → generated response type
 }
 ```
 
+- `S` is the store, and it is `Interact`'s argument, never a field of the endpoint. So `Interact` is the only step that can read or write data: `Build` and `Render` see only the endpoint's own fields (its `Links`), and cannot reach the store even by accident.
+- Each endpoint declares its `S`, a narrow interface with only the methods it calls (`notes.GetStore` is just `GetNote` and what `Access` reads). An endpoint that writes a text revision beside its row declares `InTx` and does its work on the transaction's queries. This keeps an endpoint's reach obvious and makes a fake easy to write: a test hands `Run` a fake store, with no endpoint to build around it. `*app.Store` satisfies every one, because it embeds `*dbgen.Queries` and sqlc generates every method.
+- The caller hands the store over, converted to the endpoint's `S`: `Run(ctx, characters.ListStore(s.store), characters.ListEndpoint{Links: s.links}, req)`. The conversion is the injection, and the compiler checks it. (Go cannot infer `S` from the endpoint while the argument is the caller's wider store, so it is written out.)
 - `Req` is the generated `…RequestObject`, even when an MCP tool is the caller. They fill one in themselves, so input validation lives in the endpoint and nowhere else.
-- Each endpoint declares a `Store` interface with only the methods it calls (`notes.GetStore` is just `GetNote`). An endpoint that writes a text revision beside its row declares `InTx` and does its work on the transaction's queries. This keeps an endpoint's reach obvious and makes a fake easy to write. `*app.Store` satisfies every one, because it embeds `*dbgen.Queries` and sqlc generates every method.
+- The extensions below keep to the same rule: `Guard` and `Page` are pure methods on the endpoint, like `Build`, and the store work they imply (claiming the guard, fetching the page) happens in `Interact`, through `store`.
 - View models carry JSON tags, because MCP tools return them as is.
 - Errors: wrap `app.ErrNotFound`, `app.ErrBadInput` or `app.ErrForbidden` with a message (`app.NotFound` converts pgx's no-rows). `server.go` turns them into the spec's 404, 422 and 403 bodies (and `app.ErrConflict` into a 409), the app shows their message, and MCP returns them as tool errors.
 
@@ -65,7 +68,7 @@ func (UpdateEndpoint) Guard(req apigen.UpdateCharacterRequestObject) app.Guard {
 	return app.Guard{Kind: "character", ID: req.CharacterId, Seen: req.Body.UpdatedAt}
 }
 
-err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+err := store.InTx(ctx, func(q *dbgen.Queries) error {
 	if err := app.Claim(ctx, q, e.Guard(req)); err != nil {
 		return err
 	}
@@ -87,7 +90,7 @@ Claim once, in the transaction that writes the row; a second transaction in the 
 
 Every list operation returns a page: it takes `limit` (1 to 200, 100 if left out) and `after` (the `next` of the page before), and its body carries `next`, empty on the last page. Pages are keyset, not offset: a list's query orders by a key that is unique per row (its sort columns, ending in the id) and starts after the key of the last row the caller saw, so a page is as cheap at the end of a list as at the start, and a row added or deleted while someone pages neither repeats nor skips the rows around it.
 
-A list endpoint implements one more method beside the three, naming its list and reading the page off the request. Its model is that one page, which it asks its store for, through its narrow `Store` interface like any other read:
+A list endpoint implements one more method beside the three, naming its list and reading the page off the request. Its model is that one page, which `Interact` asks its store for like any other read:
 
 ```go
 type Paged[Req any] interface {
@@ -103,11 +106,11 @@ func (ListEndpoint) Page(req apigen.ListCharactersRequestObject) app.PageRequest
 	return app.PageRequest{List: "character", Limit: req.Params.Limit, After: req.Params.After}
 }
 
-func (e ListEndpoint) Interact(ctx context.Context, req apigen.ListCharactersRequestObject) (app.Page[dbgen.Character], error) {
-	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
+func (e ListEndpoint) Interact(ctx context.Context, store ListStore, req apigen.ListCharactersRequestObject) (app.Page[dbgen.Character], error) {
+	if _, err := app.Game(ctx, store, req.GameId); err != nil {
 		return app.Page[dbgen.Character]{}, err
 	}
-	return e.Store.PageCharacters(ctx, req.GameId, e.Page(req))
+	return store.PageCharacters(ctx, req.GameId, e.Page(req))
 }
 ```
 

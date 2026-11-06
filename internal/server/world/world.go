@@ -95,7 +95,6 @@ type ListFlagsStore interface {
 
 // ListFlagsEndpoint is a page of the flags in a game, by key.
 type ListFlagsEndpoint struct {
-	Store ListFlagsStore
 	Links app.Links
 }
 
@@ -104,11 +103,11 @@ func (ListFlagsEndpoint) Page(req apigen.ListFlagsRequestObject) app.PageRequest
 	return app.PageRequest{List: "flag", Limit: req.Params.Limit, After: req.Params.After}
 }
 
-func (e ListFlagsEndpoint) Interact(ctx context.Context, req apigen.ListFlagsRequestObject) (app.Page[dbgen.Flag], error) {
-	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
+func (e ListFlagsEndpoint) Interact(ctx context.Context, store ListFlagsStore, req apigen.ListFlagsRequestObject) (app.Page[dbgen.Flag], error) {
+	if _, err := app.Game(ctx, store, req.GameId); err != nil {
 		return app.Page[dbgen.Flag]{}, err
 	}
-	return e.Store.PageFlags(ctx, req.GameId, e.Page(req))
+	return store.PageFlags(ctx, req.GameId, e.Page(req))
 }
 
 func (e ListFlagsEndpoint) Build(p app.Page[dbgen.Flag]) app.Page[Flag] {
@@ -126,12 +125,11 @@ type CreateFlagStore interface {
 
 // CreateFlagEndpoint adds a flag. People only.
 type CreateFlagEndpoint struct {
-	Store CreateFlagStore
 	Links app.Links
 }
 
-func (e CreateFlagEndpoint) Interact(ctx context.Context, req apigen.CreateFlagRequestObject) (dbgen.Flag, error) {
-	if _, err := app.Access(ctx, e.Store, "game", req.GameId); err != nil {
+func (e CreateFlagEndpoint) Interact(ctx context.Context, store CreateFlagStore, req apigen.CreateFlagRequestObject) (dbgen.Flag, error) {
+	if _, err := app.Access(ctx, store, "game", req.GameId); err != nil {
 		return dbgen.Flag{}, err
 	}
 	if err := app.RequireHuman(ctx); err != nil {
@@ -145,10 +143,10 @@ func (e CreateFlagEndpoint) Interact(ctx context.Context, req apigen.CreateFlagR
 	if err != nil {
 		return dbgen.Flag{}, err
 	}
-	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
+	if _, err := app.Game(ctx, store, req.GameId); err != nil {
 		return dbgen.Flag{}, err
 	}
-	row, err := e.Store.CreateFlag(ctx, dbgen.CreateFlagParams{
+	row, err := store.CreateFlag(ctx, dbgen.CreateFlagParams{
 		ID: xid.New().String(), GameID: req.GameId, Key: key, Description: desc, InitialValue: int32(req.Body.InitialValue), CreatedBy: auth.KeyIDPtr(ctx),
 	})
 	return row, app.KeyTaken(err, "flag", key)
@@ -168,12 +166,11 @@ type UpdateFlagStore interface {
 // UpdateFlagEndpoint changes a flag. Scripts refer to it by id, so a new
 // key shows in them at once. People only.
 type UpdateFlagEndpoint struct {
-	Store UpdateFlagStore
 	Links app.Links
 }
 
-func (e UpdateFlagEndpoint) Interact(ctx context.Context, req apigen.UpdateFlagRequestObject) (dbgen.Flag, error) {
-	if _, err := app.Access(ctx, e.Store, "flag", req.FlagId); err != nil {
+func (e UpdateFlagEndpoint) Interact(ctx context.Context, store UpdateFlagStore, req apigen.UpdateFlagRequestObject) (dbgen.Flag, error) {
+	if _, err := app.Access(ctx, store, "flag", req.FlagId); err != nil {
 		return dbgen.Flag{}, err
 	}
 	if err := app.RequireHuman(ctx); err != nil {
@@ -199,7 +196,7 @@ func (e UpdateFlagEndpoint) Interact(ctx context.Context, req apigen.UpdateFlagR
 		arg.InitialValue = &n
 	}
 	var row dbgen.Flag
-	err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+	err := store.InTx(ctx, func(q *dbgen.Queries) error {
 		if err := app.Claim(ctx, q, e.Guard(req)); err != nil {
 			return err
 		}
@@ -231,13 +228,13 @@ type DeleteFlagStore interface {
 
 // DeleteFlagEndpoint soft-deletes a flag. Scripts that use it stay, and the
 // build reports them. People only.
-type DeleteFlagEndpoint struct{ Store DeleteFlagStore }
+type DeleteFlagEndpoint struct{}
 
-func (e DeleteFlagEndpoint) Interact(ctx context.Context, req apigen.DeleteFlagRequestObject) (bool, error) {
-	if _, err := app.Access(ctx, e.Store, "flag", req.FlagId); err != nil {
+func (e DeleteFlagEndpoint) Interact(ctx context.Context, store DeleteFlagStore, req apigen.DeleteFlagRequestObject) (bool, error) {
+	if _, err := app.Access(ctx, store, "flag", req.FlagId); err != nil {
 		return false, err
 	}
-	return deleted(ctx, "flag", req.FlagId, e.Store.DeleteFlag)
+	return deleted(ctx, "flag", req.FlagId, store.DeleteFlag)
 }
 
 func (DeleteFlagEndpoint) Build(ok bool) bool { return ok }
@@ -292,7 +289,6 @@ type ListSkillsStore interface {
 
 // ListSkillsEndpoint is a page of the skills in a game, by name.
 type ListSkillsEndpoint struct {
-	Store ListSkillsStore
 	Links app.Links
 }
 
@@ -301,11 +297,11 @@ func (ListSkillsEndpoint) Page(req apigen.ListSkillsRequestObject) app.PageReque
 	return app.PageRequest{List: "skill", Limit: req.Params.Limit, After: req.Params.After}
 }
 
-func (e ListSkillsEndpoint) Interact(ctx context.Context, req apigen.ListSkillsRequestObject) (app.Page[dbgen.Skill], error) {
-	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
+func (e ListSkillsEndpoint) Interact(ctx context.Context, store ListSkillsStore, req apigen.ListSkillsRequestObject) (app.Page[dbgen.Skill], error) {
+	if _, err := app.Game(ctx, store, req.GameId); err != nil {
 		return app.Page[dbgen.Skill]{}, err
 	}
-	return e.Store.PageSkills(ctx, req.GameId, e.Page(req))
+	return store.PageSkills(ctx, req.GameId, e.Page(req))
 }
 
 func (e ListSkillsEndpoint) Build(p app.Page[dbgen.Skill]) app.Page[Skill] {
@@ -319,12 +315,11 @@ func (ListSkillsEndpoint) Render(p app.Page[Skill]) apigen.ListSkillsResponseObj
 // CreateSkillEndpoint adds a skill, with a revision recording who wrote its
 // name. People only.
 type CreateSkillEndpoint struct {
-	Store TxStore
 	Links app.Links
 }
 
-func (e CreateSkillEndpoint) Interact(ctx context.Context, req apigen.CreateSkillRequestObject) (dbgen.Skill, error) {
-	if _, err := app.Access(ctx, e.Store, "game", req.GameId); err != nil {
+func (e CreateSkillEndpoint) Interact(ctx context.Context, store TxStore, req apigen.CreateSkillRequestObject) (dbgen.Skill, error) {
+	if _, err := app.Access(ctx, store, "game", req.GameId); err != nil {
 		return dbgen.Skill{}, err
 	}
 	if err := app.RequireHuman(ctx); err != nil {
@@ -343,7 +338,7 @@ func (e CreateSkillEndpoint) Interact(ctx context.Context, req apigen.CreateSkil
 		return dbgen.Skill{}, err
 	}
 	var row dbgen.Skill
-	err = e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+	err = store.InTx(ctx, func(q *dbgen.Queries) error {
 		if _, err := app.Game(ctx, q, req.GameId); err != nil {
 			return err
 		}
@@ -369,12 +364,11 @@ func (CreateSkillEndpoint) Render(vm Skill) apigen.CreateSkillResponseObject {
 
 // UpdateSkillEndpoint changes a skill. People only.
 type UpdateSkillEndpoint struct {
-	Store TxStore
 	Links app.Links
 }
 
-func (e UpdateSkillEndpoint) Interact(ctx context.Context, req apigen.UpdateSkillRequestObject) (dbgen.Skill, error) {
-	if _, err := app.Access(ctx, e.Store, "skill", req.SkillId); err != nil {
+func (e UpdateSkillEndpoint) Interact(ctx context.Context, store TxStore, req apigen.UpdateSkillRequestObject) (dbgen.Skill, error) {
+	if _, err := app.Access(ctx, store, "skill", req.SkillId); err != nil {
 		return dbgen.Skill{}, err
 	}
 	if err := app.RequireHuman(ctx); err != nil {
@@ -407,7 +401,7 @@ func (e UpdateSkillEndpoint) Interact(ctx context.Context, req apigen.UpdateSkil
 		}
 	}
 	var row dbgen.Skill
-	err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+	err := store.InTx(ctx, func(q *dbgen.Queries) error {
 		if err := app.Claim(ctx, q, e.Guard(req)); err != nil {
 			return err
 		}
@@ -448,13 +442,13 @@ type DeleteSkillStore interface {
 }
 
 // DeleteSkillEndpoint soft-deletes a skill. People only.
-type DeleteSkillEndpoint struct{ Store DeleteSkillStore }
+type DeleteSkillEndpoint struct{}
 
-func (e DeleteSkillEndpoint) Interact(ctx context.Context, req apigen.DeleteSkillRequestObject) (bool, error) {
-	if _, err := app.Access(ctx, e.Store, "skill", req.SkillId); err != nil {
+func (e DeleteSkillEndpoint) Interact(ctx context.Context, store DeleteSkillStore, req apigen.DeleteSkillRequestObject) (bool, error) {
+	if _, err := app.Access(ctx, store, "skill", req.SkillId); err != nil {
 		return false, err
 	}
-	return deleted(ctx, "skill", req.SkillId, e.Store.DeleteSkill)
+	return deleted(ctx, "skill", req.SkillId, store.DeleteSkill)
 }
 
 func (DeleteSkillEndpoint) Build(ok bool) bool { return ok }
@@ -534,7 +528,6 @@ type ListQuestsStore interface {
 // ListQuestsEndpoint is a page of the quests in a game, by name, with
 // their stages.
 type ListQuestsEndpoint struct {
-	Store ListQuestsStore
 	Links app.Links
 }
 
@@ -543,15 +536,15 @@ func (ListQuestsEndpoint) Page(req apigen.ListQuestsRequestObject) app.PageReque
 	return app.PageRequest{List: "quest", Limit: req.Params.Limit, After: req.Params.After}
 }
 
-func (e ListQuestsEndpoint) Interact(ctx context.Context, req apigen.ListQuestsRequestObject) (app.Page[questModel], error) {
-	if _, err := app.Game(ctx, e.Store, req.GameId); err != nil {
+func (e ListQuestsEndpoint) Interact(ctx context.Context, store ListQuestsStore, req apigen.ListQuestsRequestObject) (app.Page[questModel], error) {
+	if _, err := app.Game(ctx, store, req.GameId); err != nil {
 		return app.Page[questModel]{}, err
 	}
-	quests, err := e.Store.PageQuests(ctx, req.GameId, e.Page(req))
+	quests, err := store.PageQuests(ctx, req.GameId, e.Page(req))
 	if err != nil {
 		return app.Page[questModel]{}, err
 	}
-	stages, err := e.Store.ListAllQuestStages(ctx, req.GameId)
+	stages, err := store.ListAllQuestStages(ctx, req.GameId)
 	if err != nil {
 		return app.Page[questModel]{}, err
 	}
@@ -572,15 +565,14 @@ func (ListQuestsEndpoint) Render(p app.Page[Quest]) apigen.ListQuestsResponseObj
 
 // GetQuestEndpoint is one quest with its stages.
 type GetQuestEndpoint struct {
-	Store QuestReadStore
 	Links app.Links
 }
 
-func (e GetQuestEndpoint) Interact(ctx context.Context, req apigen.GetQuestRequestObject) (questModel, error) {
-	if _, err := app.Access(ctx, e.Store, "quest", req.QuestId); err != nil {
+func (e GetQuestEndpoint) Interact(ctx context.Context, store QuestReadStore, req apigen.GetQuestRequestObject) (questModel, error) {
+	if _, err := app.Access(ctx, store, "quest", req.QuestId); err != nil {
 		return questModel{}, err
 	}
-	return loadQuest(ctx, e.Store, req.QuestId)
+	return loadQuest(ctx, store, req.QuestId)
 }
 
 func (e GetQuestEndpoint) Build(m questModel) Quest { return questView(m, e.Links) }
@@ -592,12 +584,11 @@ func (GetQuestEndpoint) Render(vm Quest) apigen.GetQuestResponseObject {
 // CreateQuestEndpoint adds a quest with no stages, with a revision
 // recording who wrote its name. People only.
 type CreateQuestEndpoint struct {
-	Store TxStore
 	Links app.Links
 }
 
-func (e CreateQuestEndpoint) Interact(ctx context.Context, req apigen.CreateQuestRequestObject) (questModel, error) {
-	if _, err := app.Access(ctx, e.Store, "game", req.GameId); err != nil {
+func (e CreateQuestEndpoint) Interact(ctx context.Context, store TxStore, req apigen.CreateQuestRequestObject) (questModel, error) {
+	if _, err := app.Access(ctx, store, "game", req.GameId); err != nil {
 		return questModel{}, err
 	}
 	if err := app.RequireHuman(ctx); err != nil {
@@ -616,7 +607,7 @@ func (e CreateQuestEndpoint) Interact(ctx context.Context, req apigen.CreateQues
 		return questModel{}, err
 	}
 	var row dbgen.Quest
-	err = e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+	err = store.InTx(ctx, func(q *dbgen.Queries) error {
 		if _, err := app.Game(ctx, q, req.GameId); err != nil {
 			return err
 		}
@@ -641,12 +632,11 @@ func (CreateQuestEndpoint) Render(vm Quest) apigen.CreateQuestResponseObject {
 
 // UpdateQuestEndpoint changes a quest's key, name or summary. People only.
 type UpdateQuestEndpoint struct {
-	Store TxStore
 	Links app.Links
 }
 
-func (e UpdateQuestEndpoint) Interact(ctx context.Context, req apigen.UpdateQuestRequestObject) (questModel, error) {
-	if _, err := app.Access(ctx, e.Store, "quest", req.QuestId); err != nil {
+func (e UpdateQuestEndpoint) Interact(ctx context.Context, store TxStore, req apigen.UpdateQuestRequestObject) (questModel, error) {
+	if _, err := app.Access(ctx, store, "quest", req.QuestId); err != nil {
 		return questModel{}, err
 	}
 	if err := app.RequireHuman(ctx); err != nil {
@@ -675,7 +665,7 @@ func (e UpdateQuestEndpoint) Interact(ctx context.Context, req apigen.UpdateQues
 		}
 	}
 	var m questModel
-	err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+	err := store.InTx(ctx, func(q *dbgen.Queries) error {
 		if err := app.Claim(ctx, q, e.Guard(req)); err != nil {
 			return err
 		}
@@ -714,16 +704,16 @@ func (UpdateQuestEndpoint) Render(vm Quest) apigen.UpdateQuestResponseObject {
 }
 
 // DeleteQuestEndpoint soft-deletes a quest and its stages. People only.
-type DeleteQuestEndpoint struct{ Store TxStore }
+type DeleteQuestEndpoint struct{}
 
-func (e DeleteQuestEndpoint) Interact(ctx context.Context, req apigen.DeleteQuestRequestObject) (bool, error) {
-	if _, err := app.Access(ctx, e.Store, "quest", req.QuestId); err != nil {
+func (e DeleteQuestEndpoint) Interact(ctx context.Context, store TxStore, req apigen.DeleteQuestRequestObject) (bool, error) {
+	if _, err := app.Access(ctx, store, "quest", req.QuestId); err != nil {
 		return false, err
 	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return false, err
 	}
-	err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+	err := store.InTx(ctx, func(q *dbgen.Queries) error {
 		n, err := q.DeleteQuest(ctx, req.QuestId)
 		if err != nil {
 			return err
@@ -765,12 +755,11 @@ func stageTaken(err error, n int32) error {
 // CreateStageEndpoint adds a stage to a quest, with a revision recording
 // who wrote its journal entry. People only.
 type CreateStageEndpoint struct {
-	Store TxStore
 	Links app.Links
 }
 
-func (e CreateStageEndpoint) Interact(ctx context.Context, req apigen.CreateQuestStageRequestObject) (questModel, error) {
-	if _, err := app.Access(ctx, e.Store, "quest", req.QuestId); err != nil {
+func (e CreateStageEndpoint) Interact(ctx context.Context, store TxStore, req apigen.CreateQuestStageRequestObject) (questModel, error) {
+	if _, err := app.Access(ctx, store, "quest", req.QuestId); err != nil {
 		return questModel{}, err
 	}
 	if err := app.RequireHuman(ctx); err != nil {
@@ -785,7 +774,7 @@ func (e CreateStageEndpoint) Interact(ctx context.Context, req apigen.CreateQues
 		return questModel{}, err
 	}
 	var m questModel
-	err = e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+	err = store.InTx(ctx, func(q *dbgen.Queries) error {
 		quest, err := q.GetQuest(ctx, req.QuestId)
 		if err != nil {
 			return app.NotFound(err, "quest", req.QuestId)
@@ -815,12 +804,11 @@ func (CreateStageEndpoint) Render(vm Quest) apigen.CreateQuestStageResponseObjec
 
 // UpdateStageEndpoint changes a stage. People only.
 type UpdateStageEndpoint struct {
-	Store TxStore
 	Links app.Links
 }
 
-func (e UpdateStageEndpoint) Interact(ctx context.Context, req apigen.UpdateQuestStageRequestObject) (questModel, error) {
-	if _, err := app.Access(ctx, e.Store, "quest_stage", req.StageId); err != nil {
+func (e UpdateStageEndpoint) Interact(ctx context.Context, store TxStore, req apigen.UpdateQuestStageRequestObject) (questModel, error) {
+	if _, err := app.Access(ctx, store, "quest_stage", req.StageId); err != nil {
 		return questModel{}, err
 	}
 	if err := app.RequireHuman(ctx); err != nil {
@@ -842,7 +830,7 @@ func (e UpdateStageEndpoint) Interact(ctx context.Context, req apigen.UpdateQues
 		}
 	}
 	var m questModel
-	err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+	err := store.InTx(ctx, func(q *dbgen.Queries) error {
 		if err := app.Claim(ctx, q, e.Guard(req)); err != nil {
 			return err
 		}
@@ -887,13 +875,13 @@ type DeleteStageStore interface {
 
 // DeleteStageEndpoint soft-deletes a stage. Scripts that move the quest to
 // it stay, and the build reports them. People only.
-type DeleteStageEndpoint struct{ Store DeleteStageStore }
+type DeleteStageEndpoint struct{}
 
-func (e DeleteStageEndpoint) Interact(ctx context.Context, req apigen.DeleteQuestStageRequestObject) (bool, error) {
-	if _, err := app.Access(ctx, e.Store, "quest_stage", req.StageId); err != nil {
+func (e DeleteStageEndpoint) Interact(ctx context.Context, store DeleteStageStore, req apigen.DeleteQuestStageRequestObject) (bool, error) {
+	if _, err := app.Access(ctx, store, "quest_stage", req.StageId); err != nil {
 		return false, err
 	}
-	return deleted(ctx, "stage", req.StageId, e.Store.DeleteQuestStage)
+	return deleted(ctx, "stage", req.StageId, store.DeleteQuestStage)
 }
 
 func (DeleteStageEndpoint) Build(ok bool) bool { return ok }

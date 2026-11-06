@@ -57,12 +57,11 @@ func gameOf(ctx context.Context, q *dbgen.Queries, n dbgen.Node) (string, error)
 // recording who wrote it. The first line becomes the start if there is
 // none. People only.
 type CreateNodeEndpoint struct {
-	Store TxStore
 	Links app.Links
 }
 
-func (e CreateNodeEndpoint) Interact(ctx context.Context, req apigen.CreateNodeRequestObject) (nodeModel, error) {
-	if _, err := app.Access(ctx, e.Store, "conversation", req.ConversationId); err != nil {
+func (e CreateNodeEndpoint) Interact(ctx context.Context, store TxStore, req apigen.CreateNodeRequestObject) (nodeModel, error) {
+	if _, err := app.Access(ctx, store, "conversation", req.ConversationId); err != nil {
 		return nodeModel{}, err
 	}
 	if err := app.RequireHuman(ctx); err != nil {
@@ -73,7 +72,7 @@ func (e CreateNodeEndpoint) Interact(ctx context.Context, req apigen.CreateNodeR
 		return nodeModel{}, err
 	}
 	var m nodeModel
-	err = e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+	err = store.InTx(ctx, func(q *dbgen.Queries) error {
 		conv, err := q.GetConversation(ctx, req.ConversationId)
 		if err != nil {
 			return app.NotFound(err, "conversation", req.ConversationId)
@@ -130,12 +129,11 @@ func (e CreateNodeEndpoint) Render(vm Node) apigen.CreateNodeResponseObject {
 
 // UpdateNodeEndpoint changes a node's speaker, text or effects. People only.
 type UpdateNodeEndpoint struct {
-	Store TxStore
 	Links app.Links
 }
 
-func (e UpdateNodeEndpoint) Interact(ctx context.Context, req apigen.UpdateNodeRequestObject) (nodeModel, error) {
-	if _, err := app.Access(ctx, e.Store, "node", req.NodeId); err != nil {
+func (e UpdateNodeEndpoint) Interact(ctx context.Context, store TxStore, req apigen.UpdateNodeRequestObject) (nodeModel, error) {
+	if _, err := app.Access(ctx, store, "node", req.NodeId); err != nil {
 		return nodeModel{}, err
 	}
 	if err := app.RequireHuman(ctx); err != nil {
@@ -149,7 +147,7 @@ func (e UpdateNodeEndpoint) Interact(ctx context.Context, req apigen.UpdateNodeR
 		}
 	}
 	var m nodeModel
-	err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+	err := store.InTx(ctx, func(q *dbgen.Queries) error {
 		if err := app.Claim(ctx, q, e.Guard(req)); err != nil {
 			return err
 		}
@@ -232,16 +230,16 @@ func loadNode(ctx context.Context, q *dbgen.Queries, row dbgen.Node, gameID stri
 // DeleteNodeEndpoint soft-deletes a node and the choices it offers. Choices
 // elsewhere that led to it stay, and the build reports them until they are
 // pointed somewhere else. People only.
-type DeleteNodeEndpoint struct{ Store TxStore }
+type DeleteNodeEndpoint struct{}
 
-func (e DeleteNodeEndpoint) Interact(ctx context.Context, req apigen.DeleteNodeRequestObject) (bool, error) {
-	if _, err := app.Access(ctx, e.Store, "node", req.NodeId); err != nil {
+func (e DeleteNodeEndpoint) Interact(ctx context.Context, store TxStore, req apigen.DeleteNodeRequestObject) (bool, error) {
+	if _, err := app.Access(ctx, store, "node", req.NodeId); err != nil {
 		return false, err
 	}
 	if err := app.RequireHuman(ctx); err != nil {
 		return false, err
 	}
-	err := e.Store.InTx(ctx, func(q *dbgen.Queries) error {
+	err := store.InTx(ctx, func(q *dbgen.Queries) error {
 		n, err := q.DeleteNode(ctx, req.NodeId)
 		if err != nil {
 			return err

@@ -22,6 +22,7 @@ import (
 
 	apigen "github.com/KevinMcHugh/rpg/internal/api/gen"
 	"github.com/KevinMcHugh/rpg/internal/app"
+	"github.com/KevinMcHugh/rpg/internal/content"
 	"github.com/KevinMcHugh/rpg/internal/server"
 	"github.com/KevinMcHugh/rpg/internal/server/build"
 	"github.com/KevinMcHugh/rpg/internal/server/characters"
@@ -174,7 +175,7 @@ func registerRead(s *mcpsdk.Server, store server.Store, links app.Links) {
 		Name:        "whoami",
 		Description: "The api key this connection acts as, and whether it may write content (over MCP, it never may).",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ Empty) (*mcpsdk.CallToolResult, MeOutput, error) {
-		vm, err := server.BuildViewModel(ctx, me.Endpoint{Store: store}, apigen.GetMeRequestObject{})
+		vm, err := server.BuildViewModel(ctx, me.Store(store), me.Endpoint{}, apigen.GetMeRequestObject{})
 		return nil, MeOutput{Me: vm}, err
 	})
 
@@ -182,7 +183,7 @@ func registerRead(s *mcpsdk.Server, store server.Store, links app.Links) {
 		Name:        "list_games",
 		Description: "The games, oldest first, a page at a time, with their rulesets (classic 2d6, SRD 5.2, 3.5 SRD or Pathfinder 2e). Other tools take a game's id.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in ListGamesInput) (*mcpsdk.CallToolResult, ListGamesOutput, error) {
-		vm, err := server.BuildViewModel(ctx, games.ListEndpoint{Store: store, Links: links}, apigen.ListGamesRequestObject{Params: apigen.ListGamesParams{Limit: in.Limit, After: in.After}})
+		vm, err := server.BuildViewModel(ctx, games.ListStore(store), games.ListEndpoint{Links: links}, apigen.ListGamesRequestObject{Params: apigen.ListGamesParams{Limit: in.Limit, After: in.After}})
 		return nil, ListGamesOutput{Games: vm.Items, Next: vm.Next}, err
 	})
 
@@ -190,7 +191,7 @@ func registerRead(s *mcpsdk.Server, store server.Store, links app.Links) {
 		Name:        "list_characters",
 		Description: "The characters in a game, by name, a page at a time, with their bibles.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in ListInput) (*mcpsdk.CallToolResult, ListCharactersOutput, error) {
-		vm, err := server.BuildViewModel(ctx, characters.ListEndpoint{Store: store, Links: links}, apigen.ListCharactersRequestObject{GameId: in.GameID, Params: apigen.ListCharactersParams{Limit: in.Limit, After: in.After}})
+		vm, err := server.BuildViewModel(ctx, characters.ListStore(store), characters.ListEndpoint{Links: links}, apigen.ListCharactersRequestObject{GameId: in.GameID, Params: apigen.ListCharactersParams{Limit: in.Limit, After: in.After}})
 		return nil, ListCharactersOutput{Characters: vm.Items, Next: vm.Next}, err
 	})
 
@@ -198,7 +199,7 @@ func registerRead(s *mcpsdk.Server, store server.Store, links app.Links) {
 		Name:        "get_character",
 		Description: "One character. The bible is the author's notes on their voice, wants and secrets: read it before commenting on anything they say.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in IDInput) (*mcpsdk.CallToolResult, CharacterOutput, error) {
-		vm, err := server.BuildViewModel(ctx, characters.GetEndpoint{Store: store, Links: links}, apigen.GetCharacterRequestObject{CharacterId: in.ID})
+		vm, err := server.BuildViewModel(ctx, characters.GetStore(store), characters.GetEndpoint{Links: links}, apigen.GetCharacterRequestObject{CharacterId: in.ID})
 		return nil, CharacterOutput{Character: vm}, err
 	})
 
@@ -206,7 +207,7 @@ func registerRead(s *mcpsdk.Server, store server.Store, links app.Links) {
 		Name:        "list_conversations",
 		Description: "The conversations in a game, newest first, a page at a time, with their titles and summaries but not their nodes.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in ListInput) (*mcpsdk.CallToolResult, ListConversationsOutput, error) {
-		vm, err := server.BuildViewModel(ctx, conversations.ListEndpoint{Store: store, Links: links}, apigen.ListConversationsRequestObject{GameId: in.GameID, Params: apigen.ListConversationsParams{Limit: in.Limit, After: in.After}})
+		vm, err := server.BuildViewModel(ctx, conversations.ListStore(store), conversations.ListEndpoint{Links: links}, apigen.ListConversationsRequestObject{GameId: in.GameID, Params: apigen.ListConversationsParams{Limit: in.Limit, After: in.After}})
 		return nil, ListConversationsOutput{Conversations: vm.Items, Next: vm.Next}, err
 	})
 
@@ -214,7 +215,7 @@ func registerRead(s *mcpsdk.Server, store server.Store, links app.Links) {
 		Name:        "get_conversation",
 		Description: "One conversation in full: every node (a line, with its speaker) and the choices from it. A choice with no toNodeId ends the conversation.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in IDInput) (*mcpsdk.CallToolResult, ConversationOutput, error) {
-		vm, err := server.BuildViewModel(ctx, conversations.GetEndpoint{Store: store, Links: links}, apigen.GetConversationRequestObject{ConversationId: in.ID})
+		vm, err := server.BuildViewModel(ctx, conversations.GraphStore(store), conversations.GetEndpoint{Links: links}, apigen.GetConversationRequestObject{ConversationId: in.ID})
 		return nil, ConversationOutput{Conversation: vm}, err
 	})
 
@@ -222,7 +223,7 @@ func registerRead(s *mcpsdk.Server, store server.Store, links app.Links) {
 		Name:        "get_path_to",
 		Description: "The shortest route a player takes from the conversation's start to a node: each line they read and the choice they made after it. Read it before commenting on a line.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in IDInput) (*mcpsdk.CallToolResult, PathOutput, error) {
-		vm, err := server.BuildViewModel(ctx, conversations.PathEndpoint{Store: store}, apigen.GetNodePathRequestObject{NodeId: in.ID})
+		vm, err := server.BuildViewModel(ctx, conversations.PathStore(store), conversations.PathEndpoint{}, apigen.GetNodePathRequestObject{NodeId: in.ID})
 		return nil, PathOutput{Path: vm}, err
 	})
 
@@ -233,17 +234,17 @@ func registerRead(s *mcpsdk.Server, store server.Store, links app.Links) {
 		// The world is every key scripts use, so it is read whole.
 		var out WorldOutput
 		var err error
-		if out.Flags, err = server.All(ctx, world.ListFlagsEndpoint{Store: store, Links: links}, func(after string) apigen.ListFlagsRequestObject {
+		if out.Flags, err = server.All(ctx, world.ListFlagsStore(store), world.ListFlagsEndpoint{Links: links}, func(after string) apigen.ListFlagsRequestObject {
 			return apigen.ListFlagsRequestObject{GameId: in.GameID, Params: apigen.ListFlagsParams{Limit: app.MaxLimit, After: after}}
 		}); err != nil {
 			return nil, out, err
 		}
-		if out.Skills, err = server.All(ctx, world.ListSkillsEndpoint{Store: store, Links: links}, func(after string) apigen.ListSkillsRequestObject {
+		if out.Skills, err = server.All(ctx, world.ListSkillsStore(store), world.ListSkillsEndpoint{Links: links}, func(after string) apigen.ListSkillsRequestObject {
 			return apigen.ListSkillsRequestObject{GameId: in.GameID, Params: apigen.ListSkillsParams{Limit: app.MaxLimit, After: after}}
 		}); err != nil {
 			return nil, out, err
 		}
-		out.Quests, err = server.All(ctx, world.ListQuestsEndpoint{Store: store, Links: links}, func(after string) apigen.ListQuestsRequestObject {
+		out.Quests, err = server.All(ctx, world.ListQuestsStore(store), world.ListQuestsEndpoint{Links: links}, func(after string) apigen.ListQuestsRequestObject {
 			return apigen.ListQuestsRequestObject{GameId: in.GameID, Params: apigen.ListQuestsParams{Limit: app.MaxLimit, After: after}}
 		})
 		return nil, out, err
@@ -253,7 +254,7 @@ func registerRead(s *mcpsdk.Server, store server.Store, links app.Links) {
 		Name:        "check_build",
 		Description: "Check a game's content as the build would. Errors stop it shipping (no start node or opening, a choice leading nowhere, a script naming something deleted, text no person wrote); warnings do not (unreachable nodes, flags set but never read or read but never set).",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in GameInput) (*mcpsdk.CallToolResult, BuildOutput, error) {
-		vm, err := server.BuildViewModel(ctx, build.Endpoint{Store: store, Links: links}, apigen.GetBuildReportRequestObject{GameId: in.GameID})
+		vm, err := server.BuildViewModel(ctx, content.LoadStore(store), build.Endpoint{Links: links}, apigen.GetBuildReportRequestObject{GameId: in.GameID})
 		return nil, BuildOutput{Report: vm}, err
 	})
 }
@@ -263,7 +264,7 @@ func registerNotes(s *mcpsdk.Server, store server.Store, links app.Links) {
 		Name:        "list_notes",
 		Description: "A game's notes, oldest first, a page at a time, optionally filtered. Check what is already open before adding one.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in ListNotesInput) (*mcpsdk.CallToolResult, ListNotesOutput, error) {
-		vm, err := server.BuildViewModel(ctx, notes.ListEndpoint{Store: store, Links: links}, apigen.ListNotesRequestObject{GameId: in.GameID, Params: apigen.ListNotesParams{
+		vm, err := server.BuildViewModel(ctx, notes.ListStore(store), notes.ListEndpoint{Links: links}, apigen.ListNotesRequestObject{GameId: in.GameID, Params: apigen.ListNotesParams{
 			Status:     apigen.NoteStatus(in.Status),
 			TargetKind: apigen.NoteTargetKind(in.TargetKind),
 			TargetId:   in.TargetID,
@@ -277,7 +278,7 @@ func registerNotes(s *mcpsdk.Server, store server.Store, links app.Links) {
 		Name:        "get_note",
 		Description: "One note.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in IDInput) (*mcpsdk.CallToolResult, NoteOutput, error) {
-		vm, err := server.BuildViewModel(ctx, notes.GetEndpoint{Store: store, Links: links}, apigen.GetNoteRequestObject{NoteId: in.ID})
+		vm, err := server.BuildViewModel(ctx, notes.GetStore(store), notes.GetEndpoint{Links: links}, apigen.GetNoteRequestObject{NoteId: in.ID})
 		return nil, NoteOutput{Note: vm}, err
 	})
 
@@ -285,7 +286,7 @@ func registerNotes(s *mcpsdk.Server, store server.Store, links app.Links) {
 		Name:        "add_note",
 		Description: "Leave a note for the author on the game, a character, a conversation, a node or a choice. Say what is missing, wrong or possible; never write the game's text.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in AddNoteInput) (*mcpsdk.CallToolResult, NoteOutput, error) {
-		vm, err := server.BuildViewModel(ctx, notes.CreateEndpoint{Store: store, Links: links}, apigen.CreateNoteRequestObject{GameId: in.GameID, Body: &apigen.NoteCreate{
+		vm, err := server.BuildViewModel(ctx, notes.CreateStore(store), notes.CreateEndpoint{Links: links}, apigen.CreateNoteRequestObject{GameId: in.GameID, Body: &apigen.NoteCreate{
 			TargetKind: apigen.NoteTargetKind(in.TargetKind),
 			TargetId:   in.TargetID,
 			Kind:       apigen.NoteKind(in.Kind),
@@ -298,7 +299,7 @@ func registerNotes(s *mcpsdk.Server, store server.Store, links app.Links) {
 		Name:        "reply_to_note",
 		Description: "Reply in a note's thread, for example to answer the author's question on one of your notes.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in ReplyInput) (*mcpsdk.CallToolResult, NoteOutput, error) {
-		vm, err := server.BuildViewModel(ctx, notes.CreateEndpoint{Store: store, Links: links}, apigen.CreateNoteRequestObject{GameId: in.GameID, Body: &apigen.NoteCreate{
+		vm, err := server.BuildViewModel(ctx, notes.CreateStore(store), notes.CreateEndpoint{Links: links}, apigen.CreateNoteRequestObject{GameId: in.GameID, Body: &apigen.NoteCreate{
 			ParentId: in.NoteID,
 			Body:     in.Body,
 		}})
