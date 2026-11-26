@@ -44,8 +44,8 @@ fieldset { border: 0; margin: 0; padding: 0; min-width: 0; display: contents; }
 
 header.top { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 1.25rem; padding: .6rem 1rem; background: var(--bg); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 header.top .brand { font-weight: 800; letter-spacing: .12em; color: var(--fg); text-decoration: none; }
-header.top nav { display: flex; gap: 1rem; flex: 1; flex-wrap: wrap; }
-header.top nav a { color: var(--muted); text-decoration: none; }
+header.top nav { display: flex; gap: 1rem; flex: 1 1 auto; flex-wrap: wrap; }
+header.top nav a { color: var(--muted); text-decoration: none; white-space: nowrap; }
 header.top nav a.active, header.top nav a:hover { color: var(--fg); }
 header.top .who { font-size: .85rem; }
 main { max-width: 74rem; margin: 0 auto; padding: 1.25rem 1rem 5rem; }
@@ -59,7 +59,7 @@ main { max-width: 74rem; margin: 0 auto; padding: 1.25rem 1rem 5rem; }
 .grow { flex: 1; min-width: 10rem; }
 .stack { display: grid; gap: .6rem; }
 .list { display: grid; gap: .6rem; }
-.grid2 { display: grid; gap: 1.5rem; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); }
+.grid2 { display: grid; gap: 1.5rem; grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr)); }
 
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; margin: 1rem 0; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: .85rem 1rem; display: grid; gap: .45rem; }
@@ -185,5 +185,20 @@ ol.choices li.editing { list-style: none; }
 .end text { font: 10px system-ui, sans-serif; fill: var(--muted); }
 
 header.top .game-name a { color: var(--fg); font-weight: 600; text-decoration: none; }
+
+/* Phones: the brand, the game and the sign-out on one line, the nav as a strip that scrolls sideways beneath them. */
+@media (max-width: 700px) {
+  header.top { gap: .2rem .75rem; padding: .5rem 1rem 0; }
+  header.top .game-name { flex: 1; min-width: 0; flex-wrap: nowrap; }
+  header.top .game-name a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  header.top .who { margin-left: auto; max-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  header.top nav { order: 10; flex: 1 0 100%; flex-wrap: nowrap; overflow-x: auto; gap: 1.25rem; padding: .45rem 0 .55rem; scrollbar-width: none; }
+  header.top nav::-webkit-scrollbar { display: none; }
+  main { padding: 1rem 1rem 4rem; }
+  h1 { font-size: 1.45rem; }
+  table.plain th, table.plain td { padding: .45rem .55rem; }
+  .row > input:not([style]), .row > select { flex: 1 1 8rem; min-width: 0; }
+  .graph-side, .outline { position: static; max-height: none; }
+}
 .edge.crit { stroke-width: 2.5; }
 .edge-label.critSuccess { fill: var(--ok); }
